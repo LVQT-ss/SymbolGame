@@ -2,44 +2,72 @@ import bcryptjs from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import process from 'process';
 import User from '../model/user.model.js';
-// import { sendPasswordResetEmail } from '../utils/mailer.js';
+import UserStatistics from '../model/user-statistics.model.js';
+import { sendPasswordResetEmail } from '../utils/mailer.js';
 import 'dotenv/config'
 
 export const register = async (req, res) => {
-  const { usertype, username, email, password, userAddress, userPhoneNumber } = req.body;
+  const { usertype, username, email, password, full_name, avatar, age } = req.body;
 
   if (!usertype || !username || !email || !password) {
-    return res.status(400).json({ message: 'Please provide all required fields.' });
+    return res.status(400).json({ message: 'Please provide all required fields: usertype, username, email, password.' });
   }
 
-  const validusertypes = ['Customer'];
+  const validusertypes = ['Admin', 'Customer'];
   if (!validusertypes.includes(usertype)) {
-    return res.status(400).json({ message: 'Invalid usertype. Must be one of  Staff, Customer.' });
+    return res.status(400).json({ message: 'Invalid usertype. Must be Admin or Customer.' });
   }
 
-  if (username.length > 50 || email.length > 50 || password.length > 50 || (userAddress && userAddress.length > 255) || (userPhoneNumber && userPhoneNumber.length > 50)) {
+  // Validate field lengths based on new model
+  if (username.length > 100 || email.length > 255 || password.length > 255 ||
+    (full_name && full_name.length > 255) || (avatar && avatar.length > 255)) {
     return res.status(400).json({ message: 'Input data exceeds allowed length.' });
   }
 
   try {
     const hashedPassword = await bcryptjs.hash(password, 10);
 
+    // Create user with new model structure
     const user = await User.create({
       usertype,
       username,
       email,
       password: hashedPassword,
-      userAddress: userAddress || null,
-      userPhoneNumber: userPhoneNumber || null,
+      full_name: full_name || null,
+      avatar: avatar || null,
+      age: age ? new Date(age) : null,
+      // Default values for gaming fields
+      coins: 0,
+      followers_count: 0,
+      following_count: 0,
+      experience_points: 0,
+      current_level: 1,
+      level_progress: 0.0,
+      is_active: true
     });
 
-    res.status(201).json({ message: 'User successfully registered!', user });
+    // Create corresponding user statistics
+    await UserStatistics.create({
+      user_id: user.id,
+      games_played: 0,
+      best_score: 0,
+      total_score: 0
+    });
+
+    // Remove password from response
+    const userResponse = { ...user.dataValues };
+    delete userResponse.password;
+
+    res.status(201).json({
+      message: 'User successfully registered!',
+      user: userResponse
+    });
   } catch (err) {
     if (err.name === 'SequelizeUniqueConstraintError') {
       return res.status(409).json({ message: 'Username or email already exists. Please choose a different one.' });
     }
     console.error('Error creating user:', err);
-    res.status(500).send(err.message);
+    res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
 
@@ -51,10 +79,23 @@ export const login = async (req, res) => {
   }
 
   try {
-    const user = await User.findOne({ where: { username } });
+    const user = await User.findOne({
+      where: { username },
+      include: [
+        {
+          model: UserStatistics,
+          as: 'statistics'
+        }
+      ]
+    });
 
     if (!user) {
       return res.status(401).json({ message: "Invalid username or password" });
+    }
+
+    // Check if user is active
+    if (!user.is_active) {
+      return res.status(401).json({ message: "Account is inactive. Please contact support." });
     }
 
     const passwordMatch = await bcryptjs.compare(password, user.password);
@@ -65,18 +106,22 @@ export const login = async (req, res) => {
 
     const token = jwt.sign(
       {
-        userId: user.userId,
+        userId: user.id, // Updated to use new field name
         usertype: user.usertype,
+        username: user.username,
         email: user.email,
-        image: user.image,
-        address: user.userAddress,
-        phone: user.userPhoneNumber
+        full_name: user.full_name,
+        avatar: user.avatar,
+        coins: user.coins,
+        current_level: user.current_level,
+        experience_points: user.experience_points
       },
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
 
-    const { password: _pass, ...userWithoutPassword } = user.dataValues;
+    const userWithoutPassword = { ...user.dataValues };
+    delete userWithoutPassword.password;
 
     res.status(200).json({
       message: "Login successful",
@@ -88,16 +133,6 @@ export const login = async (req, res) => {
     console.error('Login error:', err.message);
     res.status(500).json({ message: 'Server error', error: err.message });
   }
-};
-
-// Function generate 8 digit password
-const generateRandomPassword = () => {
-  const digits = '0123456789';
-  let password = '';
-  for (let i = 0; i < 8; i++) {
-    password += digits[Math.floor(Math.random() * digits.length)];
-  }
-  return password;
 };
 
 export const requestPasswordReset = async (req, res) => {
@@ -113,9 +148,14 @@ export const requestPasswordReset = async (req, res) => {
       return res.status(404).json({ message: 'Email not found.' });
     }
 
+    // Check if user is active
+    if (!user.is_active) {
+      return res.status(400).json({ message: 'Account is inactive. Please contact support.' });
+    }
+
     // Create a JWT token for password reset with a short expiration time (e.g., 1 hour)
     const token = jwt.sign(
-      { userId: user.userId, email: user.email },
+      { userId: user.id, email: user.email }, // Updated to use new field name
       process.env.JWT_SECRET,
       { expiresIn: '1h' }
     );
@@ -136,6 +176,10 @@ export const requestPasswordReset = async (req, res) => {
 export const resetPassword = async (req, res) => {
   const { token, newPassword } = req.body;
 
+  if (!token || !newPassword) {
+    return res.status(400).json({ message: 'Token and new password are required.' });
+  }
+
   try {
     // Verify the JWT token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
@@ -145,6 +189,11 @@ export const resetPassword = async (req, res) => {
     const user = await User.findByPk(userId);
     if (!user) {
       return res.status(404).json({ message: 'User not found.' });
+    }
+
+    // Check if user is active
+    if (!user.is_active) {
+      return res.status(400).json({ message: 'Account is inactive. Please contact support.' });
     }
 
     // Hash the new password

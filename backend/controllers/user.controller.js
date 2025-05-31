@@ -1,28 +1,52 @@
 // src/controller/user.controller.js
 import User from '../model/user.model.js';
+import UserStatistics from '../model/user-statistics.model.js';
 import jwt from 'jsonwebtoken';
 import process from 'process';
 import 'dotenv/config'
 
 export const getAllUsers = async (req, res) => {
     try {
-        const users = await User.findAll();
-        res.json(users);
+        const users = await User.findAll({
+            include: [
+                {
+                    model: UserStatistics,
+                    as: 'statistics'
+                }
+            ],
+            attributes: { exclude: ['password'] }, // Exclude password from response
+            order: [['id', 'ASC']] // Order by ID for consistent results
+        });
+
+        res.status(200).json({
+            message: 'Users retrieved successfully',
+            count: users.length,
+            users: users
+        });
     } catch (err) {
         console.error('Error fetching users:', err);
-        res.status(500).send(err.message);
+        res.status(500).json({ message: 'Server error', error: err.message });
     }
 };
 
 export const getUserById = async (req, res) => {
     const { id } = req.params;
 
-    if (!id) {
-        return res.status(400).json({ message: "User ID is required" });
+    // Validate ID is a number
+    if (!id || isNaN(parseInt(id))) {
+        return res.status(400).json({ message: "Valid user ID is required" });
     }
 
     try {
-        const user = await User.findByPk(id);
+        const user = await User.findByPk(parseInt(id), {
+            include: [
+                {
+                    model: UserStatistics,
+                    as: 'statistics'
+                }
+            ],
+            attributes: { exclude: ['password'] } // Exclude password from response
+        });
 
         if (!user) {
             return res.status(404).json({ message: "User not found" });
@@ -31,49 +55,78 @@ export const getUserById = async (req, res) => {
         res.status(200).json(user);
     } catch (err) {
         console.error('Error fetching user:', err);
-        res.status(500).json({ message: "Server error" });
+        res.status(500).json({ message: "Server error", error: err.message });
     }
 };
 
 export const updateUser = async (req, res) => {
     const { userId } = req.params;
-    const { userAddress, userPhoneNumber, email, image } = req.body;
+    const { full_name, avatar, email, age } = req.body;
 
-    if (!userId) {
-        return res.status(400).json({ message: 'User ID is required' });
+    // Validate user ID is a number
+    if (!userId || isNaN(parseInt(userId))) {
+        return res.status(400).json({ message: 'Valid user ID is required' });
+    }
+
+    // Validate email format if provided
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ message: 'Invalid email format' });
+    }
+
+    // Validate age format if provided
+    if (age && isNaN(Date.parse(age))) {
+        return res.status(400).json({ message: 'Invalid age format. Use YYYY-MM-DD' });
     }
 
     try {
-        const user = await User.findByPk(userId);
+        const user = await User.findByPk(parseInt(userId));
 
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
 
+        // Update user with new model fields
         await user.update({
-            userAddress,
-            userPhoneNumber,
-            email,
-            image
+            full_name: full_name !== undefined ? full_name : user.full_name,
+            avatar: avatar !== undefined ? avatar : user.avatar,
+            email: email !== undefined ? email : user.email,
+            age: age ? new Date(age) : user.age
         });
 
-        res.json({ message: 'User updated successfully' });
+        // Fetch updated user with statistics
+        const updatedUser = await User.findByPk(parseInt(userId), {
+            include: [
+                {
+                    model: UserStatistics,
+                    as: 'statistics'
+                }
+            ],
+            attributes: { exclude: ['password'] }
+        });
+
+        res.status(200).json({
+            message: 'User updated successfully',
+            user: updatedUser
+        });
     } catch (err) {
+        if (err.name === 'SequelizeUniqueConstraintError') {
+            return res.status(409).json({ message: 'Email already exists' });
+        }
         console.error('Error updating user:', err);
-        res.status(500).send('Server error');
+        res.status(500).json({ message: 'Server error', error: err.message });
     }
 };
-
 
 export const deleteUser = async (req, res) => {
     const { userId } = req.params;
 
-    if (!userId) {
-        return res.status(400).json({ message: 'User ID is required' });
+    // Validate user ID is a number
+    if (!userId || isNaN(parseInt(userId))) {
+        return res.status(400).json({ message: 'Valid user ID is required' });
     }
 
     try {
-        const user = await User.findByPk(userId);
+        const user = await User.findByPk(parseInt(userId));
 
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
@@ -85,28 +138,36 @@ export const deleteUser = async (req, res) => {
         }
 
         await user.destroy();
-        res.json({ message: 'User deleted successfully' });
+        res.status(200).json({ message: 'User deleted successfully' });
     } catch (err) {
         console.error('Error deleting user:', err);
-        res.status(500).send('Server error');
+        res.status(500).json({ message: 'Server error', error: err.message });
     }
 };
-
-
-
-
 
 export const getAllCustomer = async (req, res) => {
     try {
         const customerUsers = await User.findAll({
             where: { usertype: 'Customer' },
+            include: [
+                {
+                    model: UserStatistics,
+                    as: 'statistics'
+                }
+            ],
+            attributes: { exclude: ['password'] }, // Exclude password from response
+            order: [['current_level', 'DESC'], ['experience_points', 'DESC']] // Order by level and XP
         });
 
         if (customerUsers.length === 0) {
             return res.status(404).json({ message: 'No customer users found' });
         }
 
-        res.status(200).json(customerUsers);
+        res.status(200).json({
+            message: 'Customer users retrieved successfully',
+            count: customerUsers.length,
+            users: customerUsers
+        });
     } catch (error) {
         console.error('Error fetching customer users:', error);
         res.status(500).json({ message: 'Server error', error: error.message });

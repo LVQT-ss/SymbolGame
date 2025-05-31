@@ -2,8 +2,8 @@ import express from 'express';
 import {
     login,
     register,
-    // requestPasswordReset,
-    // resetPassword,
+    requestPasswordReset,
+    resetPassword,
 } from '../controllers/auth.controller.js';
 
 const router = express.Router();
@@ -14,8 +14,8 @@ const router = express.Router();
  *   post:
  *     tags:
  *     - Auth Controller
- *     summary: Register a new user
- *     description: This endpoint allows you to create a new user in the system by providing the necessary details.
+ *     summary: Register a new user for SmartKid Math Game
+ *     description: This endpoint allows you to create a new user in the SmartKid Math Game system.
  *     requestBody:
  *       required: true
  *       content:
@@ -30,24 +30,40 @@ const router = express.Router();
  *             properties:
  *               usertype:
  *                 type: string
- *                 enum: ['Staff', 'Customer']
+ *                 enum: ['Admin', 'Customer']
  *                 example: Customer
+ *                 description: Type of user account
  *               username:
  *                 type: string
+ *                 maxLength: 100
  *                 example: johndoe
+ *                 description: Unique username for the account
  *               email:
  *                 type: string
  *                 format: email
+ *                 maxLength: 255
  *                 example: johndoe@mail.com
+ *                 description: User's email address
  *               password:
  *                 type: string
+ *                 maxLength: 255
  *                 example: JohnDoe20!@
- *               userAddress:
+ *                 description: User's password
+ *               full_name:
  *                 type: string
- *                 example: 123 Main St, Anytown, USA
- *               userPhoneNumber:
+ *                 maxLength: 255
+ *                 example: John Doe
+ *                 description: User's full name
+ *               avatar:
  *                 type: string
- *                 example: +1234567890
+ *                 maxLength: 255
+ *                 example: https://example.com/avatar.jpg
+ *                 description: URL to user's avatar image
+ *               age:
+ *                 type: string
+ *                 format: date
+ *                 example: 2010-05-15
+ *                 description: User's birthdate
  *     responses:
  *       201:
  *         description: User successfully registered
@@ -59,6 +75,29 @@ const router = express.Router();
  *                 message:
  *                   type: string
  *                   example: User successfully registered!
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                       example: 1
+ *                       description: Auto-incremented user ID
+ *                     username:
+ *                       type: string
+ *                     email:
+ *                       type: string
+ *                     usertype:
+ *                       type: string
+ *                     full_name:
+ *                       type: string
+ *                     avatar:
+ *                       type: string
+ *                     coins:
+ *                       type: integer
+ *                     current_level:
+ *                       type: integer
+ *                     experience_points:
+ *                       type: integer
  *       400:
  *         description: Bad Request - Invalid user input
  *       409:
@@ -68,15 +107,14 @@ const router = express.Router();
  */
 router.post('/register', register);
 
-
 /**
  * @swagger
  * /api/auth/login:
  *   post:
  *     tags:
  *     - Auth Controller
- *     summary: Log in a user
- *     description: This endpoint allows a user to log in by providing their username and password.
+ *     summary: Log in a user to SmartKid Math Game
+ *     description: This endpoint allows a user to log in and receive authentication token and user statistics.
  *     requestBody:
  *       required: true
  *       content:
@@ -89,10 +127,12 @@ router.post('/register', register);
  *             properties:
  *               username:
  *                 type: string
- *                 example: admin
+ *                 example: johndoe
+ *                 description: User's username
  *               password:
  *                 type: string
- *                 example: admin
+ *                 example: JohnDoe20!@
+ *                 description: User's password
  *     responses:
  *       200:
  *         description: Login successful
@@ -107,21 +147,49 @@ router.post('/register', register);
  *                 token:
  *                   type: string
  *                   example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+ *                   description: JWT authentication token
  *                 user:
  *                   type: object
  *                   properties:
- *                     userId:
+ *                     id:
  *                       type: integer
+ *                       example: 1
+ *                       description: Auto-incremented user ID
  *                     username:
  *                       type: string
  *                     email:
  *                       type: string
  *                     usertype:
  *                       type: string
+ *                     full_name:
+ *                       type: string
+ *                     avatar:
+ *                       type: string
+ *                     coins:
+ *                       type: integer
+ *                     followers_count:
+ *                       type: integer
+ *                     following_count:
+ *                       type: integer
+ *                     experience_points:
+ *                       type: integer
+ *                     current_level:
+ *                       type: integer
+ *                     level_progress:
+ *                       type: number
+ *                     statistics:
+ *                       type: object
+ *                       properties:
+ *                         games_played:
+ *                           type: integer
+ *                         best_score:
+ *                           type: integer
+ *                         total_score:
+ *                           type: integer
  *       400:
  *         description: Bad Request - Missing or invalid input
  *       401:
- *         description: Unauthorized - Invalid username or password
+ *         description: Unauthorized - Invalid username/password or inactive account
  *       500:
  *         description: Server error
  */
@@ -148,6 +216,7 @@ router.post('/login', login);
  *                 type: string
  *                 format: email
  *                 example: johndoe@mail.com
+ *                 description: User's email address
  *     responses:
  *       200:
  *         description: Password reset email sent successfully
@@ -158,15 +227,15 @@ router.post('/login', login);
  *               properties:
  *                 message:
  *                   type: string
- *                   example: Password reset email sent successfully.
+ *                   example: Password reset email has been sent.
  *       400:
- *         description: Bad Request - Invalid email
+ *         description: Bad Request - Invalid email or inactive account
  *       404:
  *         description: User not found
  *       500:
  *         description: Server error
  */
-// router.post('/forgot-password', requestPasswordReset);
+router.post('/forgot-password', requestPasswordReset);
 
 /**
  * @swagger
@@ -204,13 +273,14 @@ router.post('/login', login);
  *               properties:
  *                 message:
  *                   type: string
- *                   example: Password successfully reset.
+ *                   example: Password has been successfully reset.
  *       400:
- *         description: Bad Request - Invalid token or password
- *       403:
- *         description: Forbidden - Expired or invalid token
+ *         description: Bad Request - Invalid token, password, or inactive account
+ *       404:
+ *         description: User not found
  *       500:
  *         description: Server error
  */
-// router.post('/reset-password', resetPassword);
+router.post('/reset-password', resetPassword);
+
 export default router;

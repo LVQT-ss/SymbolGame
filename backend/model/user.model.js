@@ -2,56 +2,86 @@ import { DataTypes } from 'sequelize';
 import sequelize from '../database/db.js';
 
 const User = sequelize.define('User', {
-    userId: {
+    id: {
         type: DataTypes.INTEGER,
         autoIncrement: true,
         primaryKey: true,
+    },
+    username: {
+        type: DataTypes.STRING(100),
+        allowNull: false,
+        unique: true,
     },
     usertype: {
         type: DataTypes.ENUM('Admin', 'Customer'),
         allowNull: false,
     },
-    username: {
-        type: DataTypes.STRING(50),
-        allowNull: false,
-        unique: true,
-    },
     email: {
-        type: DataTypes.STRING(50),
+        type: DataTypes.STRING(255),
         allowNull: false,
         unique: true,
         validate: {
-            isEmail: true, // Added email validation
+            isEmail: true,
         }
     },
-    image: {
-        type: DataTypes.STRING(255),
-        allowNull: true,
-        unique: true,
-    },
     password: {
-        type: DataTypes.STRING,
+        type: DataTypes.STRING(255),
         allowNull: false,
     },
-    userAddress: {
+    full_name: {
         type: DataTypes.STRING(255),
         allowNull: true,
     },
-    userPhoneNumber: {
-        type: DataTypes.STRING(50),
+    avatar: {
+        type: DataTypes.STRING(255),
         allowNull: true,
     },
-    userAge: {
-        type: DataTypes.STRING(50),
+    age: {
+        type: DataTypes.DATE,
         allowNull: true,
     },
-
-
+    coins: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+    },
+    followers_count: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+    },
+    following_count: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+    },
+    experience_points: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+    },
+    current_level: {
+        type: DataTypes.INTEGER,
+        defaultValue: 1,
+    },
+    level_progress: {
+        type: DataTypes.FLOAT,
+        defaultValue: 0.0,
+    },
+    is_active: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true,
+    },
 }, {
-    tableName: 'users', // More conventional naming
-    timestamps: false,
+    tableName: 'users',
+    timestamps: true,
+    indexes: [
+        {
+            fields: ['username']
+        },
+        {
+            fields: ['email']
+        },
+        {
+            fields: ['followers_count']
+        }
+    ]
 });
-
-
 
 export default User;
