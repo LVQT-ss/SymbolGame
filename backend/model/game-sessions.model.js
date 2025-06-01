@@ -56,6 +56,17 @@ const GameSession = sequelize.define('GameSession', {
         type: DataTypes.INTEGER,
         defaultValue: 5,
     },
+    // Admin-created session tracking
+    created_by_admin: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        comment: 'Admin user ID who created this session for the customer'
+    },
+    admin_instructions: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+        comment: 'Special instructions from admin to customer'
+    },
 }, {
     tableName: 'game_sessions',
     timestamps: true,
@@ -80,6 +91,12 @@ const GameSession = sequelize.define('GameSession', {
         },
         {
             fields: ['is_public', 'score']
+        },
+        {
+            fields: ['created_by_admin']
+        },
+        {
+            fields: ['created_by_admin', 'completed']
         }
     ]
 });

@@ -54,6 +54,17 @@ function setupAssociations() {
         as: 'user'
     });
 
+    // Admin User - GameSession (One-to-Many) - for admin-created sessions
+    User.hasMany(GameSession, {
+        foreignKey: 'created_by_admin',
+        as: 'adminCreatedSessions',
+        onDelete: 'SET NULL'
+    });
+    GameSession.belongsTo(User, {
+        foreignKey: 'created_by_admin',
+        as: 'adminCreator'
+    });
+
     // GameSession - RoundDetail (One-to-Many)
     GameSession.hasMany(RoundDetail, {
         foreignKey: 'game_session_id',
