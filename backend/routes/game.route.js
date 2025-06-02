@@ -4,7 +4,10 @@ import {
     completeGame,
     getGameHistory,
     getGameStatsSummary,
-    getAssignedSessions
+    getAssignedSessions,
+    createGameWithCustomRounds,
+    getAdminGameDashboard,
+    getAvailableGames
 } from '../controllers/game.controller.js';
 import { verifyToken } from '../middleware/verifyUser.js';
 
@@ -50,6 +53,157 @@ const router = express.Router();
  *         description: Server error
  */
 router.post('/start', verifyToken, startGame);
+
+/**
+ * @swagger
+ * /api/game/admin/create-custom:
+ *   post:
+ *     tags:
+ *     - Game Controller
+ *     summary: Create game session with fully customized rounds (ADMIN ONLY)
+ *     description: Create a game session with complete control over each round's numbers and expected answers - ADMIN ONLY
+ *     security:
+ *       - Authorization: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - custom_rounds
+ *             properties:
+ *               user_id:
+ *                 type: integer
+ *                 example: 5
+ *                 description: Optional - assign to specific customer (omit for open games)
+ *               admin_instructions:
+ *                 type: string
+ *                 example: "Focus on comparing larger numbers today"
+ *                 description: Special instructions for the student
+ *               custom_rounds:
+ *                 type: array
+ *                 minItems: 1
+ *                 maxItems: 50
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - first_number
+ *                     - second_number
+ *                   properties:
+ *                     first_number:
+ *                       type: integer
+ *                       example: 25
+ *                       description: First number for comparison
+ *                     second_number:
+ *                       type: integer
+ *                       example: 18
+ *                       description: Second number for comparison
+ *                     expected_symbol:
+ *                       type: string
+ *                       enum: [">", "<", "="]
+ *                       example: ">"
+ *                       description: Optional - override auto-calculated correct answer
+ *           examples:
+ *             open_custom_game:
+ *               summary: Open game anyone can join
+ *               value:
+ *                 admin_instructions: "Practice with these specific number pairs"
+ *                 custom_rounds:
+ *                   - first_number: 25
+ *                     second_number: 18
+ *                   - first_number: 7
+ *                     second_number: 31
+ *                   - first_number: 50
+ *                     second_number: 50
+ *             assigned_custom_game:
+ *               summary: Assigned to specific user
+ *               value:
+ *                 user_id: 5
+ *                 admin_instructions: "Special assignment for you"
+ *                 custom_rounds:
+ *                   - first_number: 15
+ *                     second_number: 20
+ *                   - first_number: 30
+ *                     second_number: 30
+ *     responses:
+ *       201:
+ *         description: Custom game session created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Custom game session created successfully
+ *                 admin:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     username:
+ *                       type: string
+ *                     full_name:
+ *                       type: string
+ *                 assigned_user:
+ *                   type: object
+ *                   nullable: true
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     username:
+ *                       type: string
+ *                     full_name:
+ *                       type: string
+ *                     current_level:
+ *                       type: integer
+ *                 game_session:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                       example: 157
+ *                     number_of_rounds:
+ *                       type: integer
+ *                       example: 3
+ *                     admin_instructions:
+ *                       type: string
+ *                       example: Practice with these specific number pairs
+ *                     created_at:
+ *                       type: string
+ *                       format: date-time
+ *                     assigned_to:
+ *                       type: string
+ *                       enum: [specific_user, open_to_all]
+ *                       example: open_to_all
+ *                     join_instructions:
+ *                       type: string
+ *                       example: "Game ID: 157 - Anyone can join using /api/game/join"
+ *                 rounds:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       round_number:
+ *                         type: integer
+ *                       first_number:
+ *                         type: integer
+ *                       second_number:
+ *                         type: integer
+ *                       correct_symbol:
+ *                         type: string
+ *                         enum: [">", "<", "="]
+ *       400:
+ *         description: Bad request - invalid rounds data
+ *       403:
+ *         description: Only Admin users can create game sessions
+ *       404:
+ *         description: Target user not found (if user_id provided)
+ *       500:
+ *         description: Server error
+ */
+router.post('/admin/create-custom', verifyToken, createGameWithCustomRounds);
 
 /**
  * @swagger
@@ -145,6 +299,99 @@ router.get('/assigned', verifyToken, getAssignedSessions);
 
 /**
  * @swagger
+ * /api/game/available:
+ *   get:
+ *     tags:
+ *     - Game Controller
+ *     summary: Get available game sessions that anyone can join
+ *     description: Retrieve unassigned game sessions created by admins that are open for anyone to join
+ *     security:
+ *       - Authorization: []
+ *     parameters:
+ *       - name: page
+ *         in: query
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - name: limit
+ *         in: query
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - name: admin_id
+ *         in: query
+ *         schema:
+ *           type: integer
+ *         description: Filter sessions by specific admin creator
+ *     responses:
+ *       200:
+ *         description: Available game sessions retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Available game sessions retrieved successfully
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     total:
+ *                       type: integer
+ *                     page:
+ *                       type: integer
+ *                     limit:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *                 available_games:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                         example: 156
+ *                       number_of_rounds:
+ *                         type: integer
+ *                         example: 15
+ *                       admin_instructions:
+ *                         type: string
+ *                         example: "Practice comparing larger numbers"
+ *                       created_at:
+ *                         type: string
+ *                         format: date-time
+ *                       created_by:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: integer
+ *                           username:
+ *                             type: string
+ *                           full_name:
+ *                             type: string
+ *                       time_limit:
+ *                         type: string
+ *                         example: "10 minutes per session"
+ *                       round_time_limit:
+ *                         type: string
+ *                         example: "60 seconds per round"
+ *                       points_per_correct:
+ *                         type: integer
+ *                         example: 100
+ *                       status:
+ *                         type: string
+ *                         example: "available_to_join"
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.get('/available', verifyToken, getAvailableGames);
+
+/**
+ * @swagger
  * /api/game/complete:
  *   post:
  *     tags:
@@ -180,7 +427,6 @@ router.get('/assigned', verifyToken, getAssignedSessions);
  *                   required:
  *                     - first_number
  *                     - second_number
- *                     - correct_symbol
  *                     - user_symbol
  *                     - response_time
  *                   properties:
@@ -190,10 +436,6 @@ router.get('/assigned', verifyToken, getAssignedSessions);
  *                     second_number:
  *                       type: integer
  *                       example: 8
- *                     correct_symbol:
- *                       type: string
- *                       enum: [">", "<", "="]
- *                       example: ">"
  *                     user_symbol:
  *                       type: string
  *                       enum: [">", "<", "="]
@@ -366,5 +608,177 @@ router.get('/history', verifyToken, getGameHistory);
  *         description: Server error
  */
 router.get('/stats/summary', verifyToken, getGameStatsSummary);
+
+/**
+ * @swagger
+ * /api/game/admin/dashboard:
+ *   get:
+ *     tags:
+ *     - Game Controller
+ *     summary: Admin game session dashboard (ADMIN ONLY)
+ *     description: Comprehensive overview of all game sessions created by admin with filtering, sorting and analytics
+ *     security:
+ *       - Authorization: []
+ *     parameters:
+ *       - name: status
+ *         in: query
+ *         schema:
+ *           type: string
+ *           enum: [all, active, completed]
+ *           default: all
+ *         description: Filter sessions by completion status
+ *       - name: user_id
+ *         in: query
+ *         schema:
+ *           type: integer
+ *         description: Filter sessions by specific student
+ *       - name: page
+ *         in: query
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - name: limit
+ *         in: query
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *       - name: sort_by
+ *         in: query
+ *         schema:
+ *           type: string
+ *           enum: [created_at, completed_at, score, user_name]
+ *           default: created_at
+ *         description: Sort sessions by field
+ *       - name: sort_order
+ *         in: query
+ *         schema:
+ *           type: string
+ *           enum: [ASC, DESC]
+ *           default: DESC
+ *         description: Sort order
+ *     responses:
+ *       200:
+ *         description: Admin dashboard retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Admin game dashboard retrieved successfully
+ *                 admin:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     username:
+ *                       type: string
+ *                     full_name:
+ *                       type: string
+ *                 statistics:
+ *                   type: object
+ *                   properties:
+ *                     total_sessions_created:
+ *                       type: integer
+ *                       example: 45
+ *                     active_sessions:
+ *                       type: integer
+ *                       example: 12
+ *                     completed_sessions:
+ *                       type: integer
+ *                       example: 33
+ *                     total_students_assigned:
+ *                       type: integer
+ *                       example: 25
+ *                     average_score:
+ *                       type: number
+ *                       format: float
+ *                       example: 750.5
+ *                     highest_score:
+ *                       type: integer
+ *                       example: 950
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     total:
+ *                       type: integer
+ *                     page:
+ *                       type: integer
+ *                     limit:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *                 filters:
+ *                   type: object
+ *                   properties:
+ *                     status:
+ *                       type: string
+ *                     user_id:
+ *                       type: integer
+ *                       nullable: true
+ *                     sort_by:
+ *                       type: string
+ *                     sort_order:
+ *                       type: string
+ *                 sessions:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       assigned_user:
+ *                         type: object
+ *                         nullable: true
+ *                         properties:
+ *                           id:
+ *                             type: integer
+ *                           username:
+ *                             type: string
+ *                           full_name:
+ *                             type: string
+ *                           current_level:
+ *                             type: integer
+ *                           avatar:
+ *                             type: string
+ *                       number_of_rounds:
+ *                         type: integer
+ *                       total_time:
+ *                         type: number
+ *                         format: float
+ *                       correct_answers:
+ *                         type: integer
+ *                       score:
+ *                         type: integer
+ *                       accuracy:
+ *                         type: integer
+ *                       completed:
+ *                         type: boolean
+ *                       admin_instructions:
+ *                         type: string
+ *                         nullable: true
+ *                       created_at:
+ *                         type: string
+ *                         format: date-time
+ *                       completed_at:
+ *                         type: string
+ *                         format: date-time
+ *                         nullable: true
+ *                       rounds_summary:
+ *                         type: object
+ *                         properties:
+ *                           total_rounds:
+ *                             type: integer
+ *                           completed_rounds:
+ *                             type: integer
+ *                           correct_rounds:
+ *                             type: integer
+ *       403:
+ *         description: Only Admin users can access dashboard
+ *       500:
+ *         description: Server error
+ */
+router.get('/admin/dashboard', verifyToken, getAdminGameDashboard);
 
 export default router; 

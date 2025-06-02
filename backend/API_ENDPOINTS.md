@@ -12,6 +12,137 @@ All endpoints marked with 🔒 require JWT token in Authorization header: `Beare
 
 ---
 
+## 🎮 Game APIs (NEW)
+
+### Core Game Management
+
+| Method | Endpoint            | Description                          | Auth |
+| ------ | ------------------- | ------------------------------------ | ---- |
+| `POST` | `/api/game/start`   | Create new game session (Admin only) | 🔒   |
+| `POST` | `/api/game/join`    | Join an existing game session        | 🔒   |
+| `GET`  | `/api/game/history` | View completed games history         | 🔒   |
+
+### Game Start Request Body (Admin Only)
+
+```json
+{
+  "number_of_rounds": 15, // 1-50 (optional, default: 10)
+  "admin_instructions": "Focus on accuracy over speed",
+  "rounds": [
+    // Optional predefined rounds
+    {
+      "first_number": 25,
+      "second_number": 18
+    },
+    {
+      "first_number": 7,
+      "second_number": 31
+    }
+  ]
+}
+```
+
+### Game Join Request Body
+
+```json
+{
+  "game_session_id": 123
+}
+```
+
+### Game Rules & Constraints
+
+- **Admin Control**: Only admins can create game sessions
+- **Join Limit**: Each session can only be assigned to one user
+- **Time Limits**:
+  - Total game time: 10 minutes (600 seconds)
+  - Per round time: 60 seconds
+- **Scoring**: 100 points per correct answer
+- **Number Range**: 1-50 for fair comparison
+- **Operators**: Greater than (>), Less than (<), Equal to (=)
+
+---
+
+## 🎮 Game APIs - **Enhanced Admin Control**
+
+### **🔧 Admin Game Management (ENHANCED)**
+
+| Method | Endpoint                        | Description                                      | Auth |
+| ------ | ------------------------------- | ------------------------------------------------ | ---- |
+| `POST` | `/api/game/start`               | Create game session (Admin only - basic)         | 🔒   |
+| `POST` | `/api/admin/game/create-custom` | **NEW** Create with custom rounds (Full control) | 🔒   |
+| `GET`  | `/api/admin/game/dashboard`     | **NEW** Admin monitoring dashboard               | 🔒   |
+| `GET`  | `/api/game/available`           | **NEW** Get games anyone can join                | 🔒   |
+| `POST` | `/api/game/join`                | Join an existing game session                    | 🔒   |
+| `GET`  | `/api/game/history`             | View completed games history                     | 🔒   |
+
+### **🎯 Enhanced Admin Features**
+
+#### **1. Create Custom Games (Open or Assigned)**
+
+```bash
+# Create a game anyone can join
+POST /api/admin/game/create-custom
+{
+  "admin_instructions": "Practice comparing numbers",
+  "custom_rounds": [
+    { "first_number": 25, "second_number": 18 },
+    { "first_number": 7, "second_number": 31 },
+    { "first_number": 50, "second_number": 50 }
+  ]
+}
+# Returns: game_session.assigned_to = "open_to_all"
+
+# Or assign to specific user
+POST /api/admin/game/create-custom
+{
+  "user_id": 5,
+  "admin_instructions": "Special assignment for you",
+  "custom_rounds": [...]
+}
+# Returns: game_session.assigned_to = "specific_user"
+```
+
+#### **2. Players Can Browse Available Games**
+
+```bash
+# Anyone can see games open for joining
+GET /api/game/available?page=1&limit=10
+
+# Filter by specific admin
+GET /api/game/available?admin_id=3
+```
+
+#### **3. Join Any Available Game**
+
+```bash
+POST /api/game/join
+{
+  "game_session_id": 157
+}
+```
+
+### **🔄 Game Flow**
+
+1. **Admin creates custom game** → Sets `user_id: null` for public games
+2. **Players browse available games** → `/api/game/available`
+3. **Player joins game** → `/api/game/join` with `game_session_id`
+4. **Player completes game** → `/api/game/complete` with results
+5. **Admin monitors progress** → `/api/admin/game/dashboard`
+
+### **Game Rules & Constraints**
+
+- **Admin Control**: Only admins can create game sessions
+- **Custom Numbers**: Any positive integers allowed
+- **Custom Symbols**: Override auto-calculation with specific expected answers
+- **Time Limits**:
+  - Total game time: 10 minutes (600 seconds)
+  - Per round time: 60 seconds
+- **Scoring**: 100 points per correct answer
+- **Operators**: Greater than (>), Less than (<), Equal to (=)
+
+---
+
 ## 👥 Social APIs
 
 ### User Stats & Social Features
