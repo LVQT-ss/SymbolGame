@@ -2,6 +2,7 @@ import GameSession from '../model/game-sessions.model.js';
 import RoundDetail from '../model/round-details.model.js';
 import User from '../model/user.model.js';
 import sequelize from '../database/db.js';
+import { Op } from 'sequelize';
 
 // POST /api/game/start - Create new game session (ADMIN ONLY)
 export const startGame = async (req, res) => {
@@ -641,10 +642,35 @@ export const completeGame = async (req, res) => {
             });
         }
 
-        // Check if session belongs to user
-        if (gameSession.user_id !== userId) {
+        // Check if session belongs to user or auto-assign if unassigned
+        if (gameSession.user_id && gameSession.user_id !== userId) {
             return res.status(403).json({
-                message: 'You can only complete your own game sessions.'
+                message: 'This game session is already assigned to another user.'
+            });
+        }
+
+        // Track if game needs auto-assignment
+        const wasAutoAssigned = !gameSession.user_id;
+
+        // Auto-assign unassigned game sessions to current user
+        if (!gameSession.user_id) {
+            await gameSession.update({
+                user_id: userId
+            });
+            // Refresh the gameSession object to include the updated user_id
+            await gameSession.reload({
+                include: [
+                    {
+                        model: RoundDetail,
+                        as: 'rounds',
+                        attributes: ['id', 'round_number', 'first_number', 'second_number', 'correct_symbol']
+                    },
+                    {
+                        model: User,
+                        as: 'user',
+                        attributes: ['id', 'username', 'usertype']
+                    }
+                ]
             });
         }
 
@@ -652,13 +678,6 @@ export const completeGame = async (req, res) => {
         if (gameSession.completed) {
             return res.status(409).json({
                 message: 'This game session has already been completed.'
-            });
-        }
-
-        // For customers, ensure it's an admin-assigned session
-        if (gameSession.user.usertype === 'Customer' && !gameSession.created_by_admin) {
-            return res.status(403).json({
-                message: 'Customers can only complete admin-assigned sessions.'
             });
         }
 
@@ -748,7 +767,7 @@ export const completeGame = async (req, res) => {
         }
 
         res.status(200).json({
-            message: 'Game completed successfully',
+            message: wasAutoAssigned ? 'Game assigned and completed successfully' : 'Game completed successfully',
             game_result: {
                 score: finalScore,
                 correct_answers: correctAnswers,
@@ -756,7 +775,8 @@ export const completeGame = async (req, res) => {
                 accuracy: accuracy,
                 experience_gained: experienceGained,
                 coins_earned: coinsEarned,
-                session_type: gameSession.created_by_admin ? 'admin_assigned' : 'self_created'
+                session_type: gameSession.created_by_admin ? 'admin_assigned' : 'self_created',
+                auto_assigned: wasAutoAssigned
             }
         });
 
@@ -784,10 +804,11 @@ export const getGameStatsSummary = async (req, res) => {
 
         // Build where clause based on user type
         const whereClause = { user_id: userId };
-        if (user.usertype === 'Customer') {
-            // Customers only see admin-assigned sessions
-            whereClause.created_by_admin = { [sequelize.Op.ne]: null };
-        }
+        // Removed customer restriction - now all users can see all their game sessions
+        // if (user.usertype === 'Customer') {
+        //     // Customers only see admin-assigned sessions
+        //     whereClause.created_by_admin = { [Op.ne]: null };
+        // }
 
         // Get overall statistics
         const overallStats = {
@@ -839,7 +860,7 @@ export const getGameStatsSummary = async (req, res) => {
                 recent_performance: recentPerformance,
                 recent_games: formattedRecentGames,
                 user_type: user.usertype,
-                access_level: user.usertype === 'Customer' ? 'admin_assigned_only' : 'full_access'
+                access_level: 'full_access'
             }
         });
 
@@ -879,7 +900,7 @@ export const getAssignedSessions = async (req, res) => {
         // Build where clause for admin-assigned sessions
         const whereClause = {
             user_id: userId,
-            created_by_admin: { [sequelize.Op.ne]: null }
+            created_by_admin: { [Op.ne]: null }
         };
 
         // Add status filter
@@ -949,7 +970,7 @@ export const getAvailableGames = async (req, res) => {
             user_id: null,           // No specific user assigned
             completed: false,        // Only active sessions
             is_public: true,         // Public sessions only
-            created_by_admin: { [sequelize.Op.ne]: null }  // Must be created by admin
+            created_by_admin: { [Op.ne]: null }  // Must be created by admin
         };
 
         // Add admin filter if specified

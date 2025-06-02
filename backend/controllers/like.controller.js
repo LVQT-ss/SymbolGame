@@ -8,18 +8,16 @@ export const likeSession = async (req, res) => {
     const { sessionId } = req.params;
 
     try {
-        // Check if game session exists and is public
+        // Check if game session exists (removed completed and is_public restrictions)
         const gameSession = await GameSession.findOne({
             where: {
-                id: sessionId,
-                completed: true, // Only allow likes on completed sessions
-                is_public: true
+                id: sessionId
             }
         });
 
         if (!gameSession) {
             return res.status(404).json({
-                message: 'Game session not found or not available for likes'
+                message: 'Game session not found'
             });
         }
 
@@ -37,19 +35,13 @@ export const likeSession = async (req, res) => {
             });
         }
 
-        // Get user info for access control
+        // Get user info for verification
         const user = await User.findByPk(userId);
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        // For customers, only allow likes on admin-assigned sessions they can see
-        if (user.usertype === 'Customer') {
-            // Allow customers to like any public completed session (for social interaction)
-            // This is less restrictive than comments to encourage social engagement
-        }
-
-        // Create the like
+        // Create the like (removed user type restrictions)
         const like = await GameSessionLike.create({
             game_session_id: sessionId,
             user_id: userId
@@ -119,18 +111,16 @@ export const getSessionLikes = async (req, res) => {
     const { page = 1, limit = 20 } = req.query;
 
     try {
-        // Check if game session exists and is public
+        // Check if game session exists (removed completed and is_public restrictions)
         const gameSession = await GameSession.findOne({
             where: {
-                id: sessionId,
-                completed: true,
-                is_public: true
+                id: sessionId
             }
         });
 
         if (!gameSession) {
             return res.status(404).json({
-                message: 'Game session not found or not available'
+                message: 'Game session not found'
             });
         }
 

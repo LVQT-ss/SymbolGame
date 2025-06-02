@@ -293,7 +293,7 @@ router.delete('/sessions/:sessionId/comments/:commentId', verifyToken, deleteCom
  *     tags:
  *     - Like Controller
  *     summary: Like a game session
- *     description: Add a like to a completed public game session
+ *     description: Add a like to any game session
  *     security:
  *       - Authorization: []
  *     parameters:
@@ -332,7 +332,7 @@ router.delete('/sessions/:sessionId/comments/:commentId', verifyToken, deleteCom
  *       400:
  *         description: Bad request - already liked
  *       404:
- *         description: Game session not found or not available for likes
+ *         description: Game session not found
  *       500:
  *         description: Server error
  */
@@ -383,7 +383,7 @@ router.delete('/sessions/:sessionId/like', verifyToken, unlikeSession);
  *     tags:
  *     - Like Controller
  *     summary: Get likes for a game session
- *     description: Retrieve paginated list of users who liked a game session
+ *     description: Retrieve paginated list of users who liked any game session
  *     parameters:
  *       - name: sessionId
  *         in: path
@@ -447,7 +447,7 @@ router.delete('/sessions/:sessionId/like', verifyToken, unlikeSession);
  *                           current_level:
  *                             type: integer
  *       404:
- *         description: Game session not found or not available
+ *         description: Game session not found
  *       500:
  *         description: Server error
  */
