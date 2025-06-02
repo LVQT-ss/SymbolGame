@@ -11,6 +11,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { router } from "expo-router";
+import { authAPI } from "../../services/api";
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -18,6 +20,8 @@ export default function Auth() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
+  const [age, setAge] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -27,34 +31,71 @@ export default function Auth() {
     return emailRegex.test(email);
   };
 
+  const validateDate = (dateString: string) => {
+    // Check if date is in YYYY-MM-DD format
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(dateString)) return false;
+
+    const date = new Date(dateString);
+    return date instanceof Date && !isNaN(date.getTime());
+  };
+
   const validateForm = () => {
-    if (!email.trim()) {
-      Alert.alert("Error", "Please enter your email");
-      return false;
-    }
-    if (!validateEmail(email)) {
-      Alert.alert("Error", "Please enter a valid email address");
-      return false;
-    }
-    if (!password.trim()) {
-      Alert.alert("Error", "Please enter your password");
-      return false;
-    }
-    if (password.length < 6) {
-      Alert.alert("Error", "Password must be at least 6 characters long");
-      return false;
-    }
-    if (!isLogin) {
+    if (isLogin) {
+      // Login validation - only username and password required
+      if (!username.trim()) {
+        Alert.alert("Error", "Please enter your username");
+        return false;
+      }
+      if (!password.trim()) {
+        Alert.alert("Error", "Please enter your password");
+        return false;
+      }
+      return true;
+    } else {
+      // Registration validation - all fields required
       if (!fullName.trim()) {
         Alert.alert("Error", "Please enter your full name");
+        return false;
+      }
+      if (!username.trim()) {
+        Alert.alert("Error", "Please enter a username");
+        return false;
+      }
+      if (username.length < 3) {
+        Alert.alert("Error", "Username must be at least 3 characters long");
+        return false;
+      }
+      if (!email.trim()) {
+        Alert.alert("Error", "Please enter your email");
+        return false;
+      }
+      if (!validateEmail(email)) {
+        Alert.alert("Error", "Please enter a valid email address");
+        return false;
+      }
+      if (!password.trim()) {
+        Alert.alert("Error", "Please enter your password");
+        return false;
+      }
+      if (password.length < 6) {
+        Alert.alert("Error", "Password must be at least 6 characters long");
         return false;
       }
       if (password !== confirmPassword) {
         Alert.alert("Error", "Passwords do not match");
         return false;
       }
+      if (!age.trim()) {
+        Alert.alert("Error", "Please enter your birth date");
+        return false;
+      }
+      if (!validateDate(age)) {
+        Alert.alert("Error", "Please enter a valid date in YYYY-MM-DD format");
+        return false;
+      }
+      return true;
     }
-    return true;
   };
 
   const handleSubmit = async () => {
@@ -63,20 +104,136 @@ export default function Auth() {
     setIsLoading(true);
 
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
       if (isLogin) {
-        Alert.alert("Success", "Login successful!", [
-          { text: "OK", onPress: () => console.log("Navigate to main app") },
-        ]);
+        // Login API call with username and password
+        const result = await authAPI.login({
+          username: username.toLowerCase().trim(),
+          password: password,
+        });
+
+        console.log("Login successful:", result);
+
+        Alert.alert(
+          "Success",
+          `Welcome back${
+            result.user?.full_name ? `, ${result.user.full_name}` : ""
+          }!`,
+          [
+            {
+              text: "Continue",
+              onPress: () => {
+                // Navigate to main app
+                router.replace("/(tabs)/home");
+              },
+            },
+          ]
+        );
       } else {
-        Alert.alert("Success", "Registration successful! Please log in.", [
-          { text: "OK", onPress: () => setIsLogin(true) },
-        ]);
+        // Registration API call with all required fields
+        const registrationData = {
+          usertype: "Customer",
+          username: username.toLowerCase().trim(),
+          email: email.toLowerCase().trim(),
+          password: password,
+          full_name: fullName.trim(),
+          avatar:
+            "https://i.pravatar.cc/100?img=" +
+            Math.floor(Math.random() * 70 + 1), // Random avatar
+          age: age.trim(),
+        };
+
+        console.log("=== REGISTRATION DATA BEING SENT ===");
+        console.log("Endpoint: POST /auth/register");
+        console.log("Data:", JSON.stringify(registrationData, null, 2));
+        console.log("=====================================");
+
+        const result = await authAPI.register(registrationData);
+
+        console.log("Registration successful:", result);
+
+        Alert.alert(
+          "Success",
+          "Account created successfully! You can now sign in.",
+          [
+            {
+              text: "Sign In",
+              onPress: () => {
+                setIsLogin(true);
+                // Keep username filled for easy login
+                setPassword("");
+                setConfirmPassword("");
+                setFullName("");
+                setEmail("");
+                setAge("");
+              },
+            },
+          ]
+        );
       }
     } catch (error) {
-      Alert.alert("Error", "Something went wrong. Please try again.");
+      console.error("Authentication error:", error);
+
+      let errorMessage = "Something went wrong. Please try again.";
+
+      if (error instanceof Error) {
+        // Extract meaningful error messages
+        if (
+          error.message.includes("User already exists") ||
+          error.message.includes("already exists")
+        ) {
+          errorMessage =
+            "An account with this username or email already exists. Please try a different one.";
+        } else if (
+          error.message.includes("Invalid credentials") ||
+          error.message.includes("invalid")
+        ) {
+          errorMessage =
+            "Invalid username or password. Please check your credentials.";
+        } else if (
+          error.message.includes("User not found") ||
+          error.message.includes("not found")
+        ) {
+          errorMessage =
+            "No account found with this username. Please check your username or sign up first.";
+        } else if (
+          error.message.includes("network") ||
+          error.message.includes("Network")
+        ) {
+          errorMessage =
+            "Network error. Please check your internet connection.";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+
+      Alert.alert("Error", errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      Alert.alert("Error", "Please enter your email address first");
+      return;
+    }
+
+    if (!validateEmail(email)) {
+      Alert.alert("Error", "Please enter a valid email address");
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      await authAPI.forgotPassword(email.toLowerCase().trim());
+
+      Alert.alert(
+        "Success",
+        "Password reset instructions have been sent to your email."
+      );
+    } catch (error) {
+      console.error("Forgot password error:", error);
+      Alert.alert("Error", "Failed to send reset email. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -87,6 +244,8 @@ export default function Auth() {
     setPassword("");
     setConfirmPassword("");
     setFullName("");
+    setUsername("");
+    setAge("");
     setShowPassword(false);
     setShowConfirmPassword(false);
   };
@@ -114,41 +273,81 @@ export default function Auth() {
 
         <View style={styles.formContainer}>
           {!isLogin && (
-            <View style={styles.inputContainer}>
-              <Ionicons
-                name="person-outline"
-                size={20}
-                color="#888"
-                style={styles.inputIcon}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Full Name"
-                placeholderTextColor="#888"
-                value={fullName}
-                onChangeText={setFullName}
-                autoCapitalize="words"
-              />
-            </View>
+            <>
+              <View style={styles.inputContainer}>
+                <Ionicons
+                  name="person-outline"
+                  size={20}
+                  color="#888"
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Full Name"
+                  placeholderTextColor="#888"
+                  value={fullName}
+                  onChangeText={setFullName}
+                  autoCapitalize="words"
+                />
+              </View>
+            </>
           )}
 
           <View style={styles.inputContainer}>
             <Ionicons
-              name="mail-outline"
+              name="at-outline"
               size={20}
               color="#888"
               style={styles.inputIcon}
             />
             <TextInput
               style={styles.input}
-              placeholder="Email"
+              placeholder="Username"
               placeholderTextColor="#888"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
+              value={username}
+              onChangeText={setUsername}
               autoCapitalize="none"
             />
           </View>
+
+          {!isLogin && (
+            <>
+              <View style={styles.inputContainer}>
+                <Ionicons
+                  name="mail-outline"
+                  size={20}
+                  color="#888"
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Email"
+                  placeholderTextColor="#888"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Ionicons
+                  name="calendar-outline"
+                  size={20}
+                  color="#888"
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Birth Date (YYYY-MM-DD)"
+                  placeholderTextColor="#888"
+                  value={age}
+                  onChangeText={setAge}
+                  autoCapitalize="none"
+                />
+              </View>
+            </>
+          )}
 
           <View style={styles.inputContainer}>
             <Ionicons
@@ -209,7 +408,11 @@ export default function Auth() {
           )}
 
           {isLogin && (
-            <TouchableOpacity style={styles.forgotPassword}>
+            <TouchableOpacity
+              style={styles.forgotPassword}
+              onPress={handleForgotPassword}
+              disabled={isLoading}
+            >
               <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
             </TouchableOpacity>
           )}

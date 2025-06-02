@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Link } from "expo-router";
+import { Link, router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
@@ -14,6 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { apiUtils, authAPI } from "../../services/api";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -120,6 +121,8 @@ interface Achievement {
 
 export default function HomeScreen() {
   const [dimensions, setDimensions] = useState(getResponsiveDimensions());
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const [userStats, setUserStats] = useState<UserStats>({
     totalScore: 45280,
     gamesPlayed: 127,
@@ -149,6 +152,8 @@ export default function HomeScreen() {
   const [tempUsername, setTempUsername] = useState(userProfile.username);
 
   useEffect(() => {
+    checkAuthStatus();
+
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 60000);
@@ -162,6 +167,18 @@ export default function HomeScreen() {
       subscription?.remove();
     };
   }, []);
+
+  const checkAuthStatus = async () => {
+    try {
+      const authenticated = await apiUtils.isAuthenticated();
+      setIsAuthenticated(authenticated);
+    } catch (error) {
+      console.error("Error checking auth status:", error);
+      setIsAuthenticated(false);
+    } finally {
+      setCheckingAuth(false);
+    }
+  };
 
   const gameCategories: GameCategory[] = [
     {
@@ -230,14 +247,14 @@ export default function HomeScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
 
-    setUserStats((prev) => ({
-      ...prev,
-      totalScore: prev.totalScore + Math.floor(Math.random() * 100),
-    }));
+    // Check auth status on refresh
+    await checkAuthStatus();
 
-    setRefreshing(false);
+    // Simulate loading time
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
   };
 
   const handleGamePress = (game: GameCategory) => {
@@ -284,6 +301,34 @@ export default function HomeScreen() {
   const styles = getResponsiveStyles(dimensions);
   const cardWidth = getGameCardWidth();
   const statsLayout = getStatsCardLayout();
+
+  const handleLogout = async () => {
+    Alert.alert("Logout", "Are you sure you want to logout?", [
+      {
+        text: "Cancel",
+        style: "cancel",
+      },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await authAPI.logout();
+            setIsAuthenticated(false);
+            setShowProfileModal(false);
+            Alert.alert("Success", "You have been logged out successfully.");
+          } catch (error) {
+            console.error("Logout error:", error);
+            Alert.alert("Error", "Failed to logout. Please try again.");
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleLoginPress = () => {
+    router.push("/(auth)/Auth");
+  };
 
   const ProfileModal = () => (
     <Modal
@@ -492,7 +537,10 @@ export default function HomeScreen() {
               <Text style={styles.actionButtonText}>Share Profile</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.actionButton}>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={handleLogout}
+            >
               <Ionicons
                 name="log-out"
                 size={getResponsiveFontSize(20)}
@@ -507,6 +555,15 @@ export default function HomeScreen() {
       </View>
     </Modal>
   );
+
+  // Show loading indicator while checking auth
+  if (checkingAuth) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <Text style={styles.loadingText}>Loading...</Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView
@@ -524,7 +581,9 @@ export default function HomeScreen() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.greeting}>{getGreeting()}!</Text>
-          <Text style={styles.username}>{userProfile.username}</Text>
+          <Text style={styles.username}>
+            {isAuthenticated ? userProfile.username : "Guest"}
+          </Text>
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity style={styles.notificationButton}>
@@ -537,14 +596,31 @@ export default function HomeScreen() {
               <Text style={styles.badgeText}>3</Text>
             </View>
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleProfilePress}>
-            <Image
-              source={{ uri: userProfile.avatar }}
-              style={styles.profileImage}
-            />
-          </TouchableOpacity>
+          {isAuthenticated ? (
+            <TouchableOpacity onPress={handleProfilePress}>
+              <Image
+                source={{ uri: userProfile.avatar }}
+                style={styles.profileImage}
+              />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.loginButton}
+              onPress={handleLoginPress}
+            >
+              <Ionicons
+                name="person"
+                size={getResponsiveFontSize(18)}
+                color="#25292e"
+              />
+              <Text style={styles.loginButtonText}>Login</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
+
+      {/* Show profile modal only for authenticated users */}
+      {isAuthenticated && <ProfileModal />}
 
       <View style={styles.statsContainer}>
         <View style={styles.statCard}>
@@ -712,46 +788,6 @@ export default function HomeScreen() {
           </View>
         ))}
       </View>
-
-      <View style={styles.quickActionsSection}>
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <View style={styles.quickActionsGrid}>
-          <TouchableOpacity style={[styles.quickAction, { width: cardWidth }]}>
-            <Ionicons
-              name="play"
-              size={getResponsiveFontSize(24)}
-              color="#ffd33d"
-            />
-            <Text style={styles.quickActionText}>Play Random</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.quickAction, { width: cardWidth }]}>
-            <Ionicons
-              name="people"
-              size={getResponsiveFontSize(24)}
-              color="#ffd33d"
-            />
-            <Text style={styles.quickActionText}>Find Friends</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.quickAction, { width: cardWidth }]}>
-            <Ionicons
-              name="settings"
-              size={getResponsiveFontSize(24)}
-              color="#ffd33d"
-            />
-            <Text style={styles.quickActionText}>Settings</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.quickAction, { width: cardWidth }]}>
-            <Ionicons
-              name="help-circle"
-              size={getResponsiveFontSize(24)}
-              color="#ffd33d"
-            />
-            <Text style={styles.quickActionText}>Help</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <ProfileModal />
     </ScrollView>
   );
 }
@@ -1046,32 +1082,17 @@ const getResponsiveStyles = (dimensions: any) =>
       color: "#ffd33d",
       fontWeight: "600",
     },
-    quickActionsSection: {
-      paddingHorizontal: getResponsivePadding(),
-      marginBottom: getResponsivePadding() * 2,
-    },
-    quickActionsGrid: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 12,
-      marginTop: 12,
-      justifyContent: dimensions.isLargeScreen ? "flex-start" : "space-between",
-    },
-    quickAction: {
-      backgroundColor: "#333",
-      borderRadius: dimensions.isTablet ? 16 : 12,
-      padding: getResponsivePadding(),
+    loginButton: {
+      backgroundColor: "#ffd33d",
+      borderRadius: 20,
+      padding: 12,
       alignItems: "center",
-      borderWidth: 1,
-      borderColor: "#444",
     },
-    quickActionText: {
+    loginButtonText: {
+      color: "#25292e",
+      fontWeight: "bold",
       fontSize: getResponsiveFontSize(14),
-      color: "#fff",
-      fontWeight: "600",
-      marginTop: 8,
     },
-    // Modal styles
     modalContainer: {
       flex: 1,
       backgroundColor: "#25292e",
@@ -1084,16 +1105,10 @@ const getResponsiveStyles = (dimensions: any) =>
       borderBottomWidth: 1,
       borderBottomColor: "#444",
     },
-    closeButton: {
-      padding: 8,
-    },
     modalTitle: {
       fontSize: getResponsiveFontSize(20),
       fontWeight: "bold",
       color: "#fff",
-    },
-    settingsButton: {
-      padding: 8,
     },
     modalContent: {
       flex: 1,
@@ -1137,15 +1152,14 @@ const getResponsiveStyles = (dimensions: any) =>
       gap: 12,
     },
     cancelButton: {
-      backgroundColor: "#FF6B6B",
-      paddingHorizontal: 16,
-      paddingVertical: 8,
+      backgroundColor: "#ffd33d",
+      padding: 8,
       borderRadius: 8,
     },
     cancelButtonText: {
-      color: "#fff",
+      color: "#25292e",
       fontWeight: "bold",
-      fontSize: getResponsiveFontSize(14),
+      fontSize: getResponsiveFontSize(16),
     },
     saveButton: {
       backgroundColor: "#4CAF50",
@@ -1302,5 +1316,19 @@ const getResponsiveStyles = (dimensions: any) =>
       color: "#fff",
       fontWeight: "600",
       marginLeft: 12,
+    },
+    closeButton: {
+      padding: 8,
+    },
+    settingsButton: {
+      padding: 8,
+    },
+    centerContent: {
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    loadingText: {
+      color: "#fff",
+      fontSize: getResponsiveFontSize(16),
     },
   });
