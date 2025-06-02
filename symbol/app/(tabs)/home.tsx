@@ -411,6 +411,9 @@ export default function HomeScreen() {
       Alert.alert("Game Locked", `Reach level 30 to unlock ${game.title}!`, [
         { text: "OK" },
       ]);
+    } else if (game.id === "symbol-match") {
+      // Navigate to game menu for Symbol Match
+      router.push("/game/menu");
     } else {
       Alert.alert("Start Game", `Ready to play ${game.title}?`, [
         { text: "Cancel", style: "cancel" },
@@ -628,6 +631,48 @@ export default function HomeScreen() {
                   size={getResponsiveFontSize(20)}
                   color="#ffd33d"
                 />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.socialSection}>
+            <Text style={styles.profileSectionTitle}>Social</Text>
+
+            <View style={styles.socialStatsContainer}>
+              <TouchableOpacity style={styles.socialStatItem}>
+                <View
+                  style={[styles.socialIcon, { backgroundColor: "#4ECDC4" }]}
+                >
+                  <Ionicons
+                    name="people"
+                    size={getResponsiveFontSize(20)}
+                    color="#fff"
+                  />
+                </View>
+                <View style={styles.socialInfo}>
+                  <Text style={styles.socialStatLabel}>Followers</Text>
+                  <Text style={styles.socialStatValue}>
+                    {formatNumber(userProfile.followers_count || 0)}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.socialStatItem}>
+                <View
+                  style={[styles.socialIcon, { backgroundColor: "#FF6B6B" }]}
+                >
+                  <Ionicons
+                    name="person-add"
+                    size={getResponsiveFontSize(20)}
+                    color="#fff"
+                  />
+                </View>
+                <View style={styles.socialInfo}>
+                  <Text style={styles.socialStatLabel}>Following</Text>
+                  <Text style={styles.socialStatValue}>
+                    {formatNumber(userProfile.following_count || 0)}
+                  </Text>
+                </View>
               </TouchableOpacity>
             </View>
           </View>
@@ -1507,5 +1552,43 @@ const getResponsiveStyles = (dimensions: any) =>
     loadingText: {
       color: "#fff",
       fontSize: getResponsiveFontSize(16),
+    },
+    socialSection: {
+      padding: getResponsivePadding(),
+      borderBottomWidth: 1,
+      borderBottomColor: "#444",
+    },
+    socialStatsContainer: {
+      flexDirection: dimensions.isTablet ? "row" : "column",
+      gap: dimensions.isTablet ? 32 : 16,
+    },
+    socialStatItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: "#333",
+      borderRadius: 12,
+      padding: 16,
+      flex: dimensions.isTablet ? 1 : undefined,
+    },
+    socialIcon: {
+      width: dimensions.isTablet ? 48 : 40,
+      height: dimensions.isTablet ? 48 : 40,
+      borderRadius: dimensions.isTablet ? 24 : 20,
+      justifyContent: "center",
+      alignItems: "center",
+      marginRight: 12,
+    },
+    socialInfo: {
+      flex: 1,
+    },
+    socialStatLabel: {
+      fontSize: getResponsiveFontSize(14),
+      color: "#888",
+      marginBottom: 4,
+    },
+    socialStatValue: {
+      fontSize: getResponsiveFontSize(20),
+      fontWeight: "bold",
+      color: "#fff",
     },
   });
