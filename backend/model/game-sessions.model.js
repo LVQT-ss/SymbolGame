@@ -9,7 +9,7 @@ const GameSession = sequelize.define('GameSession', {
     },
     user_id: {
         type: DataTypes.INTEGER,
-        allowNull: false,
+        allowNull: true,
     },
     difficulty_level: {
         type: DataTypes.INTEGER,
