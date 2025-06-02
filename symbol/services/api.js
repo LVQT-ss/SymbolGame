@@ -135,6 +135,57 @@ export const userAPI = {
         }
     },
 
+    getCurrentUserProfile: async () => {
+        try {
+            const response = await api.get("/user/me");
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to get current user profile");
+        }
+    },
+
+    // Alternative endpoints to try if /user/me doesn't work
+    getCurrentUserProfileAlt: async () => {
+        try {
+            // Try alternative endpoint
+            const response = await api.get("/user/profile");
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to get user profile");
+        }
+    },
+
+    // Store user data from login response
+    storeUserDataFromLogin: async (userData) => {
+        try {
+            await AsyncStorage.setItem("user_profile", JSON.stringify(userData));
+            return userData;
+        } catch (error) {
+            console.error("Error storing user data:", error);
+            return userData;
+        }
+    },
+
+    // Get stored user data
+    getStoredUserData: async () => {
+        try {
+            const userData = await AsyncStorage.getItem("user_profile");
+            return userData ? JSON.parse(userData) : null;
+        } catch (error) {
+            console.error("Error getting stored user data:", error);
+            return null;
+        }
+    },
+
+    // Clear stored user data
+    clearStoredUserData: async () => {
+        try {
+            await AsyncStorage.removeItem("user_profile");
+        } catch (error) {
+            console.error("Error clearing user data:", error);
+        }
+    },
+
     updateProfile: async (userId, userData) => {
         try {
             const response = await api.put(`/user/update/${userId}`, userData);

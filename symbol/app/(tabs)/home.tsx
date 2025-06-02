@@ -14,7 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { apiUtils, authAPI } from "../../services/api";
+import { apiUtils, authAPI, userAPI } from "../../services/api";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -88,16 +88,37 @@ interface UserStats {
 }
 
 interface UserProfile {
+  id?: number;
   username: string;
-  coins: number;
-  gems: number;
-  level: number;
-  experience: number;
-  maxExperience: number;
-  joinDate: string;
-  totalWins: number;
-  totalLosses: number;
+  usertype?: string;
+  email?: string;
+  full_name: string;
   avatar: string;
+  age?: string;
+  coins: number;
+  followers_count?: number;
+  following_count?: number;
+  experience_points: number;
+  current_level: number;
+  level_progress?: number;
+  is_active?: boolean;
+  createdAt?: string;
+  statistics?: {
+    user_id: number;
+    games_played: number;
+    best_score: number;
+    total_score: number;
+    createdAt: string;
+    updatedAt: string;
+  };
+  // Legacy fields for compatibility
+  gems?: number;
+  level?: number;
+  experience?: number;
+  maxExperience?: number;
+  joinDate?: string;
+  totalWins?: number;
+  totalLosses?: number;
 }
 
 interface GameCategory {
@@ -124,25 +145,29 @@ export default function HomeScreen() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [userStats, setUserStats] = useState<UserStats>({
-    totalScore: 45280,
-    gamesPlayed: 127,
-    winRate: 78.5,
-    currentLevel: 24,
-    currentRank: 5,
-    totalUsers: 2847,
+    totalScore: 0,
+    gamesPlayed: 0,
+    winRate: 0,
+    currentLevel: 1,
+    currentRank: 0,
+    totalUsers: 0,
   });
 
   const [userProfile, setUserProfile] = useState<UserProfile>({
-    username: "SymbolPlayer",
-    coins: 12450,
-    gems: 89,
-    level: 24,
-    experience: 7200,
-    maxExperience: 10000,
-    joinDate: "January 2024",
-    totalWins: 98,
-    totalLosses: 29,
+    username: "Guest",
+    full_name: "Guest User",
+    coins: 0,
+    experience_points: 0,
+    current_level: 1,
     avatar: "https://i.pravatar.cc/100?img=1",
+    // Legacy compatibility
+    gems: 0,
+    level: 1,
+    experience: 0,
+    maxExperience: 100,
+    joinDate: "Recently",
+    totalWins: 0,
+    totalLosses: 0,
   });
 
   const [refreshing, setRefreshing] = useState(false);
@@ -172,11 +197,126 @@ export default function HomeScreen() {
     try {
       const authenticated = await apiUtils.isAuthenticated();
       setIsAuthenticated(authenticated);
+
+      if (authenticated) {
+        await fetchUserProfile();
+      }
     } catch (error) {
       console.error("Error checking auth status:", error);
       setIsAuthenticated(false);
     } finally {
       setCheckingAuth(false);
+    }
+  };
+
+  const fetchUserProfile = async () => {
+    try {
+      console.log("=== FETCHING USER PROFILE ===");
+
+      let profileData = null;
+
+      // First, try to get stored user data from login response
+      try {
+        profileData = await userAPI.getStoredUserData();
+        if (profileData) {
+          console.log("Using stored user data from login response");
+          console.log("Stored data:", JSON.stringify(profileData, null, 2));
+        }
+      } catch (error: any) {
+        console.log("No stored user data found");
+      }
+
+      // If no stored data, try API calls
+      if (!profileData) {
+        console.log("Attempting to fetch from API...");
+
+        // Try multiple endpoints
+        const apiAttempts = [
+          () => userAPI.getCurrentUserProfile(),
+          () => userAPI.getCurrentUserProfileAlt(),
+          // If we have user ID from token, we could try getProfile(userId)
+        ];
+
+        for (const attempt of apiAttempts) {
+          try {
+            profileData = await attempt();
+            console.log("Successfully fetched from API");
+            break;
+          } catch (error: any) {
+            console.log("API attempt failed:", error.message);
+          }
+        }
+      }
+
+      if (!profileData) {
+        throw new Error("No user data available from any source");
+      }
+
+      console.log(
+        "Profile data received:",
+        JSON.stringify(profileData, null, 2)
+      );
+
+      // Map backend response to our interface
+      const mappedProfile: UserProfile = {
+        id: profileData.id,
+        username: profileData.username,
+        usertype: profileData.usertype,
+        email: profileData.email,
+        full_name: profileData.full_name,
+        avatar: profileData.avatar || "https://i.pravatar.cc/100?img=1",
+        age: profileData.age,
+        coins: profileData.coins || 0,
+        followers_count: profileData.followers_count || 0,
+        following_count: profileData.following_count || 0,
+        experience_points: profileData.experience_points || 0,
+        current_level: profileData.current_level || 1,
+        level_progress: profileData.level_progress || 0,
+        is_active: profileData.is_active,
+        createdAt: profileData.createdAt,
+        statistics: profileData.statistics,
+
+        // Legacy compatibility fields
+        gems: Math.floor((profileData.coins || 0) / 100), // Convert coins to gems
+        level: profileData.current_level || 1,
+        experience: profileData.experience_points || 0,
+        maxExperience: (profileData.current_level || 1) * 100, // Simple calculation
+        joinDate: profileData.createdAt
+          ? new Date(profileData.createdAt).toLocaleDateString("en-US", {
+              month: "long",
+              year: "numeric",
+            })
+          : "Recently",
+        totalWins: 0, // Will be calculated from statistics if needed
+        totalLosses: 0, // Will be calculated from statistics if needed
+      };
+
+      setUserProfile(mappedProfile);
+
+      // Update user stats from the profile data
+      setUserStats({
+        totalScore: profileData.statistics?.total_score || 0,
+        gamesPlayed: profileData.statistics?.games_played || 0,
+        winRate:
+          profileData.statistics?.games_played > 0
+            ? Math.round(
+                ((mappedProfile.totalWins || 0) /
+                  profileData.statistics.games_played) *
+                  100
+              )
+            : 0,
+        currentLevel: profileData.current_level || 1,
+        currentRank: 0, // This would need to come from leaderboard API
+        totalUsers: 1000, // This would need to come from a separate API
+      });
+
+      console.log("Profile successfully mapped and set");
+    } catch (error: any) {
+      console.error("Error fetching user profile:", error);
+      Alert.alert(
+        "Profile Load Error",
+        `Failed to load profile data: ${error.message}\n\nUsing default values for now.`
+      );
     }
   };
 
@@ -248,13 +388,22 @@ export default function HomeScreen() {
   const onRefresh = async () => {
     setRefreshing(true);
 
-    // Check auth status on refresh
-    await checkAuthStatus();
+    try {
+      // Check auth status on refresh
+      await checkAuthStatus();
 
-    // Simulate loading time
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 1000);
+      // If authenticated, fetch fresh profile data
+      if (isAuthenticated) {
+        await fetchUserProfile();
+      }
+    } catch (error) {
+      console.error("Error during refresh:", error);
+    } finally {
+      // Simulate loading time
+      setTimeout(() => {
+        setRefreshing(false);
+      }, 1000);
+    }
   };
 
   const handleGamePress = (game: GameCategory) => {
@@ -314,10 +463,27 @@ export default function HomeScreen() {
         onPress: async () => {
           try {
             await authAPI.logout();
+            await userAPI.clearStoredUserData(); // Clear stored user data
             setIsAuthenticated(false);
             setShowProfileModal(false);
+            // Reset user profile to default values
+            setUserProfile({
+              username: "Guest",
+              full_name: "Guest User",
+              coins: 0,
+              experience_points: 0,
+              current_level: 1,
+              avatar: "https://i.pravatar.cc/100?img=1",
+              gems: 0,
+              level: 1,
+              experience: 0,
+              maxExperience: 100,
+              joinDate: "Recently",
+              totalWins: 0,
+              totalLosses: 0,
+            });
             Alert.alert("Success", "You have been logged out successfully.");
-          } catch (error) {
+          } catch (error: any) {
             console.error("Logout error:", error);
             Alert.alert("Error", "Failed to logout. Please try again.");
           }
@@ -504,7 +670,11 @@ export default function HomeScreen() {
                     styles.expProgressFill,
                     {
                       width: `${
-                        (userProfile.experience / userProfile.maxExperience) *
+                        ((userProfile.experience ||
+                          userProfile.experience_points ||
+                          0) /
+                          (userProfile.maxExperience ||
+                            (userProfile.current_level || 1) * 100)) *
                         100
                       }%`,
                     },
@@ -512,8 +682,15 @@ export default function HomeScreen() {
                 />
               </View>
               <Text style={styles.expText}>
-                {formatNumber(userProfile.experience)} /{" "}
-                {formatNumber(userProfile.maxExperience)} XP
+                {formatNumber(
+                  userProfile.experience || userProfile.experience_points || 0
+                )}{" "}
+                /{" "}
+                {formatNumber(
+                  userProfile.maxExperience ||
+                    (userProfile.current_level || 1) * 100
+                )}{" "}
+                XP
               </Text>
             </View>
           </View>

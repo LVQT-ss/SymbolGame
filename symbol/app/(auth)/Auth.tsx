@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 import { router } from "expo-router";
-import { authAPI } from "../../services/api";
+import { authAPI, userAPI } from "../../services/api";
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -112,6 +112,12 @@ export default function Auth() {
         });
 
         console.log("Login successful:", result);
+
+        // Store user data from login response
+        if (result.user) {
+          await userAPI.storeUserDataFromLogin(result.user);
+          console.log("User data stored from login response");
+        }
 
         Alert.alert(
           "Success",
