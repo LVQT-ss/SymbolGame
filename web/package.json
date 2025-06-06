@@ -10,21 +10,41 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "@ag-media/react-pdf-table": "^2.0.3",
+    "@react-pdf/font": "^3.1.0",
+    "@react-pdf/renderer": "^4.3.0",
+    "@reduxjs/toolkit": "^2.8.2",
+    "axios": "^1.9.0",
+    "firebase": "^10.14.1",
+    "flowbite-react": "^0.7.8",
+    "jwt-decode": "^4.0.0",
+    "lucide-react": "^0.469.0",
+    "moment": "^2.30.1",
+    "react": "^18.3.1",
+    "react-circular-progressbar": "^2.2.0",
+    "react-dom": "^18.3.1",
+    "react-icons": "^4.12.0",
+    "react-pdf": "^9.2.1",
+    "react-quill": "^2.0.0",
+    "react-redux": "^9.2.0",
+    "react-router-dom": "^6.30.1",
+    "react-toastify": "^11.0.5",
+    "redux-persist": "^6.0.0",
+    "tailwind-scrollbar": "^3.1.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.25.0",
-    "@types/react": "^19.1.2",
-    "@types/react-dom": "^19.1.2",
-    "@vitejs/plugin-react": "^4.4.1",
+    "@eslint/js": "^9.28.0",
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.5.1",
     "autoprefixer": "^10.4.21",
-    "eslint": "^9.25.0",
+    "eslint": "^9.28.0",
+    "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^5.2.0",
-    "eslint-plugin-react-refresh": "^0.4.19",
-    "globals": "^16.0.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^15.15.0",
     "postcss": "^8.5.4",
     "tailwindcss": "^3.4.17",
-    "vite": "^6.3.5"
+    "vite": "^5.4.19"
   }
 }
