@@ -1,14 +1,18 @@
 import React, { useEffect, useState } from "react";
-import { Search, Menu, X, Bell, Globe, Gem, User } from "lucide-react";
+import { Menu, X, Bell, Globe, Gem, User } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useSelector, useDispatch } from "react-redux";
+import { signOut } from "../../redux/user/userSlice";
 
 const Header = () => {
-  const [searchTerm, setSearchTerm] = useState("");
   const [notifications] = useState(3);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [currentUser] = useState(null); // Mock user state
+  const { currentUser } = useSelector((state) => state.user);
   const [isScrolled, setIsScrolled] = useState(false);
-  const [currentPath, setCurrentPath] = useState("/");
-  const [language, setLanguage] = useState("EN"); // Language state
+  const [language, setLanguage] = useState("EN");
+  const location = useLocation();
+  const navigate = useNavigate();
+  const dispatch = useDispatch();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -18,14 +22,9 @@ const Header = () => {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    console.log("Searching for:", searchTerm);
-  };
-
-  const handleNavClick = (path) => {
-    setCurrentPath(path);
-    setIsMenuOpen(false);
+  const handleSignOut = () => {
+    dispatch(signOut());
+    navigate("/");
   };
 
   const toggleLanguage = () => {
@@ -38,8 +37,8 @@ const Header = () => {
 
   const navLinks = [
     { path: "/", icon: "🏠", label: "Home" },
-    { path: "/game", icon: "🎮", label: "Play" },
-    { path: "/leaderboard", icon: "🏆", label: "Leaderboard" },
+    { path: "/about", icon: "ℹ️", label: "About" },
+    { path: "/dashboard", icon: "📊", label: "Dashboard" },
   ];
 
   return (
@@ -53,10 +52,7 @@ const Header = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <button
-            onClick={() => handleNavClick("/")}
-            className="flex items-center space-x-2 group"
-          >
+          <Link to="/" className="flex items-center space-x-2 group">
             <span className="text-2xl group-hover:animate-bounce transition-all duration-300">
               🎯
             </span>
@@ -65,21 +61,21 @@ const Header = () => {
                 isScrolled ? "text-gray-800" : "text-white"
               }`}
             >
-              CompareKids
+              anhempc
             </span>
             <span className="text-xs bg-yellow-400 text-gray-800 px-2 py-1 rounded-full font-bold animate-pulse">
-              FUN
+              PRO
             </span>
-          </button>
+          </Link>
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center space-x-1">
             {navLinks.map((link) => (
-              <button
+              <Link
                 key={link.path}
-                onClick={() => handleNavClick(link.path)}
+                to={link.path}
                 className={`flex items-center space-x-1 px-4 py-2 rounded-lg transition-all duration-300 hover:scale-105 ${
-                  currentPath === link.path
+                  location.pathname === link.path
                     ? isScrolled
                       ? "bg-purple-100 text-purple-600"
                       : "bg-white/20 text-yellow-300"
@@ -90,37 +86,9 @@ const Header = () => {
               >
                 <span className="text-sm">{link.icon}</span>
                 <span className="font-medium">{link.label}</span>
-              </button>
+              </Link>
             ))}
           </nav>
-
-          {/* Search Bar */}
-          {/* <div className="hidden lg:flex flex-1 max-w-md mx-8">
-            <div className="w-full relative">
-              <input
-                type="text"
-                placeholder="Search games & activities..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && handleSubmit(e)}
-                className={`w-full px-4 py-2 pr-10 rounded-full border transition-all duration-300 focus:outline-none focus:ring-2 ${
-                  isScrolled
-                    ? "bg-gray-50 border-gray-300 text-gray-800 placeholder-gray-500 focus:ring-purple-500"
-                    : "bg-white/20 border-white/30 text-white placeholder-white/70 focus:ring-white/50"
-                }`}
-              />
-              <button
-                onClick={handleSubmit}
-                className={`absolute right-3 top-1/2 transform -translate-y-1/2 transition-colors duration-300 ${
-                  isScrolled
-                    ? "text-gray-400 hover:text-purple-600"
-                    : "text-white/80 hover:text-white"
-                }`}
-              >
-                <Search size={18} />
-              </button>
-            </div>
-          </div> */}
 
           {/* Right Side Actions */}
           <div className="flex items-center space-x-3">
@@ -184,10 +152,30 @@ const Header = () => {
                   <div className="w-8 h-8 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center">
                     <User size={14} className="text-white" />
                   </div>
+                  <span className="hidden md:block font-medium">
+                    {currentUser.username}
+                  </span>
                 </button>
+
+                {/* Dropdown Menu */}
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
+                  <Link
+                    to="/dashboard"
+                    className="block px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-t-lg"
+                  >
+                    Dashboard
+                  </Link>
+                  <button
+                    onClick={handleSignOut}
+                    className="block w-full text-left px-4 py-2 text-red-600 hover:bg-red-50 rounded-b-lg"
+                  >
+                    Sign Out
+                  </button>
+                </div>
               </div>
             ) : (
-              <button
+              <Link
+                to="/sign-in"
                 className={`px-4 py-2 rounded-full font-medium transition-all duration-300 hover:scale-105 ${
                   isScrolled
                     ? "bg-purple-600 text-white hover:bg-purple-700 shadow-lg"
@@ -195,7 +183,7 @@ const Header = () => {
                 }`}
               >
                 Sign In
-              </button>
+              </Link>
             )}
 
             {/* Mobile Menu Toggle */}
@@ -222,39 +210,14 @@ const Header = () => {
             }`}
           >
             <div className="px-2 pt-2 pb-3 space-y-1">
-              {/* Mobile Search */}
-              <div className="px-3 py-2">
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Search..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    onKeyPress={(e) => e.key === "Enter" && handleSubmit(e)}
-                    className={`w-full px-4 py-2 pr-10 rounded-lg border transition-all duration-300 focus:outline-none focus:ring-2 ${
-                      isScrolled
-                        ? "bg-gray-50 border-gray-300 text-gray-800 focus:ring-purple-500"
-                        : "bg-white/20 border-white/30 text-white placeholder-white/70 focus:ring-white/50"
-                    }`}
-                  />
-                  <button
-                    onClick={handleSubmit}
-                    className={`absolute right-3 top-1/2 transform -translate-y-1/2 ${
-                      isScrolled ? "text-gray-400" : "text-white/80"
-                    }`}
-                  >
-                    <Search size={18} />
-                  </button>
-                </div>
-              </div>
-
               {/* Mobile Navigation Links */}
               {navLinks.map((link) => (
-                <button
+                <Link
                   key={link.path}
-                  onClick={() => handleNavClick(link.path)}
+                  to={link.path}
+                  onClick={() => setIsMenuOpen(false)}
                   className={`w-full flex items-center space-x-3 px-3 py-3 rounded-lg transition-all duration-300 ${
-                    currentPath === link.path
+                    location.pathname === link.path
                       ? isScrolled
                         ? "bg-purple-100 text-purple-600"
                         : "bg-white/20 text-yellow-300"
@@ -265,8 +228,33 @@ const Header = () => {
                 >
                   <span className="text-lg">{link.icon}</span>
                   <span className="font-medium">{link.label}</span>
-                </button>
+                </Link>
               ))}
+
+              {/* Mobile Auth Buttons */}
+              {!currentUser && (
+                <div className="px-3 py-2">
+                  <Link
+                    to="/sign-in"
+                    onClick={() => setIsMenuOpen(false)}
+                    className="w-full block text-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                  >
+                    Sign In
+                  </Link>
+                </div>
+              )}
+
+              {currentUser && (
+                <button
+                  onClick={() => {
+                    handleSignOut();
+                    setIsMenuOpen(false);
+                  }}
+                  className="w-full text-left px-3 py-3 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                >
+                  Sign Out
+                </button>
+              )}
             </div>
           </div>
         )}
