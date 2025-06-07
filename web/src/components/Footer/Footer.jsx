@@ -13,19 +13,19 @@ import { Mail, MapPin, Phone, Heart } from "lucide-react";
 export default function FooterCom() {
   const footerLinks = {
     about: [
-      { label: "Giới thiệu về CompareKids", href: "/about" },
-      { label: "Tính năng nổi bật", href: "/features" },
-      { label: "Cách thức hoạt động", href: "/how-it-works" },
+      { label: "About Compare & Learn", href: "/about" },
+      { label: "How It Works", href: "/how-it-works" },
+      { label: "Educational Approach", href: "/features" },
     ],
     support: [
-      { label: "Hỗ trợ khách hàng", href: "/support" },
-      { label: "Hướng dẫn sử dụng", href: "/guide" },
-      { label: "Câu hỏi thường gặp", href: "/faq" },
+      { label: "Help Center", href: "/support" },
+      { label: "Parent Guide", href: "/guide" },
+      { label: "FAQ", href: "/faq" },
     ],
     policy: [
-      { label: "Chính sách bảo mật", href: "/privacy" },
-      { label: "Điều khoản sử dụng", href: "/terms" },
-      { label: "Chính sách cookie", href: "/cookies" },
+      { label: "Privacy Policy", href: "/privacy" },
+      { label: "Terms of Service", href: "/terms" },
+      { label: "Child Safety", href: "/safety" },
     ],
   };
 
@@ -82,22 +82,23 @@ export default function FooterCom() {
                 </span>
                 <div>
                   <span className="text-2xl font-bold text-white">
-                    CompareKids
+                    Compare & Learn
                   </span>
                   <div className="flex items-center space-x-2 mt-1">
                     <span className="text-xs bg-yellow-400 text-gray-800 px-2 py-1 rounded-full font-bold animate-pulse">
-                      FUN
+                      KIDS
                     </span>
                     <span className="text-xs bg-white/20 text-white px-2 py-1 rounded-full font-medium">
-                      PRO
+                      EDUCATIONAL
                     </span>
                   </div>
                 </div>
               </Link>
 
               <p className="text-white/80 text-sm mb-6 leading-relaxed">
-                Nền tảng giáo dục trực tuyến hàng đầu dành cho trẻ em, giúp phát
-                triển kỹ năng và kiến thức qua các trò chơi thú vị.
+                The ultimate educational platform for children aged 3-18.
+                Transform learning through interactive comparison games that
+                develop critical thinking and problem-solving skills.
               </p>
 
               {/* Contact Info */}
@@ -106,19 +107,21 @@ export default function FooterCom() {
                   <div className="p-2 bg-white/10 rounded-lg">
                     <Mail size={14} />
                   </div>
-                  <span className="text-white/80">support@comparekids.com</span>
+                  <span className="text-white/80">
+                    support@comparelearn.com
+                  </span>
                 </div>
                 <div className="flex items-center space-x-3 text-sm">
                   <div className="p-2 bg-white/10 rounded-lg">
                     <Phone size={14} />
                   </div>
-                  <span className="text-white/80">+84 123 456 789</span>
+                  <span className="text-white/80">1-800-COMPARE</span>
                 </div>
                 <div className="flex items-center space-x-3 text-sm">
                   <div className="p-2 bg-white/10 rounded-lg">
                     <MapPin size={14} />
                   </div>
-                  <span className="text-white/80">Việt Nam</span>
+                  <span className="text-white/80">Worldwide</span>
                 </div>
               </div>
             </div>
@@ -126,7 +129,7 @@ export default function FooterCom() {
             {/* About Section */}
             <div>
               <h3 className="text-lg font-semibold mb-6 text-white">
-                Về chúng tôi
+                About Us
               </h3>
               <ul className="space-y-3">
                 {footerLinks.about.map((link, index) => (
@@ -144,7 +147,7 @@ export default function FooterCom() {
 
             {/* Support Section */}
             <div>
-              <h3 className="text-lg font-semibold mb-6 text-white">Hỗ trợ</h3>
+              <h3 className="text-lg font-semibold mb-6 text-white">Support</h3>
               <ul className="space-y-3">
                 {footerLinks.support.map((link, index) => (
                   <li key={index}>
@@ -162,7 +165,7 @@ export default function FooterCom() {
             {/* Policy Section */}
             <div>
               <h3 className="text-lg font-semibold mb-6 text-white">
-                Chính sách
+                Legal & Safety
               </h3>
               <ul className="space-y-3">
                 {footerLinks.policy.map((link, index) => (
@@ -188,18 +191,18 @@ export default function FooterCom() {
           <div className="flex flex-col md:flex-row items-center justify-between space-y-4 md:space-y-0">
             {/* Copyright */}
             <div className="flex items-center space-x-2 text-sm text-white/80">
-              <span>© {new Date().getFullYear()} CompareKids.</span>
+              <span>© {new Date().getFullYear()} Compare & Learn.</span>
               <span className="flex items-center space-x-1">
                 <span>Made with</span>
                 <Heart size={14} className="text-red-400 animate-pulse" />
-                <span>by Máy Tính QT</span>
+                <span>for learners everywhere</span>
               </span>
             </div>
 
             {/* Social Links */}
             <div className="flex items-center space-x-4">
               <span className="text-sm text-white/60 hidden sm:block">
-                Theo dõi chúng tôi:
+                Follow us:
               </span>
               <div className="flex items-center space-x-3">
                 {socialLinks.map((social, index) => (
@@ -223,20 +226,20 @@ export default function FooterCom() {
         <div className="border-t border-white/20 py-6">
           <div className="text-center">
             <h4 className="text-lg font-semibold mb-3 text-white">
-              Đăng ký nhận thông tin mới nhất
+              🚀 Stay Updated!
             </h4>
             <p className="text-white/80 text-sm mb-4 max-w-md mx-auto">
-              Nhận những cập nhật mới nhất về tính năng và hoạt động giáo dục
-              thú vị cho bé.
+              Get the latest updates, new games, and educational tips delivered
+              to your inbox.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center space-y-3 sm:space-y-0 sm:space-x-3 max-w-md mx-auto">
               <input
                 type="email"
-                placeholder="Nhập email của bạn..."
+                placeholder="Enter your email..."
                 className="w-full sm:flex-1 px-4 py-2 rounded-full bg-white/20 border border-white/30 text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white/50 transition-all duration-300"
               />
               <button className="px-6 py-2 bg-yellow-400 text-gray-800 rounded-full font-medium hover:bg-yellow-300 transition-all duration-300 hover:scale-105 whitespace-nowrap">
-                Đăng ký
+                Subscribe ✨
               </button>
             </div>
           </div>
