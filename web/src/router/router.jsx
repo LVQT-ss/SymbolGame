@@ -1,9 +1,9 @@
 import { createBrowserRouter, Outlet } from "react-router-dom";
 import Home from "../pages/Home";
-import About from "../pages/About";
+import Game from "../pages/Game";
 import SignUp from "../pages/SignUp";
 import SignIn from "../pages/SignIn";
-import Dashboard from "../pages/Dashboard";
+import Leaderboard from "../pages/Leaderboard";
 import Header from "../components/Header/Header";
 import FooterCom from "../components/Footer/Footer";
 
@@ -13,7 +13,7 @@ const Layout = () => {
       <div>
         <Header />
       </div>
-      <div className="min-h-screen pt-16">
+      <div className="min-h-screen">
         <Outlet />
       </div>
       <FooterCom />
@@ -42,8 +42,8 @@ export const router = createBrowserRouter([
         element: <Home />,
       },
       {
-        path: "about",
-        element: <About />,
+        path: "game",
+        element: <Game />,
       },
       {
         path: "sign-in",
@@ -54,8 +54,8 @@ export const router = createBrowserRouter([
         element: <SignUp />,
       },
       {
-        path: "dashboard",
-        element: <Dashboard />,
+        path: "leaderboard",
+        element: <Leaderboard />,
       },
     ],
   },

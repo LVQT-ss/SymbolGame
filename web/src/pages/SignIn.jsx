@@ -58,7 +58,7 @@ export default function SignIn() {
       };
 
       dispatch(signInSuccess(fakeUserData));
-      navigate("/dashboard");
+      navigate("/leaderboard");
     } catch (error) {
       dispatch(
         signInFailure(error.message || "An error occurred during sign in.")

@@ -37,13 +37,13 @@ const Header = () => {
 
   const navLinks = [
     { path: "/", icon: "🏠", label: "Home" },
-    { path: "/about", icon: "ℹ️", label: "About" },
-    { path: "/dashboard", icon: "📊", label: "Dashboard" },
+    { path: "/game", icon: "🎮", label: "Game" },
+    { path: "/leaderboard", icon: "🏆", label: "Leaderboard" },
   ];
 
   return (
     <header
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+      className={`top-0 left-0 right-0 z-50 transition-all duration-300 ${
         isScrolled
           ? "bg-white/95 backdrop-blur-lg shadow-lg border-b border-gray-200"
           : "bg-gradient-to-r from-purple-600 via-pink-500 to-blue-600"
@@ -160,10 +160,10 @@ const Header = () => {
                 {/* Dropdown Menu */}
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
                   <Link
-                    to="/dashboard"
+                    to="/leaderboard"
                     className="block px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-t-lg"
                   >
-                    Dashboard
+                    Leaderboard
                   </Link>
                   <button
                     onClick={handleSignOut}
