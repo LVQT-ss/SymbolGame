@@ -28,9 +28,25 @@ const initDB = async () => {
 
         console.log(`Loaded ${models.length} models`);
 
-        // Synchronize models with database - safe mode to avoid constraint errors
-        await sequelize.sync({ force: false, alter: false });
-        console.log('Database synchronized successfully.');
+        // Try to synchronize models with database
+        try {
+            await sequelize.sync({ force: false, alter: false });
+            console.log('Database synchronized successfully.');
+        } catch (syncError) {
+            console.warn('Database sync encountered issues, trying individual model sync...');
+
+            // Try to sync models individually to identify problematic ones
+            for (const model of models) {
+                try {
+                    await model.sync({ force: false, alter: false });
+                    console.log(`✓ ${model.name} synced successfully`);
+                } catch (modelError) {
+                    console.warn(`⚠ ${model.name} sync failed:`, modelError.message);
+                    // Continue with other models
+                }
+            }
+            console.log('Individual model sync completed.');
+        }
     } catch (error) {
         console.error('Unable to connect to the database:', error);
         throw error;

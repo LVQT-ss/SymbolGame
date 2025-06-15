@@ -1,6 +1,7 @@
 // src/database/sequelize.js
 import { Sequelize } from 'sequelize';
 import dotenv from 'dotenv';
+import process from 'process';
 
 dotenv.config();
 
@@ -16,6 +17,15 @@ const sequelize = new Sequelize({
             require: true,
             rejectUnauthorized: false,
         },
+        // Keep connections alive
+        keepAlive: true,
+        keepAliveInitialDelayMillis: 10000,
+        // Optimize statement timeout
+        statement_timeout: 30000,
+        // Connection timeout
+        connectionTimeoutMillis: 30000,
+        // Idle timeout
+        idleTimeoutMillis: 30000
     },
     // CRITICAL: Connection pooling for high load
     pool: {
@@ -32,22 +42,6 @@ const sequelize = new Sequelize({
         raw: false,        // Keep ORM benefits but can set to true for performance
         nest: false,       // Reduce object nesting overhead
         benchmark: process.env.NODE_ENV === 'development' // Log query times in dev
-    },
-    // Connection optimization
-    dialectOptions: {
-        ssl: {
-            require: true,
-            rejectUnauthorized: false,
-        },
-        // Keep connections alive
-        keepAlive: true,
-        keepAliveInitialDelayMillis: 10000,
-        // Optimize statement timeout
-        statement_timeout: 30000,
-        // Connection timeout
-        connectionTimeoutMillis: 30000,
-        // Idle timeout
-        idleTimeoutMillis: 30000
     },
     // Retry logic for connection failures
     retry: {

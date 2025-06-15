@@ -40,7 +40,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/users', socialRoutes);
 app.use('/api/game', gameRoutes);
-app.use('/api/game', commentRoutes);
+app.use('/api/comments', commentRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/achievements', achievementRoutes);
 app.use('/api/notifications', notificationRoutes);
