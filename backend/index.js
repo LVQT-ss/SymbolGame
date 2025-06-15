@@ -15,7 +15,7 @@ import achievementRoutes from './routes/achievement.route.js';
 import adminRoutes from './routes/admin.route.js';
 import commentRoutes from './routes/comment.route.js';
 import transactionRoutes from './routes/transaction.route.js';
-import { generalLimiter, authLimiter, gameLimiter, burstProtection } from './middleware/rateLimiter.js';
+import { rateLimiter, authRateLimiter } from './middleware/rateLimiter.js';
 import { getCacheStats } from './middleware/cache.js';
 import dotenv from 'dotenv';
 import process from 'process';
@@ -30,8 +30,7 @@ const port = process.env.PORT || 3000;
 // Security and performance middleware
 app.use(helmet()); // Security headers
 app.use(compression()); // Gzip compression
-app.use(burstProtection); // Anti-DDoS protection
-app.use(generalLimiter); // General rate limiting
+app.use(rateLimiter); // General rate limiting
 
 // Basic middleware
 app.use(express.json({ limit: '10mb' })); // Limit JSON payload size
@@ -45,10 +44,10 @@ app.use(cors({
 }));
 
 // Register the routes with specific rate limiters
-app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/auth', authRateLimiter, authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/users', socialRoutes);
-app.use('/api/game', gameLimiter, gameRoutes);
+app.use('/api/game', gameRoutes);
 app.use('/api/game', commentRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/notifications', notificationRoutes);
