@@ -15,7 +15,6 @@ import achievementRoutes from './routes/achievement.route.js';
 import adminRoutes from './routes/admin.route.js';
 import commentRoutes from './routes/comment.route.js';
 import transactionRoutes from './routes/transaction.route.js';
-import { rateLimiter, authRateLimiter } from './middleware/rateLimiter.js';
 import { getCacheStats } from './middleware/cache.js';
 import dotenv from 'dotenv';
 import process from 'process';
@@ -30,30 +29,22 @@ const port = process.env.PORT || 3000;
 // Security and performance middleware
 app.use(helmet()); // Security headers
 app.use(compression()); // Gzip compression
-app.use(rateLimiter); // General rate limiting
 
 // Basic middleware
-app.use(express.json({ limit: '10mb' })); // Limit JSON payload size
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(cookieParser());
-app.use(cors({
-    origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(cors());
 
-// Register the routes with specific rate limiters
-app.use('/api/auth', authRateLimiter, authRoutes);
+// Register the routes
+app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/users', socialRoutes);
 app.use('/api/game', gameRoutes);
 app.use('/api/game', commentRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
-app.use('/api/notifications', notificationRoutes);
 app.use('/api/achievements', achievementRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/transaction', transactionRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/transactions', transactionRoutes);
 
 // Health check endpoint with system stats
 app.get('/api/health', async (req, res) => {
