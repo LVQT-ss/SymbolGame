@@ -11,7 +11,7 @@ const LeaderboardEntry = sequelize.define('LeaderboardEntry', {
         type: DataTypes.INTEGER,
         allowNull: false,
     },
-    leaderboard_type: {
+    type: {
         type: DataTypes.STRING(50),
         allowNull: false,
         validate: {
@@ -120,7 +120,7 @@ const LeaderboardEntry = sequelize.define('LeaderboardEntry', {
             fields: ['user_id']
         },
         {
-            fields: ['leaderboard_type']
+            fields: ['type']
         },
         {
             fields: ['time_period']
@@ -129,13 +129,13 @@ const LeaderboardEntry = sequelize.define('LeaderboardEntry', {
             fields: ['rank_position']
         },
         {
-            fields: ['leaderboard_type', 'time_period']
+            fields: ['type', 'time_period']
         },
         {
-            fields: ['leaderboard_type', 'time_period', 'rank_position']
+            fields: ['type', 'time_period', 'rank_position']
         },
         {
-            fields: ['user_id', 'leaderboard_type', 'time_period']
+            fields: ['user_id', 'type', 'time_period']
         },
         {
             fields: ['period_start', 'period_end']
