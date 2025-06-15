@@ -35,11 +35,18 @@ const initDB = async () => {
         } catch (syncError) {
             console.warn('Database sync encountered issues, trying individual model sync...');
 
+            // Models that might need schema updates
+            const modelsNeedingAlter = ['LeaderboardEntry', 'Achievement', 'UserAchievement'];
+
             // Try to sync models individually to identify problematic ones
             for (const model of models) {
                 try {
-                    await model.sync({ force: false, alter: false });
-                    console.log(`✓ ${model.name} synced successfully`);
+                    const syncOptions = modelsNeedingAlter.includes(model.name)
+                        ? { force: false, alter: true }
+                        : { force: false, alter: false };
+
+                    await model.sync(syncOptions);
+                    console.log(`✓ ${model.name} synced successfully${syncOptions.alter ? ' (with schema update)' : ''}`);
                 } catch (modelError) {
                     console.warn(`⚠ ${model.name} sync failed:`, modelError.message);
                     // Continue with other models

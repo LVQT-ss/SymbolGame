@@ -40,7 +40,8 @@ const Achievement = sequelize.define('Achievement', {
     },
     condition_value: {
         type: DataTypes.INTEGER,
-        allowNull: false
+        allowNull: true,
+        defaultValue: 1
     },
     condition_operator: {
         type: DataTypes.STRING(10),
