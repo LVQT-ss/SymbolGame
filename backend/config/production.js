@@ -41,26 +41,12 @@ export const productionConfig = {
 
     // Cache configuration
     cache: {
-        redis: {
-            host: process.env.REDIS_HOST || 'localhost',
-            port: parseInt(process.env.REDIS_PORT) || 6379,
-            password: process.env.REDIS_PASSWORD,
-            db: parseInt(process.env.REDIS_DB) || 0,
-            // Connection pool for Redis
-            maxRetriesPerRequest: 3,
-            retryDelayOnFailover: 100,
-            lazyConnect: true,
-            keepAlive: 30000,
-            // Cluster mode for Redis if available
-            enableReadyCheck: true,
-            maxLoadingTimeout: 10000,
-        },
-        // Default TTL values in seconds
-        ttl: {
-            short: 60,      // 1 minute - frequently changing data
-            medium: 300,    // 5 minutes - moderate change rate
-            long: 1800,     // 30 minutes - rarely changing data
-            static: 3600,   // 1 hour - static/reference data
+        enabled: true,
+        type: 'memory',
+        memory: {
+            maxSize: 1000,
+            ttl: 3600, // 1 hour default TTL
+            cleanupInterval: 60000 // Clean up expired items every minute
         }
     },
 

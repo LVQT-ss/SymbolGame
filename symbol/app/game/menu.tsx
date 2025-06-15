@@ -823,34 +823,26 @@ export default function GameMenuScreen() {
     switch (activeTab) {
       case "available":
         return (
-          <FlatList
-            data={availableGames}
-            renderItem={renderGameSession}
-            keyExtractor={(item) => item.id}
-            style={styles.list}
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                tintColor="#ffd33d"
-                colors={["#ffd33d"]}
-              />
-            }
-            ListEmptyComponent={
-              <View style={styles.emptyState}>
-                <Ionicons
-                  name="game-controller-outline"
-                  size={64}
-                  color="#666"
-                />
-                <Text style={styles.emptyStateText}>No available games</Text>
-                <Text style={styles.emptyStateSubtext}>
-                  Check back later for new game sessions
-                </Text>
-              </View>
-            }
-          />
+          <View style={styles.tabContent}>
+            <TouchableOpacity
+              style={styles.createRoundButton}
+              onPress={() => router.push("/game/round")}
+            >
+              <Ionicons name="add-circle" size={24} color="#fff" />
+              <Text style={styles.createRoundButtonText}>
+                Create Game Round
+              </Text>
+            </TouchableOpacity>
+            <FlatList
+              data={availableGames}
+              renderItem={renderGameSession}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.gameList}
+              refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+              }
+            />
+          </View>
         );
       case "history":
         return (
@@ -1314,5 +1306,25 @@ const getResponsiveStyles = (dimensions: any) =>
       fontWeight: "bold",
       color: "#fff",
       marginLeft: 12,
+    },
+    tabContent: {
+      flex: 1,
+    },
+    createRoundButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: "#ffd33d",
+      padding: 16,
+      borderRadius: 12,
+      marginBottom: 16,
+    },
+    createRoundButtonText: {
+      color: "#000",
+      fontSize: getResponsiveFontSize(16),
+      fontWeight: "bold",
+      marginLeft: 8,
+    },
+    gameList: {
+      padding: getResponsivePadding(),
     },
   });
