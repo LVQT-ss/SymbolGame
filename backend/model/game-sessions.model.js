@@ -59,13 +59,11 @@ const GameSession = sequelize.define('GameSession', {
     // Admin-created session tracking
     created_by_admin: {
         type: DataTypes.INTEGER,
-        allowNull: true,
-        comment: 'Admin user ID who created this session for the customer'
+        allowNull: true
     },
     admin_instructions: {
         type: DataTypes.TEXT,
-        allowNull: true,
-        comment: 'Special instructions from admin to customer'
+        allowNull: true
     },
 }, {
     tableName: 'game_sessions',

@@ -17,75 +17,61 @@ const UserAchievement = sequelize.define('UserAchievement', {
     },
     game_session_id: {
         type: DataTypes.INTEGER,
-        allowNull: true,
-        comment: 'Game session that triggered the achievement (if applicable)'
+        allowNull: true
     },
     current_progress: {
         type: DataTypes.INTEGER,
-        defaultValue: 0,
-        comment: 'Current progress toward achievement completion'
+        defaultValue: 0
     },
     max_progress: {
         type: DataTypes.INTEGER,
-        allowNull: true,
-        comment: 'Maximum progress needed (copied from achievement for tracking)'
+        allowNull: true
     },
     is_completed: {
         type: DataTypes.BOOLEAN,
-        defaultValue: false,
-        comment: 'Whether the achievement has been completed'
+        defaultValue: false
     },
     completion_percentage: {
         type: DataTypes.FLOAT,
-        defaultValue: 0.0,
-        comment: 'Percentage of achievement completion (0-100)'
+        defaultValue: 0.0
     },
     acquired_at: {
         type: DataTypes.DATE,
-        allowNull: true,
-        comment: 'When the achievement was completed (null if not completed)'
+        allowNull: true
     },
     started_at: {
         type: DataTypes.DATE,
-        defaultValue: DataTypes.NOW,
-        comment: 'When progress on this achievement started'
+        defaultValue: DataTypes.NOW
     },
     last_updated: {
         type: DataTypes.DATE,
-        defaultValue: DataTypes.NOW,
-        comment: 'Last time progress was updated'
+        defaultValue: DataTypes.NOW
     },
     // For time-based achievements
     reset_date: {
         type: DataTypes.DATE,
-        allowNull: true,
-        comment: 'Next reset date for recurring achievements'
+        allowNull: true
     },
     streak_count: {
         type: DataTypes.INTEGER,
-        defaultValue: 0,
-        comment: 'Current streak for streak-based achievements'
+        defaultValue: 0
     },
     best_streak: {
         type: DataTypes.INTEGER,
-        defaultValue: 0,
-        comment: 'Best streak achieved'
+        defaultValue: 0
     },
     // Metadata
     unlock_data: {
         type: DataTypes.JSON,
-        allowNull: true,
-        comment: 'Additional data about how achievement was unlocked'
+        allowNull: true
     },
     is_showcased: {
         type: DataTypes.BOOLEAN,
-        defaultValue: false,
-        comment: 'Whether user has chosen to showcase this achievement'
+        defaultValue: false
     },
     notification_sent: {
         type: DataTypes.BOOLEAN,
-        defaultValue: false,
-        comment: 'Whether unlock notification has been sent'
+        defaultValue: false
     }
 }, {
     tableName: 'user_achievements',
