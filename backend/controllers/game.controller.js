@@ -248,6 +248,16 @@ export const getGameSession = async (req, res) => {
                 created_by_admin: !!gameSession.created_by_admin,
                 admin_creator: gameSession.adminCreator
             },
+            rounds: gameSession.rounds.map(round => ({
+                id: round.id,
+                round_number: round.round_number,
+                first_number: round.first_number,
+                second_number: round.second_number,
+                user_symbol: round.user_symbol,
+                response_time: round.response_time,
+                is_correct: round.is_correct
+                // Note: correct_symbol is not included for security unless round is completed
+            })),
             progress: {
                 current_round_number: currentRound ? currentRound.round_number : null,
                 completed_rounds: completedRounds,

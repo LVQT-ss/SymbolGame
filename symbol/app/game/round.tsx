@@ -31,7 +31,7 @@ const getResponsivePadding = () => {
 };
 
 interface GameRound {
-  id: string;
+  id: number;
   title: string;
   status: "waiting" | "active" | "completed";
   currentPlayers: number;
@@ -59,7 +59,7 @@ export default function GameRoundScreen() {
       const response = await gameAPI.getAvailableGames(1, 20);
       if (response && response.available_games) {
         const rounds = response.available_games.map((game: any) => ({
-          id: game.id.toString(),
+          id: parseInt(game.id) || 1,
           title: game.title || `Game Session ${game.id}`,
           status: game.status === "available_to_join" ? "waiting" : "active",
           currentPlayers: game.current_players || 0,
@@ -172,7 +172,7 @@ export default function GameRoundScreen() {
           style={styles.roundCard}
           onPress={() => {
             setSelectedRound(round);
-            handleJoinRound(round.id);
+            handleJoinRound(round.id.toString());
           }}
         >
           <View style={styles.roundInfo}>

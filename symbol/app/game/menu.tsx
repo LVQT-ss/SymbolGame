@@ -49,7 +49,7 @@ const getResponsiveFontSize = (baseSize: number) => {
 };
 
 interface GameSession {
-  id: string;
+  id: number;
   title: string;
   description: string;
   difficulty: "Easy" | "Medium" | "Hard" | "Expert";
@@ -72,7 +72,7 @@ interface GameSession {
 }
 
 interface GameHistory {
-  id: string;
+  id: number;
   title: string;
   score: number;
   duration: number;
@@ -208,7 +208,7 @@ export default function GameMenuScreen() {
             const baseExperience = game.number_of_rounds * 5;
 
             return {
-              id: game.id.toString(),
+              id: parseInt(game.id) || 1,
               title: `Math Challenge Session ${game.id}`,
               description:
                 game.admin_instructions ||
@@ -244,78 +244,59 @@ export default function GameMenuScreen() {
         // Fallback to mock data
         const mockGames: GameSession[] = [
           {
-            id: "session_1",
-            title: "Symbol Match Challenge",
-            description: "Match mathematical symbols in this fast-paced game",
-            difficulty: "Easy",
+            id: 1,
+            title: "Speed Challenge",
+            description: "Test your reflexes in this fast-paced game",
+            difficulty: "Medium",
             maxPlayers: 4,
             currentPlayers: 2,
-            timeLimit: 300, // 5 minutes
+            timeLimit: 180,
             reward: { coins: 100, experience: 50 },
             isJoined: false,
             createdBy: {
-              id: "admin_1",
+              id: "1",
               username: "GameMaster",
-              avatar: "https://i.pravatar.cc/100?img=10",
+              avatar: "https://i.pravatar.cc/100?img=2",
             },
-            startTime: new Date(Date.now() + 300000).toISOString(), // Starts in 5 minutes
+            startTime: new Date(Date.now() + 300000).toISOString(),
             status: "waiting",
-            category: "Symbol Match",
+            category: "Speed Run",
           },
           {
-            id: "session_2",
-            title: "Memory Speed Run",
-            description: "Test your memory in this intense challenge",
-            difficulty: "Medium",
-            maxPlayers: 6,
-            currentPlayers: 4,
-            timeLimit: 180, // 3 minutes
+            id: 2,
+            title: "Memory Master",
+            description: "Challenge your memory with complex patterns",
+            difficulty: "Hard",
+            maxPlayers: 2,
+            currentPlayers: 1,
+            timeLimit: 240,
             reward: { coins: 150, experience: 75 },
             isJoined: true,
             createdBy: {
-              id: "admin_2",
-              username: "MemoryKing",
-              avatar: "https://i.pravatar.cc/100?img=15",
+              id: "2",
+              username: "BrainTrainer",
+              avatar: "https://i.pravatar.cc/100?img=3",
             },
-            startTime: new Date(Date.now() + 600000).toISOString(), // Starts in 10 minutes
-            status: "waiting",
+            startTime: new Date(Date.now() + 600000).toISOString(),
+            status: "active",
             category: "Memory Game",
           },
           {
-            id: "session_3",
-            title: "Ultimate Speed Challenge",
-            description: "Lightning fast symbol recognition",
-            difficulty: "Hard",
-            maxPlayers: 8,
-            currentPlayers: 7,
-            timeLimit: 120, // 2 minutes
-            reward: { coins: 250, experience: 125 },
-            isJoined: false,
-            createdBy: {
-              id: "admin_3",
-              username: "SpeedDemon",
-              avatar: "https://i.pravatar.cc/100?img=20",
-            },
-            startTime: new Date(Date.now() + 900000).toISOString(), // Starts in 15 minutes
-            status: "active",
-            category: "Speed Challenge",
-          },
-          {
-            id: "session_4",
-            title: "Puzzle Master Tournament",
-            description: "Solve complex puzzles to win big",
+            id: 3,
+            title: "Logic Puzzle",
+            description: "Solve intricate logic puzzles under pressure",
             difficulty: "Expert",
-            maxPlayers: 12,
-            currentPlayers: 8,
-            timeLimit: 600, // 10 minutes
-            reward: { coins: 500, experience: 250 },
+            maxPlayers: 6,
+            currentPlayers: 4,
+            timeLimit: 300,
+            reward: { coins: 200, experience: 100 },
             isJoined: false,
             createdBy: {
-              id: "admin_4",
-              username: "PuzzleGuru",
-              avatar: "https://i.pravatar.cc/100?img=25",
+              id: "3",
+              username: "PuzzleMaster",
+              avatar: "https://i.pravatar.cc/100?img=4",
             },
-            startTime: new Date(Date.now() + 1800000).toISOString(), // Starts in 30 minutes
+            startTime: new Date(Date.now() + 900000).toISOString(),
             status: "waiting",
             category: "Puzzle Master",
           },
@@ -328,7 +309,7 @@ export default function GameMenuScreen() {
       // Create fallback mock data on error
       const errorFallbackGames: GameSession[] = [
         {
-          id: "error_session_1",
+          id: 1,
           title: "Offline Practice Session",
           description: "Practice mode while connecting to server",
           difficulty: "Easy",
@@ -359,7 +340,7 @@ export default function GameMenuScreen() {
       if (!response || !response.history) {
         const mockHistory: GameHistory[] = [
           {
-            id: "history_1",
+            id: 1,
             title: "Symbol Match Challenge",
             score: 2450,
             duration: 240, // 4 minutes
@@ -371,7 +352,7 @@ export default function GameMenuScreen() {
             totalPlayers: 4,
           },
           {
-            id: "history_2",
+            id: 2,
             title: "Memory Speed Run",
             score: 1890,
             duration: 180,
@@ -383,7 +364,7 @@ export default function GameMenuScreen() {
             totalPlayers: 6,
           },
           {
-            id: "history_3",
+            id: 3,
             title: "Speed Challenge",
             score: 3120,
             duration: 120,
@@ -395,7 +376,7 @@ export default function GameMenuScreen() {
             totalPlayers: 8,
           },
           {
-            id: "history_4",
+            id: 4,
             title: "Memory Game",
             score: 1650,
             duration: 300,
@@ -836,10 +817,16 @@ export default function GameMenuScreen() {
             <FlatList
               data={availableGames}
               renderItem={renderGameSession}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={styles.gameList}
+              keyExtractor={(item) => item.id.toString()}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.gamesList}
               refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  colors={["#ffd33d"]}
+                  tintColor="#ffd33d"
+                />
               }
             />
           </View>
@@ -849,26 +836,9 @@ export default function GameMenuScreen() {
           <FlatList
             data={gameHistory}
             renderItem={renderHistoryItem}
-            keyExtractor={(item) => item.id}
-            style={styles.list}
+            keyExtractor={(item) => item.id.toString()}
             showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                tintColor="#ffd33d"
-                colors={["#ffd33d"]}
-              />
-            }
-            ListEmptyComponent={
-              <View style={styles.emptyState}>
-                <Ionicons name="time-outline" size={64} color="#666" />
-                <Text style={styles.emptyStateText}>No game history</Text>
-                <Text style={styles.emptyStateSubtext}>
-                  Start playing to see your game history
-                </Text>
-              </View>
-            }
+            contentContainerStyle={styles.gamesList}
           />
         );
       case "stats":
@@ -1324,7 +1294,7 @@ const getResponsiveStyles = (dimensions: any) =>
       fontWeight: "bold",
       marginLeft: 8,
     },
-    gameList: {
+    gamesList: {
       padding: getResponsivePadding(),
     },
   });

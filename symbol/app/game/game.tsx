@@ -8,7 +8,9 @@ import {
   Text,
   TouchableOpacity,
   View,
+  ActivityIndicator,
 } from "react-native";
+import { gameAPI } from "../../services/api";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -27,12 +29,44 @@ const getResponsivePadding = () => {
   return 20;
 };
 
+interface Round {
+  round_number: number;
+  first_number: number;
+  second_number: number;
+  user_symbol?: string;
+  response_time?: number;
+  is_correct?: boolean;
+}
+
+interface GameSession {
+  id: number;
+  number_of_rounds: number;
+  completed: boolean;
+  score: number;
+  correct_answers: number;
+  total_time: number;
+}
+
 export default function GameScreen() {
   const params = useLocalSearchParams();
   const { sessionId, gameType, title } = params;
 
   const [gameStarted, setGameStarted] = useState(false);
   const [countdown, setCountdown] = useState(3);
+  const [loading, setLoading] = useState(false);
+  const [gameSession, setGameSession] = useState<GameSession | null>(null);
+  const [rounds, setRounds] = useState<Round[]>([]);
+  const [currentRoundIndex, setCurrentRoundIndex] = useState(0);
+  const [score, setScore] = useState(0);
+  const [correctAnswers, setCorrectAnswers] = useState(0);
+  const [gameCompleted, setGameCompleted] = useState(false);
+  const [roundStartTime, setRoundStartTime] = useState<number>(0);
+
+  useEffect(() => {
+    if (sessionId) {
+      loadGameSession();
+    }
+  }, [sessionId]);
 
   useEffect(() => {
     if (gameStarted && countdown > 0) {
@@ -40,11 +74,143 @@ export default function GameScreen() {
         setCountdown(countdown - 1);
       }, 1000);
       return () => clearTimeout(timer);
+    } else if (gameStarted && countdown === 0) {
+      startFirstRound();
     }
   }, [gameStarted, countdown]);
 
+  const loadGameSession = async () => {
+    try {
+      setLoading(true);
+      const response = await gameAPI.getGameSession(sessionId);
+
+      if (response && response.game_session) {
+        setGameSession(response.game_session);
+        setRounds(response.rounds || []);
+        setScore(response.game_session.score || 0);
+        setCorrectAnswers(response.game_session.correct_answers || 0);
+
+        // Check if game is already completed
+        if (response.game_session.completed) {
+          setGameCompleted(true);
+        }
+
+        // Find current round
+        const completedRounds = response.rounds.filter(
+          (r: Round) => r.user_symbol
+        ).length;
+        setCurrentRoundIndex(completedRounds);
+      }
+    } catch (error) {
+      console.error("Error loading game session:", error);
+      Alert.alert("Error", "Failed to load game session");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startFirstRound = () => {
+    if (rounds.length > 0 && currentRoundIndex < rounds.length) {
+      setRoundStartTime(Date.now());
+    }
+  };
+
   const handleStartGame = () => {
     setGameStarted(true);
+  };
+
+  const handleSymbolChoice = async (symbol: string) => {
+    if (currentRoundIndex >= rounds.length || gameCompleted) return;
+
+    const currentRound = rounds[currentRoundIndex];
+    const responseTime = (Date.now() - roundStartTime) / 1000; // Convert to seconds
+
+    // Calculate correct answer
+    let correctSymbol = "=";
+    if (currentRound.first_number > currentRound.second_number) {
+      correctSymbol = ">";
+    } else if (currentRound.first_number < currentRound.second_number) {
+      correctSymbol = "<";
+    }
+
+    const isCorrect = symbol === correctSymbol;
+
+    // Update local state
+    const updatedRounds = [...rounds];
+    updatedRounds[currentRoundIndex] = {
+      ...currentRound,
+      user_symbol: symbol,
+      response_time: responseTime,
+      is_correct: isCorrect,
+    };
+    setRounds(updatedRounds);
+
+    if (isCorrect) {
+      setCorrectAnswers((prev) => prev + 1);
+      setScore((prev) => prev + 100);
+    }
+
+    try {
+      // Submit round to backend
+      await gameAPI.submitRound(sessionId, {
+        round_number: currentRound.round_number,
+        user_symbol: symbol,
+        response_time: responseTime,
+      });
+
+      // Move to next round or complete game
+      if (currentRoundIndex + 1 >= rounds.length) {
+        // Game completed
+        await completeGame(updatedRounds);
+      } else {
+        // Next round
+        setCurrentRoundIndex((prev) => prev + 1);
+        setRoundStartTime(Date.now());
+      }
+    } catch (error) {
+      console.error("Error submitting round:", error);
+      Alert.alert("Error", "Failed to submit round answer");
+    }
+  };
+
+  const completeGame = async (finalRounds: Round[]) => {
+    try {
+      const totalTime = finalRounds.reduce(
+        (sum, round) => sum + (round.response_time || 0),
+        0
+      );
+
+      const gameResults = {
+        game_session_id: parseInt(sessionId as string),
+        total_time: totalTime,
+        rounds: finalRounds.map((round) => ({
+          round_number: round.round_number,
+          first_number: round.first_number,
+          second_number: round.second_number,
+          user_symbol: round.user_symbol,
+          response_time: round.response_time,
+        })),
+      };
+
+      await gameAPI.completeGame(gameResults);
+      setGameCompleted(true);
+
+      Alert.alert(
+        "Game Complete!",
+        `Final Score: ${
+          score + (finalRounds[currentRoundIndex]?.is_correct ? 100 : 0)
+        }\nCorrect Answers: ${
+          correctAnswers + (finalRounds[currentRoundIndex]?.is_correct ? 1 : 0)
+        }/${rounds.length}`,
+        [
+          { text: "Play Again", onPress: () => router.back() },
+          { text: "Menu", onPress: () => router.replace("/game/menu") },
+        ]
+      );
+    } catch (error) {
+      console.error("Error completing game:", error);
+      Alert.alert("Error", "Failed to complete game");
+    }
   };
 
   const handleBackToMenu = () => {
@@ -54,15 +220,8 @@ export default function GameScreen() {
     ]);
   };
 
-  const handleGameComplete = () => {
-    Alert.alert(
-      "Game Complete!",
-      "Well played! Your score has been recorded.",
-      [
-        { text: "Play Again", onPress: () => router.back() },
-        { text: "Menu", onPress: () => router.replace("/game/menu") },
-      ]
-    );
+  const getCurrentRound = () => {
+    return rounds[currentRoundIndex];
   };
 
   const renderWaitingScreen = () => (
@@ -76,25 +235,44 @@ export default function GameScreen() {
       </View>
 
       <View style={styles.content}>
-        <View style={styles.gameInfo}>
-          <Ionicons name="game-controller" size={64} color="#ffd33d" />
-          <Text style={styles.gameTitle}>{title || "Game Session"}</Text>
-          <Text style={styles.gameType}>{gameType || "Unknown"}</Text>
-          <Text style={styles.sessionId}>Session: {sessionId}</Text>
-        </View>
+        {loading ? (
+          <ActivityIndicator size="large" color="#ffd33d" />
+        ) : (
+          <>
+            <View style={styles.gameInfo}>
+              <Ionicons name="game-controller" size={64} color="#ffd33d" />
+              <Text style={styles.gameTitle}>
+                {title || "Symbol Match Game"}
+              </Text>
+              <Text style={styles.gameType}>
+                {gameType || "Symbol Comparison"}
+              </Text>
+              <Text style={styles.sessionId}>Session: {sessionId}</Text>
+              {gameSession && (
+                <Text style={styles.roundsInfo}>
+                  {gameSession.number_of_rounds} rounds to play
+                </Text>
+              )}
+            </View>
 
-        <View style={styles.instructions}>
-          <Text style={styles.instructionsTitle}>How to Play:</Text>
-          <Text style={styles.instructionsText}>
-            • Match symbols as quickly as possible{"\n"}• Higher accuracy = more
-            points{"\n"}• Beat other players to win{"\n"}• Earn coins and
-            experience
-          </Text>
-        </View>
+            <View style={styles.instructions}>
+              <Text style={styles.instructionsTitle}>How to Play:</Text>
+              <Text style={styles.instructionsText}>
+                • Compare two numbers{"\n"}• Choose the correct symbol: {">"},{" "}
+                {"<"}, or {"="}
+                {"\n"}• Answer as quickly as possible{"\n"}• Earn 100 points for
+                each correct answer
+              </Text>
+            </View>
 
-        <TouchableOpacity style={styles.startButton} onPress={handleStartGame}>
-          <Text style={styles.startButtonText}>Start Game</Text>
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.startButton}
+              onPress={handleStartGame}
+            >
+              <Text style={styles.startButtonText}>Start Game</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     </View>
   );
@@ -109,47 +287,111 @@ export default function GameScreen() {
     </View>
   );
 
-  const renderGame = () => (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBackToMenu}>
-          <Ionicons name="pause" size={24} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>{title}</Text>
-        <View style={styles.scoreContainer}>
-          <Text style={styles.scoreText}>Score: 0</Text>
+  const renderGame = () => {
+    const currentRound = getCurrentRound();
+
+    if (!currentRound) {
+      return (
+        <View style={styles.container}>
+          <Text style={styles.errorText}>No rounds available</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={handleBackToMenu}
+          >
+            <Ionicons name="pause" size={24} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>{title}</Text>
+          <View style={styles.scoreContainer}>
+            <Text style={styles.scoreText}>Score: {score}</Text>
+          </View>
+        </View>
+
+        <View style={styles.gameArea}>
+          <Text style={styles.roundCounter}>
+            Round {currentRoundIndex + 1} of {rounds.length}
+          </Text>
+
+          <View style={styles.comparisonContainer}>
+            <Text style={styles.numberText}>{currentRound.first_number}</Text>
+            <Text style={styles.vsText}>vs</Text>
+            <Text style={styles.numberText}>{currentRound.second_number}</Text>
+          </View>
+
+          <Text style={styles.questionText}>Which symbol is correct?</Text>
+
+          <View style={styles.symbolButtons}>
+            <TouchableOpacity
+              style={styles.symbolButton}
+              onPress={() => handleSymbolChoice("<")}
+            >
+              <Text style={styles.symbolButtonText}>{"<"}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.symbolButton}
+              onPress={() => handleSymbolChoice("=")}
+            >
+              <Text style={styles.symbolButtonText}>{"="}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.symbolButton}
+              onPress={() => handleSymbolChoice(">")}
+            >
+              <Text style={styles.symbolButtonText}>{">"}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.gameControls}>
+          <View style={styles.progressContainer}>
+            <Text style={styles.progressText}>
+              Correct: {correctAnswers}/{rounds.length}
+            </Text>
+          </View>
         </View>
       </View>
+    );
+  };
 
-      <View style={styles.gameArea}>
-        <Text style={styles.placeholderText}>🎮</Text>
-        <Text style={styles.gameInstructions}>
-          Game Implementation Coming Soon!
-        </Text>
-        <Text style={styles.gameDetails}>
-          This is where the actual {gameType} game would be implemented.
-        </Text>
+  if (gameCompleted) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.content}>
+          <Ionicons name="trophy" size={80} color="#ffd33d" />
+          <Text style={styles.gameTitle}>Game Complete!</Text>
+          <Text style={styles.finalScore}>Final Score: {score}</Text>
+          <Text style={styles.accuracy}>
+            Accuracy: {correctAnswers}/{rounds.length} (
+            {Math.round((correctAnswers / rounds.length) * 100)}%)
+          </Text>
 
-        <TouchableOpacity
-          style={styles.demoButton}
-          onPress={handleGameComplete}
-        >
-          <Text style={styles.demoButtonText}>Simulate Game Complete</Text>
-        </TouchableOpacity>
-      </View>
+          <View style={styles.finalButtons}>
+            <TouchableOpacity
+              style={styles.playAgainButton}
+              onPress={() => router.back()}
+            >
+              <Text style={styles.playAgainButtonText}>Play Again</Text>
+            </TouchableOpacity>
 
-      <View style={styles.gameControls}>
-        <View style={styles.timerContainer}>
-          <Ionicons name="time" size={16} color="#888" />
-          <Text style={styles.timerText}>05:00</Text>
+            <TouchableOpacity
+              style={styles.menuButton}
+              onPress={() => router.replace("/game/menu")}
+            >
+              <Text style={styles.menuButtonText}>Back to Menu</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-        <View style={styles.livesContainer}>
-          <Ionicons name="heart" size={16} color="#F44336" />
-          <Text style={styles.livesText}>3</Text>
-        </View>
       </View>
-    </View>
-  );
+    );
+  }
 
   if (!gameStarted) {
     return renderWaitingScreen();
@@ -225,6 +467,11 @@ const styles = StyleSheet.create({
     color: "#888",
     marginTop: 4,
   },
+  roundsInfo: {
+    fontSize: getResponsiveFontSize(14),
+    color: "#ccc",
+    marginTop: 8,
+  },
   instructions: {
     backgroundColor: "#333",
     borderRadius: 12,
@@ -285,70 +532,110 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: getResponsivePadding(),
   },
-  placeholderText: {
-    fontSize: 100,
-    marginBottom: 20,
-  },
-  gameInstructions: {
-    fontSize: getResponsiveFontSize(20),
-    fontWeight: "bold",
-    color: "#fff",
-    textAlign: "center",
-    marginBottom: 12,
-  },
-  gameDetails: {
-    fontSize: getResponsiveFontSize(14),
+  roundCounter: {
+    fontSize: getResponsiveFontSize(18),
     color: "#888",
-    textAlign: "center",
     marginBottom: 30,
   },
-  demoButton: {
-    backgroundColor: "#4CAF50",
-    paddingHorizontal: 30,
-    paddingVertical: 12,
-    borderRadius: 8,
+  comparisonContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 40,
   },
-  demoButtonText: {
-    fontSize: getResponsiveFontSize(16),
+  numberText: {
+    fontSize: getResponsiveFontSize(48),
     fontWeight: "bold",
     color: "#fff",
+    marginHorizontal: 20,
+  },
+  vsText: {
+    fontSize: getResponsiveFontSize(20),
+    color: "#888",
+    marginHorizontal: 20,
+  },
+  questionText: {
+    fontSize: getResponsiveFontSize(20),
+    color: "#fff",
+    marginBottom: 40,
+    textAlign: "center",
+  },
+  symbolButtons: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    width: "100%",
+    maxWidth: 400,
+  },
+  symbolButton: {
+    backgroundColor: "#ffd33d",
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: "center",
+    alignItems: "center",
+    marginHorizontal: 10,
+  },
+  symbolButtonText: {
+    fontSize: getResponsiveFontSize(32),
+    fontWeight: "bold",
+    color: "#25292e",
   },
   gameControls: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
     paddingHorizontal: getResponsivePadding(),
     paddingVertical: 16,
     borderTopWidth: 1,
     borderTopColor: "#333",
     backgroundColor: "#2a2d32",
   },
-  timerContainer: {
-    flexDirection: "row",
+  progressContainer: {
     alignItems: "center",
-    backgroundColor: "#333",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
   },
-  timerText: {
-    fontSize: getResponsiveFontSize(14),
+  progressText: {
+    fontSize: getResponsiveFontSize(16),
+    color: "#fff",
+    fontWeight: "bold",
+  },
+  errorText: {
+    fontSize: getResponsiveFontSize(18),
+    color: "#F44336",
+    textAlign: "center",
+  },
+  finalScore: {
+    fontSize: getResponsiveFontSize(32),
+    fontWeight: "bold",
+    color: "#ffd33d",
+    marginTop: 20,
+  },
+  accuracy: {
+    fontSize: getResponsiveFontSize(18),
+    color: "#fff",
+    marginTop: 10,
+    marginBottom: 40,
+  },
+  finalButtons: {
+    width: "100%",
+    maxWidth: 300,
+  },
+  playAgainButton: {
+    backgroundColor: "#4CAF50",
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  playAgainButtonText: {
+    fontSize: getResponsiveFontSize(18),
     fontWeight: "bold",
     color: "#fff",
-    marginLeft: 6,
   },
-  livesContainer: {
-    flexDirection: "row",
-    alignItems: "center",
+  menuButton: {
     backgroundColor: "#333",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: "center",
   },
-  livesText: {
-    fontSize: getResponsiveFontSize(14),
+  menuButtonText: {
+    fontSize: getResponsiveFontSize(18),
     fontWeight: "bold",
     color: "#fff",
-    marginLeft: 6,
   },
 });

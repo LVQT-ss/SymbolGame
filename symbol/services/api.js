@@ -273,7 +273,12 @@ export const gameAPI = {
 
     completeGame: async (gameResults) => {
         try {
-            const response = await api.post("/game/complete", gameResults);
+            const response = await api.post("/game/complete", {
+                game_session_id: gameResults.game_session_id,
+                total_time: gameResults.total_time,
+                rounds: gameResults.rounds,
+                recording_url: gameResults.recording_url
+            });
             return response.data;
         } catch (error) {
             throw new Error(error.response?.data?.message || "Failed to complete game");
@@ -320,6 +325,25 @@ export const gameAPI = {
         }
     },
 
+    // Add missing methods that the frontend is calling
+    createGameSession: async (gameData) => {
+        try {
+            const response = await api.post("/game/start", gameData);
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to create game session");
+        }
+    },
+
+    joinGameSession: async (gameSessionId) => {
+        try {
+            const response = await api.post("/game/join", { game_session_id: gameSessionId });
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to join game session");
+        }
+    },
+
     getGameSession: async (gameSessionId) => {
         try {
             const response = await api.get(`/game/${gameSessionId}`);
@@ -331,18 +355,22 @@ export const gameAPI = {
 
     submitRound: async (gameSessionId, roundData) => {
         try {
-            const response = await api.post(`/game/${gameSessionId}/submit-round`, roundData);
+            const response = await api.post(`/game/${gameSessionId}/submit-round`, {
+                round_number: roundData.round_number,
+                user_symbol: roundData.user_symbol,
+                response_time: roundData.response_time
+            });
             return response.data;
         } catch (error) {
             throw new Error(error.response?.data?.message || "Failed to submit round");
         }
     },
 
-    completeGameRounds: async (gameSessionId) => {
+    completeGameRounds: async (gameSessionId, recordingUrl = null) => {
         try {
             // Get all completed rounds for final submission
             const gameSession = await api.get(`/game/${gameSessionId}`);
-            const rounds = gameSession.data.game_session.rounds || [];
+            const rounds = gameSession.data.rounds || [];
 
             // Calculate total time from all rounds
             const totalTime = rounds.reduce((sum, round) => sum + (round.response_time || 0), 0);
@@ -351,6 +379,7 @@ export const gameAPI = {
             const formattedRounds = rounds
                 .filter(round => round.user_symbol) // Only completed rounds
                 .map(round => ({
+                    round_number: round.round_number,
                     first_number: round.first_number,
                     second_number: round.second_number,
                     user_symbol: round.user_symbol,
@@ -360,7 +389,8 @@ export const gameAPI = {
             const response = await api.post("/game/complete", {
                 game_session_id: gameSessionId,
                 total_time: totalTime,
-                rounds: formattedRounds
+                rounds: formattedRounds,
+                recording_url: recordingUrl
             });
             return response.data;
         } catch (error) {
