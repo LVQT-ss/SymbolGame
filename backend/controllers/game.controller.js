@@ -1168,15 +1168,31 @@ export const getAvailableGames = async (req, res) => {
 
         console.log('🎮 Getting available games with params:', { page: pageNum, limit: limitNum, admin_id });
 
+        // First, let's see what game sessions exist in the database
+        const allSessions = await GameSession.findAll({
+            attributes: ['id', 'user_id', 'completed', 'is_public', 'created_by_admin', 'admin_instructions'],
+            limit: 10
+        });
+        console.log('📋 All game sessions in database:', allSessions);
+
         // Build where clause for unassigned public sessions
-        const whereClause = {
-            user_id: null,           // No specific user assigned
+        let whereClause = {
             completed: false         // Only active sessions
         };
 
-        // Add admin filter if specified
+        // Only filter by user_id if we want to be strict
+        // For debugging, let's be more flexible
         if (admin_id) {
             whereClause.created_by_admin = admin_id;
+        } else {
+            // Show sessions that are either unassigned OR available
+            whereClause = {
+                completed: false,
+                [Op.or]: [
+                    { user_id: null },           // Unassigned sessions
+                    { is_public: true }          // Public sessions
+                ]
+            };
         }
 
         console.log('🔍 Where clause:', whereClause);

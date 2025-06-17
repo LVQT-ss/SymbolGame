@@ -1,6 +1,7 @@
 import express from 'express';
 import {
-    getCustomerCount
+    getCustomerCount,
+    createSampleGames
 } from '../controllers/admin.controller.js';
 import { verifyToken } from '../middleware/verifyUser.js';
 
@@ -42,4 +43,5 @@ const router = express.Router();
  *         description: Server error
  */
 router.get('/customers/count', verifyToken, getCustomerCount);
+router.post('/create-sample-games', verifyToken, createSampleGames);
 export default router; 
