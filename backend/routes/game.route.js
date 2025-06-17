@@ -96,6 +96,42 @@ router.post('/join', verifyToken, joinGame);
 
 /**
  * @swagger
+ * /api/game/available:
+ *   get:
+ *     tags:
+ *     - Game Controller
+ *     summary: Get available game sessions that anyone can join
+ *     description: Retrieve unassigned game sessions created by admins that are open for anyone to join
+ *     security:
+ *       - Authorization: []
+ *     parameters:
+ *       - name: page
+ *         in: query
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - name: limit
+ *         in: query
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - name: admin_id
+ *         in: query
+ *         schema:
+ *           type: integer
+ *         description: Filter sessions by specific admin creator
+ *     responses:
+ *       200:
+ *         description: Available game sessions retrieved successfully
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.get('/available', verifyToken, getAvailableGames);
+
+/**
+ * @swagger
  * /api/game/{id}:
  *   get:
  *     tags:
@@ -419,98 +455,7 @@ router.post('/admin/create-custom', verifyToken, createGameWithCustomRounds);
  */
 router.get('/assigned', verifyToken, getAssignedSessions);
 
-/**
- * @swagger
- * /api/game/available:
- *   get:
- *     tags:
- *     - Game Controller
- *     summary: Get available game sessions that anyone can join
- *     description: Retrieve unassigned game sessions created by admins that are open for anyone to join
- *     security:
- *       - Authorization: []
- *     parameters:
- *       - name: page
- *         in: query
- *         schema:
- *           type: integer
- *           default: 1
- *       - name: limit
- *         in: query
- *         schema:
- *           type: integer
- *           default: 10
- *       - name: admin_id
- *         in: query
- *         schema:
- *           type: integer
- *         description: Filter sessions by specific admin creator
- *     responses:
- *       200:
- *         description: Available game sessions retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: Available game sessions retrieved successfully
- *                 pagination:
- *                   type: object
- *                   properties:
- *                     total:
- *                       type: integer
- *                     page:
- *                       type: integer
- *                     limit:
- *                       type: integer
- *                     totalPages:
- *                       type: integer
- *                 available_games:
- *                   type: array
- *                   items:
- *                     type: object
- *                     properties:
- *                       id:
- *                         type: integer
- *                         example: 156
- *                       number_of_rounds:
- *                         type: integer
- *                         example: 15
- *                       admin_instructions:
- *                         type: string
- *                         example: "Practice comparing larger numbers"
- *                       created_at:
- *                         type: string
- *                         format: date-time
- *                       created_by:
- *                         type: object
- *                         properties:
- *                           id:
- *                             type: integer
- *                           username:
- *                             type: string
- *                           full_name:
- *                             type: string
- *                       time_limit:
- *                         type: string
- *                         example: "10 minutes per session"
- *                       round_time_limit:
- *                         type: string
- *                         example: "60 seconds per round"
- *                       points_per_correct:
- *                         type: integer
- *                         example: 100
- *                       status:
- *                         type: string
- *                         example: "available_to_join"
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Server error
- */
-router.get('/available', verifyToken, getAvailableGames);
+
 
 /**
  * @swagger

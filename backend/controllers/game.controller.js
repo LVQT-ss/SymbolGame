@@ -1166,12 +1166,12 @@ export const getAvailableGames = async (req, res) => {
         const limitNum = parseInt(limit);
         const offset = (pageNum - 1) * limitNum;
 
+        console.log('🎮 Getting available games with params:', { page: pageNum, limit: limitNum, admin_id });
+
         // Build where clause for unassigned public sessions
         const whereClause = {
             user_id: null,           // No specific user assigned
-            completed: false,        // Only active sessions
-            is_public: true,         // Public sessions only
-            created_by_admin: { [Op.ne]: null }  // Must be created by admin
+            completed: false         // Only active sessions
         };
 
         // Add admin filter if specified
@@ -1179,10 +1179,14 @@ export const getAvailableGames = async (req, res) => {
             whereClause.created_by_admin = admin_id;
         }
 
+        console.log('🔍 Where clause:', whereClause);
+
         // Get total count
         const totalGames = await GameSession.count({
             where: whereClause
         });
+
+        console.log('📊 Total games found:', totalGames);
 
         // Get available game sessions
         const availableGames = await GameSession.findAll({
@@ -1192,17 +1196,45 @@ export const getAvailableGames = async (req, res) => {
                     model: User,
                     as: 'adminCreator',
                     attributes: ['id', 'username', 'full_name'],
-                    required: true
+                    required: false  // Changed from true to false to allow sessions without admin
                 },
                 {
                     model: RoundDetail,
                     as: 'rounds',
-                    attributes: ['round_number'],  // Only count, don't show actual rounds for security
+                    attributes: ['round_number'],
+                    required: false
                 }
             ],
             order: [['createdAt', 'DESC']],
             limit: limitNum,
             offset: offset
+        });
+
+        console.log('🎯 Available games retrieved:', availableGames.length);
+
+        // Format the response
+        const formattedGames = availableGames.map(game => {
+            const adminCreator = game.adminCreator || {
+                id: 1,
+                username: 'system',
+                full_name: 'System Admin'
+            };
+
+            return {
+                id: game.id,
+                number_of_rounds: game.number_of_rounds,
+                admin_instructions: game.admin_instructions || 'Complete the mathematical challenges',
+                created_at: game.createdAt,
+                created_by: adminCreator,
+                time_limit: '10 minutes per session',
+                round_time_limit: '60 seconds per round',
+                points_per_correct: 100,
+                status: 'available_to_join',
+                progress: {
+                    is_user_assigned: false,
+                    is_assigned_to_someone: false
+                }
+            };
         });
 
         res.status(200).json({
@@ -1213,21 +1245,11 @@ export const getAvailableGames = async (req, res) => {
                 limit: limitNum,
                 totalPages: Math.ceil(totalGames / limitNum)
             },
-            available_games: availableGames.map(game => ({
-                id: game.id,
-                number_of_rounds: game.number_of_rounds,
-                admin_instructions: game.admin_instructions,
-                created_at: game.createdAt,
-                created_by: game.adminCreator,
-                time_limit: '10 minutes per session',
-                round_time_limit: '60 seconds per round',
-                points_per_correct: 100,
-                status: 'available_to_join'
-            }))
+            available_games: formattedGames
         });
 
     } catch (err) {
-        console.error('Error retrieving available game sessions:', err);
+        console.error('❌ Error retrieving available game sessions:', err);
         res.status(500).json({ message: 'Server error', error: err.message });
     }
 };

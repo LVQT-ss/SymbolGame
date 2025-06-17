@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
   Alert,
   Dimensions,
@@ -51,6 +51,23 @@ export default function GameScreen() {
   const params = useLocalSearchParams();
   const { sessionId, gameType, title } = params;
 
+  // Validate and parse sessionId
+  const parsedSessionId = useMemo(() => {
+    if (!sessionId) {
+      console.error("❌ No sessionId provided");
+      return null;
+    }
+
+    const id = parseInt(sessionId as string, 10);
+    if (isNaN(id)) {
+      console.error(`❌ Invalid sessionId: ${sessionId}`);
+      return null;
+    }
+
+    console.log(`✅ Valid sessionId: ${id}`);
+    return id;
+  }, [sessionId]);
+
   const [gameStarted, setGameStarted] = useState(false);
   const [countdown, setCountdown] = useState(3);
   const [loading, setLoading] = useState(false);
@@ -63,10 +80,16 @@ export default function GameScreen() {
   const [roundStartTime, setRoundStartTime] = useState<number>(0);
 
   useEffect(() => {
-    if (sessionId) {
+    if (parsedSessionId) {
       loadGameSession();
+    } else {
+      Alert.alert(
+        "Invalid Game Session",
+        "Cannot load game: Invalid session ID",
+        [{ text: "Go Back", onPress: () => router.back() }]
+      );
     }
-  }, [sessionId]);
+  }, [parsedSessionId]);
 
   useEffect(() => {
     if (gameStarted && countdown > 0) {
@@ -80,9 +103,12 @@ export default function GameScreen() {
   }, [gameStarted, countdown]);
 
   const loadGameSession = async () => {
+    if (!parsedSessionId) return;
+
     try {
       setLoading(true);
-      const response = await gameAPI.getGameSession(sessionId);
+      console.log(`🔄 Loading game session ${parsedSessionId}`);
+      const response = await gameAPI.getGameSession(parsedSessionId);
 
       if (response && response.game_session) {
         setGameSession(response.game_session);
@@ -91,19 +117,96 @@ export default function GameScreen() {
         setCorrectAnswers(response.game_session.correct_answers || 0);
 
         // Check if game is already completed
-        if (response.game_session.completed) {
+        if (
+          response.game_session.completed ||
+          response.progress?.is_completed
+        ) {
           setGameCompleted(true);
-        }
 
-        // Find current round
-        const completedRounds = response.rounds.filter(
-          (r: Round) => r.user_symbol
-        ).length;
-        setCurrentRoundIndex(completedRounds);
+          // Show completion summary
+          Alert.alert(
+            "Game Already Completed! 🎉",
+            `This game has been finished!\n\nFinal Score: ${
+              response.game_session.score || 0
+            }\nCorrect Answers: ${response.game_session.correct_answers || 0}/${
+              response.game_session.number_of_rounds
+            }\nTotal Time: ${(response.game_session.total_time || 0).toFixed(
+              1
+            )}s`,
+            [
+              { text: "View Results", style: "default" },
+              { text: "Back to Menu", onPress: () => router.back() },
+            ]
+          );
+        } else {
+          // Find current round
+          const completedRounds = response.rounds.filter(
+            (r: Round) => r.user_symbol
+          ).length;
+          setCurrentRoundIndex(completedRounds);
+
+          // Check if all rounds are actually completed but game not marked as completed
+          if (completedRounds >= response.game_session.number_of_rounds) {
+            Alert.alert(
+              "Game Completed! 🎉",
+              "All rounds have been completed! The game will be marked as finished.",
+              [{ text: "OK", onPress: () => router.back() }]
+            );
+            setGameCompleted(true);
+          }
+        }
       }
-    } catch (error) {
-      console.error("Error loading game session:", error);
-      Alert.alert("Error", "Failed to load game session");
+    } catch (error: any) {
+      console.error("❌ Error loading game session:", error);
+
+      // Check if this is the specific "invalid session ID" error
+      if (error.message && error.message.includes("Must be a valid number")) {
+        Alert.alert(
+          "Invalid Game Session",
+          "The game session ID is invalid. This might happen in offline mode.",
+          [
+            {
+              text: "Go Back",
+              onPress: () => router.back(),
+            },
+            {
+              text: "Try Practice Mode",
+              onPress: () => {
+                // Create a simple practice round
+                const practiceRounds: Round[] = [
+                  { round_number: 1, first_number: 25, second_number: 18 },
+                  { round_number: 2, first_number: 7, second_number: 31 },
+                  { round_number: 3, first_number: 50, second_number: 50 },
+                ];
+
+                setRounds(practiceRounds);
+                setGameSession({
+                  id: 0,
+                  number_of_rounds: 3,
+                  completed: false,
+                  score: 0,
+                  correct_answers: 0,
+                  total_time: 0,
+                });
+
+                Alert.alert(
+                  "Practice Mode",
+                  "Playing in offline practice mode. Your progress won't be saved.",
+                  [{ text: "OK" }]
+                );
+              },
+            },
+          ]
+        );
+      } else {
+        Alert.alert(
+          "Connection Error",
+          `Failed to load game session: ${
+            error.message || "Unknown error"
+          }. Please check your connection and try again.`,
+          [{ text: "Go Back", onPress: () => router.back() }]
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -152,7 +255,7 @@ export default function GameScreen() {
 
     try {
       // Submit round to backend
-      await gameAPI.submitRound(sessionId, {
+      await gameAPI.submitRound(parsedSessionId, {
         round_number: currentRound.round_number,
         user_symbol: symbol,
         response_time: responseTime,
@@ -181,7 +284,7 @@ export default function GameScreen() {
       );
 
       const gameResults = {
-        game_session_id: parseInt(sessionId as string),
+        game_session_id: parsedSessionId,
         total_time: totalTime,
         rounds: finalRounds.map((round) => ({
           round_number: round.round_number,

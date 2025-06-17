@@ -71,19 +71,6 @@ interface GameSession {
   category: string;
 }
 
-interface GameHistory {
-  id: number;
-  title: string;
-  score: number;
-  duration: number;
-  result: "won" | "lost" | "draw";
-  coinsEarned: number;
-  experienceGained: number;
-  completedAt: string;
-  rank: number;
-  totalPlayers: number;
-}
-
 interface GameStats {
   totalGamesPlayed: number;
   totalWins: number;
@@ -100,13 +87,12 @@ export default function GameMenuScreen() {
   const [dimensions, setDimensions] = useState(getResponsiveDimensions());
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"available" | "history" | "stats">(
+  const [activeTab, setActiveTab] = useState<"available" | "stats">(
     "available"
   );
 
   // Data states
   const [availableGames, setAvailableGames] = useState<GameSession[]>([]);
-  const [gameHistory, setGameHistory] = useState<GameHistory[]>([]);
   const [gameStats, setGameStats] = useState<GameStats>({
     totalGamesPlayed: 0,
     totalWins: 0,
@@ -144,7 +130,6 @@ export default function GameMenuScreen() {
     try {
       await Promise.all([
         loadAvailableGames(),
-        loadGameHistory(),
         loadGameStats(),
         loadUserProfile(),
       ]);
@@ -185,7 +170,18 @@ export default function GameMenuScreen() {
         response.available_games &&
         Array.isArray(response.available_games)
       ) {
-        console.log("Using real API data");
+        console.log("✅ Using real API data");
+
+        if (response.available_games.length === 0) {
+          console.log("⚠️ No available games found from API");
+          Alert.alert(
+            "No Games Available",
+            "There are currently no available games to join. Please check back later or contact an administrator to create new games.",
+            [{ text: "OK" }]
+          );
+          setAvailableGames([]); // Set empty array when no games
+          return;
+        }
 
         // Map API response to frontend interface
         const mappedGames: GameSession[] = response.available_games.map(
@@ -207,6 +203,12 @@ export default function GameMenuScreen() {
             const baseCoins = game.number_of_rounds * 10;
             const baseExperience = game.number_of_rounds * 5;
 
+            // Check if user is already assigned to this game
+            const isUserAssigned =
+              game.progress?.is_user_assigned || game.status === "joined";
+            const isAssignedToSomeone =
+              game.progress?.is_assigned_to_someone || false;
+
             return {
               id: parseInt(game.id) || 1,
               title: `Math Challenge Session ${game.id}`,
@@ -214,22 +216,21 @@ export default function GameMenuScreen() {
                 game.admin_instructions ||
                 "Complete mathematical symbol comparison challenges",
               difficulty,
-              maxPlayers: 1, // Based on API structure, seems like individual sessions
-              currentPlayers: game.status === "available_to_join" ? 0 : 1,
+              maxPlayers: 1, // Each game session is for one player
+              currentPlayers: isAssignedToSomeone ? 1 : 0,
               timeLimit: timeLimitSeconds,
               reward: {
                 coins: baseCoins,
                 experience: baseExperience,
               },
-              isJoined: false, // We'd need to check this from user data
+              isJoined: isUserAssigned,
               createdBy: {
                 id: game.created_by.id.toString(),
                 username: game.created_by.username,
                 avatar: `https://i.pravatar.cc/100?img=${game.created_by.id}`,
               },
               startTime: game.created_at,
-              status:
-                game.status === "available_to_join" ? "waiting" : "active",
+              status: isUserAssigned ? "active" : "waiting",
               category: "Symbol Match",
             };
           }
@@ -238,163 +239,29 @@ export default function GameMenuScreen() {
         setAvailableGames(mappedGames);
         console.log("Mapped games:", mappedGames);
       } else {
-        console.log(
-          "API response doesn't have expected format, using mock data"
+        console.error(
+          "❌ API response doesn't have expected format:",
+          response
         );
-        // Fallback to mock data
-        const mockGames: GameSession[] = [
-          {
-            id: 1,
-            title: "Speed Challenge",
-            description: "Test your reflexes in this fast-paced game",
-            difficulty: "Medium",
-            maxPlayers: 4,
-            currentPlayers: 2,
-            timeLimit: 180,
-            reward: { coins: 100, experience: 50 },
-            isJoined: false,
-            createdBy: {
-              id: "1",
-              username: "GameMaster",
-              avatar: "https://i.pravatar.cc/100?img=2",
-            },
-            startTime: new Date(Date.now() + 300000).toISOString(),
-            status: "waiting",
-            category: "Speed Run",
-          },
-          {
-            id: 2,
-            title: "Memory Master",
-            description: "Challenge your memory with complex patterns",
-            difficulty: "Hard",
-            maxPlayers: 2,
-            currentPlayers: 1,
-            timeLimit: 240,
-            reward: { coins: 150, experience: 75 },
-            isJoined: true,
-            createdBy: {
-              id: "2",
-              username: "BrainTrainer",
-              avatar: "https://i.pravatar.cc/100?img=3",
-            },
-            startTime: new Date(Date.now() + 600000).toISOString(),
-            status: "active",
-            category: "Memory Game",
-          },
-          {
-            id: 3,
-            title: "Logic Puzzle",
-            description: "Solve intricate logic puzzles under pressure",
-            difficulty: "Expert",
-            maxPlayers: 6,
-            currentPlayers: 4,
-            timeLimit: 300,
-            reward: { coins: 200, experience: 100 },
-            isJoined: false,
-            createdBy: {
-              id: "3",
-              username: "PuzzleMaster",
-              avatar: "https://i.pravatar.cc/100?img=4",
-            },
-            startTime: new Date(Date.now() + 900000).toISOString(),
-            status: "waiting",
-            category: "Puzzle Master",
-          },
-        ];
-        setAvailableGames(mockGames);
+        Alert.alert(
+          "Data Error",
+          "Server returned unexpected data format. Please try again or contact support.",
+          [{ text: "OK" }]
+        );
+        setAvailableGames([]); // Set empty array on format error
       }
-    } catch (error) {
-      console.error("Error loading available games:", error);
+    } catch (error: any) {
+      console.error("❌ Error loading available games:", error);
 
-      // Create fallback mock data on error
-      const errorFallbackGames: GameSession[] = [
-        {
-          id: 1,
-          title: "Offline Practice Session",
-          description: "Practice mode while connecting to server",
-          difficulty: "Easy",
-          maxPlayers: 1,
-          currentPlayers: 0,
-          timeLimit: 300,
-          reward: { coins: 50, experience: 25 },
-          isJoined: false,
-          createdBy: {
-            id: "system",
-            username: "System",
-            avatar: "https://i.pravatar.cc/100?img=1",
-          },
-          startTime: new Date().toISOString(),
-          status: "waiting",
-          category: "Symbol Match",
-        },
-      ];
-      setAvailableGames(errorFallbackGames);
-    }
-  };
+      Alert.alert(
+        "Connection Error",
+        `Failed to load games: ${
+          error.message || "Network error"
+        }. Please check your connection and try again.`,
+        [{ text: "Retry", onPress: () => loadAvailableGames() }, { text: "OK" }]
+      );
 
-  const loadGameHistory = async () => {
-    try {
-      const response = await gameAPI.getGameHistory(1, 20);
-
-      // If API doesn't return expected format, create mock data
-      if (!response || !response.history) {
-        const mockHistory: GameHistory[] = [
-          {
-            id: 1,
-            title: "Symbol Match Challenge",
-            score: 2450,
-            duration: 240, // 4 minutes
-            result: "won",
-            coinsEarned: 100,
-            experienceGained: 50,
-            completedAt: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
-            rank: 1,
-            totalPlayers: 4,
-          },
-          {
-            id: 2,
-            title: "Memory Speed Run",
-            score: 1890,
-            duration: 180,
-            result: "lost",
-            coinsEarned: 25,
-            experienceGained: 20,
-            completedAt: new Date(Date.now() - 7200000).toISOString(), // 2 hours ago
-            rank: 3,
-            totalPlayers: 6,
-          },
-          {
-            id: 3,
-            title: "Speed Challenge",
-            score: 3120,
-            duration: 120,
-            result: "won",
-            coinsEarned: 200,
-            experienceGained: 100,
-            completedAt: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
-            rank: 1,
-            totalPlayers: 8,
-          },
-          {
-            id: 4,
-            title: "Memory Game",
-            score: 1650,
-            duration: 300,
-            result: "draw",
-            coinsEarned: 50,
-            experienceGained: 30,
-            completedAt: new Date(Date.now() - 172800000).toISOString(), // 2 days ago
-            rank: 2,
-            totalPlayers: 4,
-          },
-        ];
-        setGameHistory(mockHistory);
-      } else {
-        setGameHistory(response.history);
-      }
-    } catch (error) {
-      console.error("Error loading game history:", error);
-      setGameHistory([]);
+      setAvailableGames([]); // Set empty array on error
     }
   };
 
@@ -447,18 +314,81 @@ export default function GameMenuScreen() {
 
       Alert.alert(
         "Join Game",
-        `Join "${session.title}"?\n\nDifficulty: ${session.difficulty}\nReward: ${session.reward.coins} coins + ${session.reward.experience} XP`,
+        `Join "${session.title}"?\n\nDifficulty: ${
+          session.difficulty
+        }\nReward: ${session.reward.coins} coins + ${
+          session.reward.experience
+        } XP${
+          session.currentPlayers > 0
+            ? "\n\n⚠️ This game is currently assigned to another player. Joining will take it over."
+            : ""
+        }`,
         [
           { text: "Cancel", style: "cancel" },
           {
-            text: "Join",
+            text: session.currentPlayers > 0 ? "Take Over Game" : "Join Game",
             onPress: async () => {
               try {
-                await gameAPI.joinGame(session.id);
-                Alert.alert("Success", "Successfully joined the game!");
-                await loadAvailableGames(); // Refresh the list
+                console.log(`🎮 Attempting to join game session ${session.id}`);
+                const result = await gameAPI.joinGame(session.id);
+                console.log("✅ Join game result:", result);
+
+                // Show success and offer to start game immediately
+                Alert.alert(
+                  "Success!",
+                  "Successfully joined the game! Ready to start playing?",
+                  [
+                    { text: "Later", style: "cancel" },
+                    {
+                      text: "Start Now",
+                      onPress: () => {
+                        // Navigate directly to game screen with the session ID
+                        console.log(
+                          `🎮 Starting game with session ID: ${session.id}`
+                        );
+                        router.push({
+                          pathname: "/game/game",
+                          params: {
+                            sessionId: session.id.toString(),
+                            gameType: session.category,
+                            title: session.title,
+                          },
+                        });
+                      },
+                    },
+                  ]
+                );
+
+                // Update the local state to reflect joined status
+                setAvailableGames((prevGames) =>
+                  prevGames.map((game) =>
+                    game.id === session.id
+                      ? {
+                          ...game,
+                          isJoined: true,
+                          status: "active",
+                          currentPlayers: game.currentPlayers + 1,
+                        }
+                      : game
+                  )
+                );
               } catch (error: any) {
-                Alert.alert("Error", error.message || "Failed to join game");
+                console.error("❌ Error joining game:", error);
+
+                // Provide specific error messages
+                let errorMessage = error.message || "Failed to join game";
+                if (errorMessage.includes("already been completed")) {
+                  errorMessage =
+                    "This game session has already been completed. Please choose a different game.";
+                } else if (errorMessage.includes("already assigned")) {
+                  errorMessage =
+                    "This game is already being played by another user.";
+                } else if (errorMessage.includes("not found")) {
+                  errorMessage =
+                    "Game session not found. It may have been deleted.";
+                }
+
+                Alert.alert("Cannot Join Game", errorMessage);
               }
             },
           },
@@ -470,11 +400,22 @@ export default function GameMenuScreen() {
   };
 
   const handleStartGame = (session: GameSession) => {
+    // Validate session ID before navigation
+    if (!session.id || typeof session.id !== "number") {
+      Alert.alert(
+        "Invalid Game Session",
+        "Cannot start game: Invalid session ID. Please try joining the game first."
+      );
+      return;
+    }
+
+    console.log(`🎮 Starting game with session ID: ${session.id}`);
+
     // Navigate to the actual game screen
     router.push({
       pathname: "/game/game",
       params: {
-        sessionId: session.id,
+        sessionId: session.id.toString(), // Ensure it's a string for navigation
         gameType: session.category,
         title: session.title,
       },
@@ -506,32 +447,6 @@ export default function GameMenuScreen() {
         return "#9E9E9E";
       default:
         return "#2196F3";
-    }
-  };
-
-  const getResultIcon = (result: string) => {
-    switch (result) {
-      case "won":
-        return "trophy";
-      case "lost":
-        return "close-circle";
-      case "draw":
-        return "remove-circle";
-      default:
-        return "help-circle";
-    }
-  };
-
-  const getResultColor = (result: string) => {
-    switch (result) {
-      case "won":
-        return "#4CAF50";
-      case "lost":
-        return "#F44336";
-      case "draw":
-        return "#FF9800";
-      default:
-        return "#9E9E9E";
     }
   };
 
@@ -622,7 +537,7 @@ export default function GameMenuScreen() {
       </View>
 
       <View style={styles.gameActions}>
-        {item.status === "active" ? (
+        {item.isJoined ? (
           <TouchableOpacity
             style={styles.startButton}
             onPress={() => handleStartGame(item)}
@@ -631,78 +546,14 @@ export default function GameMenuScreen() {
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            style={[
-              styles.joinButton,
-              item.isJoined && styles.joinedButton,
-              item.currentPlayers >= item.maxPlayers && styles.disabledButton,
-            ]}
+            style={styles.joinButton}
             onPress={() => handleJoinGame(item)}
-            disabled={item.isJoined || item.currentPlayers >= item.maxPlayers}
           >
-            <Text
-              style={[
-                styles.joinButtonText,
-                item.isJoined && styles.joinedButtonText,
-              ]}
-            >
-              {item.isJoined
-                ? "Joined"
-                : item.currentPlayers >= item.maxPlayers
-                ? "Full"
-                : "Join Game"}
+            <Text style={styles.joinButtonText}>
+              {item.currentPlayers > 0 ? "Join Game (Take Over)" : "Join Game"}
             </Text>
           </TouchableOpacity>
         )}
-      </View>
-    </View>
-  );
-
-  const renderHistoryItem = ({ item }: { item: GameHistory }) => (
-    <View style={styles.historyCard}>
-      <View style={styles.historyHeader}>
-        <Text style={styles.historyTitle} numberOfLines={1}>
-          {item.title}
-        </Text>
-        <View style={styles.historyResult}>
-          <Ionicons
-            name={getResultIcon(item.result) as any}
-            size={20}
-            color={getResultColor(item.result)}
-          />
-        </View>
-      </View>
-
-      <View style={styles.historyStats}>
-        <View style={styles.historyStatItem}>
-          <Text style={styles.historyStatLabel}>Score</Text>
-          <Text style={styles.historyStatValue}>
-            {item.score.toLocaleString()}
-          </Text>
-        </View>
-        <View style={styles.historyStatItem}>
-          <Text style={styles.historyStatLabel}>Rank</Text>
-          <Text style={styles.historyStatValue}>
-            {item.rank}/{item.totalPlayers}
-          </Text>
-        </View>
-        <View style={styles.historyStatItem}>
-          <Text style={styles.historyStatLabel}>Duration</Text>
-          <Text style={styles.historyStatValue}>
-            {formatTime(item.duration)}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.historyRewards}>
-        <View style={styles.rewardItem}>
-          <Ionicons name="diamond" size={14} color="#ffd33d" />
-          <Text style={styles.historyRewardText}>+{item.coinsEarned}</Text>
-        </View>
-        <View style={styles.rewardItem}>
-          <Ionicons name="star" size={14} color="#4CAF50" />
-          <Text style={styles.historyRewardText}>+{item.experienceGained}</Text>
-        </View>
-        <Text style={styles.historyDate}>{formatDate(item.completedAt)}</Text>
       </View>
     </View>
   );
@@ -776,7 +627,7 @@ export default function GameMenuScreen() {
   );
 
   const renderTabButton = (
-    tab: "available" | "history" | "stats",
+    tab: "available" | "stats",
     title: string,
     icon: string
   ) => (
@@ -805,7 +656,7 @@ export default function GameMenuScreen() {
       case "available":
         return (
           <View style={styles.tabContent}>
-            <TouchableOpacity
+            {/* <TouchableOpacity
               style={styles.createRoundButton}
               onPress={() => router.push("/game/round")}
             >
@@ -813,13 +664,17 @@ export default function GameMenuScreen() {
               <Text style={styles.createRoundButtonText}>
                 Create Game Round
               </Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
             <FlatList
               data={availableGames}
               renderItem={renderGameSession}
               keyExtractor={(item) => item.id.toString()}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.gamesList}
+              contentContainerStyle={
+                availableGames.length === 0
+                  ? styles.emptyContainer
+                  : styles.gamesList
+              }
               refreshControl={
                 <RefreshControl
                   refreshing={refreshing}
@@ -828,19 +683,24 @@ export default function GameMenuScreen() {
                   tintColor="#ffd33d"
                 />
               }
+              ListEmptyComponent={() => (
+                <View style={styles.emptyState}>
+                  <Ionicons
+                    name="game-controller-outline"
+                    size={64}
+                    color="#666"
+                  />
+                  <Text style={styles.emptyStateText}>No Games Available</Text>
+                  <Text style={styles.emptyStateSubtext}>
+                    No games are currently available to join.{"\n"}
+                    Pull down to refresh or check back later.
+                  </Text>
+                </View>
+              )}
             />
           </View>
         );
-      case "history":
-        return (
-          <FlatList
-            data={gameHistory}
-            renderItem={renderHistoryItem}
-            keyExtractor={(item) => item.id.toString()}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.gamesList}
-          />
-        );
+
       case "stats":
         return renderStats();
       default:
@@ -888,8 +748,7 @@ export default function GameMenuScreen() {
       {/* Tabs */}
       <View style={styles.tabContainer}>
         {renderTabButton("available", "Available", "play")}
-        {renderTabButton("history", "History", "time")}
-        {renderTabButton("stats", "Stats", "analytics")}
+        {/* {renderTabButton("stats", "Stats", "analytics")} */}
       </View>
 
       {/* Content */}
@@ -1015,6 +874,8 @@ const getResponsiveStyles = (dimensions: any) =>
       color: "#888",
       marginTop: 8,
       textAlign: "center",
+      paddingHorizontal: 32,
+      lineHeight: 20,
     },
     // Game Card Styles
     gameCard: {
@@ -1296,5 +1157,11 @@ const getResponsiveStyles = (dimensions: any) =>
     },
     gamesList: {
       padding: getResponsivePadding(),
+    },
+    emptyContainer: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      paddingTop: 100,
     },
   });
