@@ -7,7 +7,10 @@ import {
     getAssignedSessions,
     createGameWithCustomRounds,
     getAdminGameDashboard,
-    getAvailableGames
+    getAvailableGames,
+    joinGame,
+    getGameSession,
+    submitRound
 } from '../controllers/game.controller.js';
 import { verifyToken } from '../middleware/verifyUser.js';
 
@@ -53,6 +56,125 @@ const router = express.Router();
  *         description: Server error
  */
 router.post('/start', verifyToken, startGame);
+
+/**
+ * @swagger
+ * /api/game/join:
+ *   post:
+ *     tags:
+ *     - Game Controller
+ *     summary: Join an available game session
+ *     description: Join an unassigned game session created by admin
+ *     security:
+ *       - Authorization: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - game_session_id
+ *             properties:
+ *               game_session_id:
+ *                 type: integer
+ *                 example: 123
+ *                 description: ID of the game session to join
+ *     responses:
+ *       200:
+ *         description: Successfully joined game session
+ *       400:
+ *         description: Game session ID is required
+ *       404:
+ *         description: Game session not found
+ *       409:
+ *         description: Game session already assigned or completed
+ *       500:
+ *         description: Server error
+ */
+router.post('/join', verifyToken, joinGame);
+
+/**
+ * @swagger
+ * /api/game/{id}:
+ *   get:
+ *     tags:
+ *     - Game Controller
+ *     summary: Get specific game session
+ *     description: Get a specific game session with current round and progress
+ *     security:
+ *       - Authorization: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Game session ID
+ *     responses:
+ *       200:
+ *         description: Game session retrieved successfully
+ *       404:
+ *         description: Game session not found
+ *       403:
+ *         description: Game session not accessible
+ *       500:
+ *         description: Server error
+ */
+router.get('/:id', verifyToken, getGameSession);
+
+/**
+ * @swagger
+ * /api/game/{id}/submit-round:
+ *   post:
+ *     tags:
+ *     - Game Controller
+ *     summary: Submit a single round
+ *     description: Submit answer for a single round and get next round
+ *     security:
+ *       - Authorization: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Game session ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - round_number
+ *               - user_symbol
+ *               - response_time
+ *             properties:
+ *               round_number:
+ *                 type: integer
+ *                 example: 1
+ *               user_symbol:
+ *                 type: string
+ *                 enum: [">", "<", "="]
+ *                 example: ">"
+ *               response_time:
+ *                 type: number
+ *                 format: float
+ *                 example: 2.5
+ *     responses:
+ *       200:
+ *         description: Round submitted successfully
+ *       400:
+ *         description: Missing required fields
+ *       404:
+ *         description: Game session or round not found
+ *       409:
+ *         description: Round already completed
+ *       500:
+ *         description: Server error
+ */
+router.post('/:id/submit-round', verifyToken, submitRound);
 
 /**
  * @swagger

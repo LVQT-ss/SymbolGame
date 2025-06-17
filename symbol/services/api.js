@@ -318,6 +318,54 @@ export const gameAPI = {
         } catch (error) {
             throw new Error(error.response?.data?.message || "Failed to join game");
         }
+    },
+
+    getGameSession: async (gameSessionId) => {
+        try {
+            const response = await api.get(`/game/${gameSessionId}`);
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to get game session");
+        }
+    },
+
+    submitRound: async (gameSessionId, roundData) => {
+        try {
+            const response = await api.post(`/game/${gameSessionId}/submit-round`, roundData);
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to submit round");
+        }
+    },
+
+    completeGameRounds: async (gameSessionId) => {
+        try {
+            // Get all completed rounds for final submission
+            const gameSession = await api.get(`/game/${gameSessionId}`);
+            const rounds = gameSession.data.game_session.rounds || [];
+
+            // Calculate total time from all rounds
+            const totalTime = rounds.reduce((sum, round) => sum + (round.response_time || 0), 0);
+
+            // Format rounds for completion
+            const formattedRounds = rounds
+                .filter(round => round.user_symbol) // Only completed rounds
+                .map(round => ({
+                    first_number: round.first_number,
+                    second_number: round.second_number,
+                    user_symbol: round.user_symbol,
+                    response_time: round.response_time
+                }));
+
+            const response = await api.post("/game/complete", {
+                game_session_id: gameSessionId,
+                total_time: totalTime,
+                rounds: formattedRounds
+            });
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to complete game");
+        }
     }
 };
 

@@ -195,6 +195,197 @@ export const joinGame = async (req, res) => {
     }
 };
 
+// GET /api/game/:id - Get specific game session
+export const getGameSession = async (req, res) => {
+    const userId = req.userId;
+    const { id } = req.params;
+
+    try {
+        // Find the game session
+        const gameSession = await GameSession.findByPk(id, {
+            include: [
+                {
+                    model: RoundDetail,
+                    as: 'rounds',
+                    attributes: ['id', 'round_number', 'first_number', 'second_number', 'user_symbol', 'response_time', 'is_correct'],
+                    order: [['round_number', 'ASC']]
+                },
+                {
+                    model: User,
+                    as: 'adminCreator',
+                    attributes: ['id', 'username', 'full_name']
+                }
+            ]
+        });
+
+        if (!gameSession) {
+            return res.status(404).json({
+                message: 'Game session not found.'
+            });
+        }
+
+        // Check if session is assigned to user or available to join
+        if (gameSession.user_id && gameSession.user_id !== userId) {
+            return res.status(403).json({
+                message: 'This game session is not accessible to you.'
+            });
+        }
+
+        // Get current round (first incomplete round)
+        const currentRound = gameSession.rounds.find(round => !round.user_symbol) || null;
+        const completedRounds = gameSession.rounds.filter(round => round.user_symbol).length;
+
+        res.status(200).json({
+            message: 'Game session retrieved successfully',
+            game_session: {
+                id: gameSession.id,
+                number_of_rounds: gameSession.number_of_rounds,
+                completed: gameSession.completed,
+                score: gameSession.score,
+                correct_answers: gameSession.correct_answers,
+                total_time: gameSession.total_time,
+                admin_instructions: gameSession.admin_instructions,
+                created_by_admin: !!gameSession.created_by_admin,
+                admin_creator: gameSession.adminCreator
+            },
+            progress: {
+                current_round_number: currentRound ? currentRound.round_number : null,
+                completed_rounds: completedRounds,
+                total_rounds: gameSession.number_of_rounds,
+                is_completed: gameSession.completed
+            },
+            current_round: currentRound ? {
+                round_number: currentRound.round_number,
+                first_number: currentRound.first_number,
+                second_number: currentRound.second_number
+                // Note: correct_symbol is not included for security
+            } : null
+        });
+
+    } catch (err) {
+        console.error('Error retrieving game session:', err);
+        res.status(500).json({ message: 'Server error', error: err.message });
+    }
+};
+
+// POST /api/game/:id/submit-round - Submit a single round
+export const submitRound = async (req, res) => {
+    const userId = req.userId;
+    const { id } = req.params;
+    const { round_number, user_symbol, response_time } = req.body;
+
+    try {
+        // Validate required fields
+        if (!round_number || !user_symbol || !response_time) {
+            return res.status(400).json({
+                message: 'round_number, user_symbol, and response_time are required.'
+            });
+        }
+
+        // Find the game session
+        const gameSession = await GameSession.findByPk(id);
+        if (!gameSession) {
+            return res.status(404).json({
+                message: 'Game session not found.'
+            });
+        }
+
+        // Auto-assign if not assigned
+        if (!gameSession.user_id) {
+            await gameSession.update({ user_id: userId });
+        }
+
+        // Check if session belongs to user
+        if (gameSession.user_id !== userId) {
+            return res.status(403).json({
+                message: 'This game session is not accessible to you.'
+            });
+        }
+
+        // Check if session is already completed
+        if (gameSession.completed) {
+            return res.status(409).json({
+                message: 'This game session has already been completed.'
+            });
+        }
+
+        // Find the specific round
+        const round = await RoundDetail.findOne({
+            where: {
+                game_session_id: id,
+                round_number: round_number
+            }
+        });
+
+        if (!round) {
+            return res.status(404).json({
+                message: `Round ${round_number} not found.`
+            });
+        }
+
+        // Check if round is already completed
+        if (round.user_symbol) {
+            return res.status(409).json({
+                message: `Round ${round_number} has already been completed.`
+            });
+        }
+
+        // Check if answer is correct
+        const isCorrect = user_symbol === round.correct_symbol;
+
+        // Update the round
+        await round.update({
+            user_symbol: user_symbol,
+            response_time: response_time,
+            is_correct: isCorrect
+        });
+
+        // Get next round
+        const nextRound = await RoundDetail.findOne({
+            where: {
+                game_session_id: id,
+                round_number: round_number + 1,
+                user_symbol: null
+            }
+        });
+
+        // Check if this was the last round
+        const completedRounds = await RoundDetail.count({
+            where: {
+                game_session_id: id,
+                user_symbol: { [Op.ne]: null }
+            }
+        });
+
+        const isGameComplete = completedRounds >= gameSession.number_of_rounds;
+
+        res.status(200).json({
+            message: 'Round submitted successfully',
+            round_result: {
+                round_number: round_number,
+                user_symbol: user_symbol,
+                correct_symbol: round.correct_symbol,
+                is_correct: isCorrect,
+                response_time: response_time
+            },
+            progress: {
+                completed_rounds: completedRounds,
+                total_rounds: gameSession.number_of_rounds,
+                is_game_complete: isGameComplete
+            },
+            next_round: nextRound ? {
+                round_number: nextRound.round_number,
+                first_number: nextRound.first_number,
+                second_number: nextRound.second_number
+            } : null
+        });
+
+    } catch (err) {
+        console.error('Error submitting round:', err);
+        res.status(500).json({ message: 'Server error', error: err.message });
+    }
+};
+
 // GET /api/game/history - View completed games
 export const getGameHistory = async (req, res) => {
     const userId = req.userId;
