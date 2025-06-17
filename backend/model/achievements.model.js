@@ -14,120 +14,94 @@ const Achievement = sequelize.define('Achievement', {
     },
     description: {
         type: DataTypes.TEXT,
-        allowNull: false,
+        allowNull: true,
     },
     category: {
         type: DataTypes.ENUM('performance', 'progress', 'social', 'consistency', 'special', 'difficulty'),
         allowNull: false,
         defaultValue: 'progress'
     },
-    badge_color: {
-        type: DataTypes.STRING(7),
-        allowNull: true,
-        defaultValue: '#4CAF50',
-        comment: 'Hex color code for achievement badge'
-    },
     points: {
         type: DataTypes.INTEGER,
-        defaultValue: 100,
-        comment: 'Achievement points awarded'
+        defaultValue: 100
     },
     coin_reward: {
         type: DataTypes.INTEGER,
-        defaultValue: 0,
-        comment: 'Coins awarded for completing achievement'
+        defaultValue: 0
     },
     experience_reward: {
         type: DataTypes.INTEGER,
-        defaultValue: 0,
-        comment: 'Experience points awarded'
+        defaultValue: 0
     },
-    // Condition fields for automatic achievement checking
     condition_type: {
-        type: DataTypes.ENUM(
-            'games_played', 'total_score', 'best_score', 'accuracy_percentage',
-            'speed_average', 'consecutive_correct', 'consecutive_days', 'total_time',
-            'followers_count', 'likes_received', 'comments_made', 'level_reached',
-            'coins_accumulated', 'achievements_unlocked', 'special_event'
-        ),
+        type: DataTypes.STRING(50),
         allowNull: false,
-        comment: 'Type of condition to check for achievement'
+        defaultValue: 'count'
     },
     condition_value: {
         type: DataTypes.INTEGER,
-        allowNull: false,
-        comment: 'Target value for the condition'
+        allowNull: true,
+        defaultValue: 1
     },
     condition_operator: {
-        type: DataTypes.ENUM('>=', '>', '=', '<', '<='),
-        allowNull: false,
-        defaultValue: '>=',
-        comment: 'Comparison operator for condition'
+        type: DataTypes.STRING(10),
+        defaultValue: '>='
     },
-    // Progressive achievement fields
     max_progress: {
         type: DataTypes.INTEGER,
-        allowNull: true,
-        comment: 'Maximum progress value for progressive achievements'
+        allowNull: true
     },
     progress_increment: {
         type: DataTypes.INTEGER,
-        defaultValue: 1,
-        comment: 'How much progress increases per qualifying action'
+        defaultValue: 1
+    },
+    badge_color: {
+        type: DataTypes.STRING(7),
+        defaultValue: '#4CAF50'
+    },
+    is_hidden: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
+    },
+    is_secret: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
+    },
+    is_active: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true
+    },
+    created_by_admin: {
+        type: DataTypes.INTEGER,
+        allowNull: true
     },
     // Time-based conditions
     time_frame: {
         type: DataTypes.ENUM('none', 'daily', 'weekly', 'monthly'),
         defaultValue: 'none',
-        comment: 'Time frame for achievement completion'
+        allowNull: false
     },
     start_date: {
         type: DataTypes.DATE,
-        allowNull: true,
-        comment: 'Start date for time-limited achievements'
+        allowNull: true
     },
     end_date: {
         type: DataTypes.DATE,
-        allowNull: true,
-        comment: 'End date for time-limited achievements'
-    },
-    // Metadata
-    is_hidden: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: false,
-        comment: 'Hidden achievements not shown until unlocked'
-    },
-    is_secret: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: false,
-        comment: 'Secret achievements with hidden conditions'
-    },
-    is_active: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: true,
-    },
-    created_by_admin: {
-        type: DataTypes.INTEGER,
-        allowNull: true,
-        comment: 'ID of admin who created this achievement'
+        allowNull: true
     },
     unlock_message: {
         type: DataTypes.TEXT,
-        allowNull: true,
-        comment: 'Custom message shown when achievement is unlocked'
+        allowNull: true
     }
 }, {
     tableName: 'achievements',
     timestamps: true,
     indexes: [
         {
-            fields: ['is_active']
-        },
-        {
             fields: ['category']
         },
         {
-            fields: ['condition_type']
+            fields: ['time_frame']
         },
         {
             fields: ['start_date', 'end_date']
@@ -135,4 +109,4 @@ const Achievement = sequelize.define('Achievement', {
     ]
 });
 
-export default Achievement; 
+export default Achievement;

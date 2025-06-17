@@ -1,0 +1,29 @@
+{
+  "name": "symbol-mobile-app",
+  "version": "1.0.0",
+  "description": "Symbol Mobile App - Math Game Application",
+  "scripts": {
+    "dev": "npm run dev --prefix backend",
+    "start": "npm start --prefix backend",
+    "build": "npm run build --prefix web && npm run build --prefix symbol",
+    "install:all": "npm install && npm install --prefix backend && npm install --prefix web && npm install --prefix symbol",
+    "backend:dev": "npm run dev --prefix backend",
+    "backend:start": "npm start --prefix backend",
+    "web:dev": "npm run dev --prefix web",
+    "web:build": "npm run build --prefix web", 
+    "symbol:dev": "npm run dev --prefix symbol",
+    "symbol:build": "npm run build --prefix symbol",
+    "test": "npm test --prefix backend"
+  },
+  "keywords": ["math", "game", "education", "mobile", "web"],
+  "author": "Symbol Team",
+  "license": "MIT",
+  "workspaces": [
+    "backend",
+    "web", 
+    "symbol"
+  ],
+  "devDependencies": {
+    "concurrently": "^8.0.0"
+  }
+} 

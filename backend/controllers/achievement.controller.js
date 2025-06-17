@@ -20,51 +20,34 @@ export const createAchievement = async (req, res) => {
         }
 
         const {
-            name, description, category, badge_color,
-            points, coin_reward, experience_reward, condition_type, condition_value,
-            condition_operator, max_progress, progress_increment, time_frame,
-            start_date, end_date, is_hidden, is_secret, unlock_message
+            name, description, category,
+            points, coin_reward, experience_reward, condition_value,
+            unlock_message
         } = req.body;
 
-        // Validate required fields
-        if (!name || !description || !condition_type || condition_value === undefined) {
+        // Validate required fields - simplified
+        if (!name || !description || condition_value === undefined) {
             return res.status(400).json({
-                message: 'Required fields: name, description, condition_type, condition_value'
+                message: 'Required fields: name, description, condition_value'
             });
         }
 
-        // Create achievement
+        // Create achievement with existing model fields only
         const achievement = await Achievement.create({
             name,
             description,
             category: category || 'progress',
-            badge_color: badge_color || '#4CAF50',
             points: points || 100,
             coin_reward: coin_reward || 0,
             experience_reward: experience_reward || 0,
-            condition_type,
             condition_value,
-            condition_operator: condition_operator || '>=',
-            max_progress,
-            progress_increment: progress_increment || 1,
-            time_frame: time_frame || 'none',
-            start_date: start_date ? new Date(start_date) : null,
-            end_date: end_date ? new Date(end_date) : null,
-            is_hidden: is_hidden || false,
-            is_secret: is_secret || false,
-            is_active: true,
-            created_by_admin: adminId,
+            time_frame: 'none',
             unlock_message
         });
 
         res.status(201).json({
             message: 'Achievement created successfully',
-            achievement,
-            created_by: {
-                id: admin.id,
-                username: admin.username,
-                full_name: admin.full_name
-            }
+            achievement
         });
 
     } catch (err) {

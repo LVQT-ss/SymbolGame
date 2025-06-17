@@ -729,7 +729,9 @@ router.get('/history', verifyToken, getGameHistory);
  *       500:
  *         description: Server error
  */
+// Game statistics routes - both /stats and /stats/summary supported for compatibility
 router.get('/stats/summary', verifyToken, getGameStatsSummary);
+router.get('/stats', verifyToken, getGameStatsSummary);
 
 /**
  * @swagger
