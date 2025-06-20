@@ -3,6 +3,8 @@ import UserStatistics from './user-statistics.model.js';
 import FollowerRelationship from './follower-relationships.model.js';
 import GameSession from './game-sessions.model.js';
 import RoundDetail from './round-details.model.js';
+import GameHistory from './game-history.model.js';
+import UserRoundResponse from './user-round-responses.model.js';
 import GameSessionLike from './game-session-likes.model.js';
 import GameSessionComment from './game-session-comments.model.js';
 import LeaderboardEntry from './leaderboard-entries.model.js';
@@ -75,6 +77,8 @@ function setupAssociations() {
         foreignKey: 'game_session_id',
         as: 'gameSession'
     });
+
+    // Note: RoundDetail admin creator association removed since created_by_admin field was removed from model
 
     // GameSession - GameSessionLike (One-to-Many)
     GameSession.hasMany(GameSessionLike, {
@@ -215,6 +219,61 @@ function setupAssociations() {
         onDelete: 'CASCADE'
     });
     PaymentTransaction.belongsTo(User, {
+        foreignKey: 'user_id',
+        as: 'user'
+    });
+
+    // GameSession - GameHistory (One-to-Many)
+    GameSession.hasMany(GameHistory, {
+        foreignKey: 'game_session_id',
+        as: 'gameHistories',
+        onDelete: 'CASCADE'
+    });
+    GameHistory.belongsTo(GameSession, {
+        foreignKey: 'game_session_id',
+        as: 'gameSession'
+    });
+
+    // User - GameHistory (One-to-Many)
+    User.hasMany(GameHistory, {
+        foreignKey: 'user_id',
+        as: 'gameHistories',
+        onDelete: 'CASCADE'
+    });
+    GameHistory.belongsTo(User, {
+        foreignKey: 'user_id',
+        as: 'user'
+    });
+
+    // RoundDetail - UserRoundResponse (One-to-Many)
+    RoundDetail.hasMany(UserRoundResponse, {
+        foreignKey: 'round_detail_id',
+        as: 'userResponses',
+        onDelete: 'CASCADE'
+    });
+    UserRoundResponse.belongsTo(RoundDetail, {
+        foreignKey: 'round_detail_id',
+        as: 'roundDetail'
+    });
+
+    // GameHistory - UserRoundResponse (One-to-Many)
+    GameHistory.hasMany(UserRoundResponse, {
+        foreignKey: 'game_history_id',
+        as: 'roundResponses',
+        onDelete: 'CASCADE'
+    });
+    UserRoundResponse.belongsTo(GameHistory, {
+        foreignKey: 'game_history_id',
+        as: 'gameHistory'
+    });
+
+    // User - UserRoundResponse (One-to-Many)
+    User.hasMany(UserRoundResponse, {
+        foreignKey: 'user_id',
+        as: 'roundResponses',
+        onDelete: 'CASCADE'
+    });
+    UserRoundResponse.belongsTo(User, {
         foreignKey: 'user_id',
         as: 'user'
     });

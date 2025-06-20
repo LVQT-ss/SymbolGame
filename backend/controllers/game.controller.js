@@ -1,5 +1,7 @@
 import GameSession from '../model/game-sessions.model.js';
 import RoundDetail from '../model/round-details.model.js';
+import GameHistory from '../model/game-history.model.js';
+import UserRoundResponse from '../model/user-round-responses.model.js';
 import User from '../model/user.model.js';
 import sequelize from '../database/db.js';
 import { Op } from 'sequelize';
@@ -808,58 +810,44 @@ export const getAdminGameDashboard = async (req, res) => {
     }
 };
 
-// POST /api/game/complete - Complete a game session
+// POST /api/game/complete - Complete a game session or create a new one
 export const completeGame = async (req, res) => {
     const userId = req.userId;
-    const { game_session_id, total_time, rounds, recording_url } = req.body;
+    const {
+        game_session_id,
+        total_time,
+        rounds,
+        recording_url,
+        difficulty_level = 1
+    } = req.body;
 
     try {
         // Validate required fields
-        if (!game_session_id || !total_time || !rounds || !Array.isArray(rounds)) {
+        if (!total_time || !rounds || !Array.isArray(rounds)) {
             return res.status(400).json({
-                message: 'game_session_id, total_time, and rounds array are required.'
+                message: 'total_time and rounds array are required.'
             });
         }
 
-        // Find the game session
-        const gameSession = await GameSession.findByPk(game_session_id, {
-            include: [
-                {
-                    model: RoundDetail,
-                    as: 'rounds',
-                    attributes: ['id', 'round_number', 'first_number', 'second_number', 'correct_symbol']
-                },
-                {
-                    model: User,
-                    as: 'user',
-                    attributes: ['id', 'username', 'usertype']
-                }
-            ]
+        let gameSession;
+        let isNewSession = false;
+        let processedRounds = [];
+        let correctAnswers = 0;
+
+        // Get user info
+        const user = await User.findByPk(userId, {
+            attributes: ['id', 'username', 'full_name', 'current_level', 'experience_points', 'coins']
         });
 
-        if (!gameSession) {
+        if (!user) {
             return res.status(404).json({
-                message: 'Game session not found.'
+                message: 'User not found.'
             });
         }
 
-        // Check if session belongs to user or auto-assign if unassigned
-        if (gameSession.user_id && gameSession.user_id !== userId) {
-            return res.status(403).json({
-                message: 'This game session is already assigned to another user.'
-            });
-        }
-
-        // Track if game needs auto-assignment
-        const wasAutoAssigned = !gameSession.user_id;
-
-        // Auto-assign unassigned game sessions to current user
-        if (!gameSession.user_id) {
-            await gameSession.update({
-                user_id: userId
-            });
-            // Refresh the gameSession object to include the updated user_id
-            await gameSession.reload({
+        if (game_session_id) {
+            // EXISTING SESSION MODE: Complete an existing game session
+            gameSession = await GameSession.findByPk(game_session_id, {
                 include: [
                     {
                         model: RoundDetail,
@@ -873,117 +861,334 @@ export const completeGame = async (req, res) => {
                     }
                 ]
             });
-        }
 
-        // Check if session is already completed
-        if (gameSession.completed) {
-            return res.status(409).json({
-                message: 'This game session has already been completed.'
-            });
-        }
-
-        // Validate rounds data
-        if (rounds.length !== gameSession.number_of_rounds) {
-            return res.status(400).json({
-                message: `Expected ${gameSession.number_of_rounds} rounds, but received ${rounds.length}.`
-            });
-        }
-
-        // Process and validate each round
-        let correctAnswers = 0;
-        const processedRounds = [];
-
-        for (let i = 0; i < rounds.length; i++) {
-            const submittedRound = rounds[i];
-            const dbRound = gameSession.rounds.find(r => r.round_number === (i + 1));
-
-            if (!dbRound) {
-                return res.status(400).json({
-                    message: `Round ${i + 1} not found in database.`
+            if (!gameSession) {
+                return res.status(404).json({
+                    message: 'Game session not found.'
                 });
             }
 
-            // Validate round data
-            if (!submittedRound.first_number || !submittedRound.second_number ||
-                !submittedRound.user_symbol || !submittedRound.response_time) {
-                return res.status(400).json({
-                    message: `Round ${i + 1}: Missing required fields.`
+            // REMOVED: User assignment restriction - anyone can complete any game
+            // This allows users to join and complete any available game session
+
+            // Check if session is already completed
+            if (gameSession.completed) {
+                return res.status(409).json({
+                    message: 'This game session has already been completed.'
                 });
             }
 
-            // Verify numbers match
-            if (submittedRound.first_number !== dbRound.first_number ||
-                submittedRound.second_number !== dbRound.second_number) {
+            // Record who completed this game (for history tracking)
+            await gameSession.update({
+                user_id: userId  // Track which user completed this game
+            });
+
+            // Validate rounds data
+            if (rounds.length !== gameSession.number_of_rounds) {
                 return res.status(400).json({
-                    message: `Round ${i + 1}: Numbers don't match expected values.`
+                    message: `Expected ${gameSession.number_of_rounds} rounds, but received ${rounds.length}.`
                 });
             }
 
-            // Check if answer is correct
-            const isCorrect = submittedRound.user_symbol === dbRound.correct_symbol;
-            if (isCorrect) {
-                correctAnswers++;
+            // Process existing session rounds
+            for (let i = 0; i < rounds.length; i++) {
+                const submittedRound = rounds[i];
+                const dbRound = gameSession.rounds.find(r => r.round_number === (i + 1));
+
+                if (!dbRound) {
+                    return res.status(400).json({
+                        message: `Round ${i + 1} not found in database.`
+                    });
+                }
+
+                // Validate round data
+                if (!submittedRound.first_number || !submittedRound.second_number ||
+                    !submittedRound.user_symbol || !submittedRound.response_time) {
+                    return res.status(400).json({
+                        message: `Round ${i + 1}: Missing required fields.`
+                    });
+                }
+
+                // Verify numbers match
+                if (submittedRound.first_number !== dbRound.first_number ||
+                    submittedRound.second_number !== dbRound.second_number) {
+                    return res.status(400).json({
+                        message: `Round ${i + 1}: Numbers don't match expected values.`
+                    });
+                }
+
+                // Check if answer is correct
+                const isCorrect = submittedRound.user_symbol === dbRound.correct_symbol;
+                if (isCorrect) {
+                    correctAnswers++;
+                }
+
+                // Update round detail in database
+                await RoundDetail.update({
+                    user_symbol: submittedRound.user_symbol,
+                    response_time: submittedRound.response_time,
+                    is_correct: isCorrect
+                }, {
+                    where: { id: dbRound.id }
+                });
+
+                processedRounds.push({
+                    round_number: i + 1,
+                    question: `${dbRound.first_number} ? ${dbRound.second_number}`,
+                    your_answer: submittedRound.user_symbol,
+                    correct_answer: dbRound.correct_symbol,
+                    is_correct: isCorrect,
+                    response_time: submittedRound.response_time
+                });
             }
 
-            // Update round detail in database
-            await RoundDetail.update({
-                user_symbol: submittedRound.user_symbol,
-                response_time: submittedRound.response_time,
-                is_correct: isCorrect
-            }, {
-                where: { id: dbRound.id }
+        } else {
+            // NEW SESSION MODE: Create a new game session (like submit-whole-game)
+            isNewSession = true;
+
+            // Validate input ranges
+            if (rounds.length < 1 || rounds.length > 50) {
+                return res.status(400).json({
+                    message: 'Number of rounds must be between 1 and 50.'
+                });
+            }
+
+            if (difficulty_level < 1 || difficulty_level > 10) {
+                return res.status(400).json({
+                    message: 'Difficulty level must be between 1 and 10.'
+                });
+            }
+
+            // Generate rounds data (server creates the questions)
+            const gameRounds = generateDifficultyBasedRounds(rounds.length, difficulty_level);
+
+            // Create new game session
+            gameSession = await GameSession.create({
+                user_id: userId,
+                difficulty_level: difficulty_level,
+                number_of_rounds: rounds.length,
+                total_time: total_time,
+                correct_answers: 0, // Will be calculated
+                score: 0, // Will be calculated
+                completed: true, // Game is completed immediately
+                is_public: true,
+                created_by_admin: null,
+                admin_instructions: null
             });
 
-            processedRounds.push({
-                round_number: i + 1,
-                correct: isCorrect
-            });
+            console.log(`🎮 Created new game session ${gameSession.id} for user ${user.username}`);
+
+            // Process new session rounds
+            for (let i = 0; i < rounds.length; i++) {
+                const userRound = rounds[i];
+                const gameRound = gameRounds[i];
+
+                // Validate user round data
+                if (!userRound.user_symbol || !userRound.response_time) {
+                    return res.status(400).json({
+                        message: `Round ${i + 1}: user_symbol and response_time are required.`
+                    });
+                }
+
+                // Validate symbol
+                if (!['>', '<', '='].includes(userRound.user_symbol)) {
+                    return res.status(400).json({
+                        message: `Round ${i + 1}: user_symbol must be '>', '<', or '='.`
+                    });
+                }
+
+                // Calculate correct symbol for this round
+                let correct_symbol;
+                if (gameRound.first_number > gameRound.second_number) {
+                    correct_symbol = '>';
+                } else if (gameRound.first_number < gameRound.second_number) {
+                    correct_symbol = '<';
+                } else {
+                    correct_symbol = '=';
+                }
+
+                // Check if answer is correct
+                const isCorrect = userRound.user_symbol === correct_symbol;
+                if (isCorrect) {
+                    correctAnswers++;
+                }
+
+                // Create round detail in database
+                await RoundDetail.create({
+                    game_session_id: gameSession.id,
+                    round_number: i + 1,
+                    first_number: gameRound.first_number,
+                    second_number: gameRound.second_number,
+                    correct_symbol: correct_symbol,
+                    user_symbol: userRound.user_symbol,
+                    response_time: userRound.response_time,
+                    is_correct: isCorrect
+                });
+
+                processedRounds.push({
+                    round_number: i + 1,
+                    question: `${gameRound.first_number} ? ${gameRound.second_number}`,
+                    your_answer: userRound.user_symbol,
+                    correct_answer: correct_symbol,
+                    is_correct: isCorrect,
+                    response_time: userRound.response_time
+                });
+            }
         }
 
         // Calculate final score
         const finalScore = correctAnswers * 100; // 100 points per correct answer
         const accuracy = Math.round((correctAnswers / gameSession.number_of_rounds) * 100);
 
-        // Update game session
-        await gameSession.update({
+        // Prepare update data - NEVER change the completed status of GameSession
+        const updateData = {
+            total_time: total_time,
+            correct_answers: correctAnswers,
+            score: finalScore,
+            recording_url: recording_url || null
+            // NOTE: Intentionally NOT setting completed field to preserve current status
+        };
+
+        console.log(`⚠️ NOT changing completed status for GameSession ${gameSession.id} (keeping as is)`);
+
+        // Update game session with final results
+        await gameSession.update(updateData);
+
+        // ALWAYS CREATE A NEW GAME HISTORY RECORD for each game completion
+        const gameHistory = await GameHistory.create({
+            game_session_id: gameSession.id,
+            user_id: userId,
             total_time: total_time,
             correct_answers: correctAnswers,
             score: finalScore,
             completed: true,
-            recording_url: recording_url || null
+            started_at: new Date(Date.now() - (total_time * 1000)), // Estimate start time
+            completed_at: new Date()
         });
+        console.log(`📝 Created NEW GameHistory record ${gameHistory.id} for GameSession ${gameSession.id} (User: ${user.username})`);
+
+        // CREATE USER ROUND RESPONSES for detailed tracking (for both new and existing sessions)
+        console.log(`📝 Creating UserRoundResponse records for GameHistory ${gameHistory.id}...`);
+
+        // Clear any existing UserRoundResponse records for this game history to avoid duplicates
+        await UserRoundResponse.destroy({
+            where: {
+                game_history_id: gameHistory.id,
+                user_id: userId
+            }
+        });
+
+        // Create UserRoundResponse records for all rounds
+        for (let i = 0; i < processedRounds.length; i++) {
+            const roundData = processedRounds[i];
+            const userRound = rounds[i];
+
+            // Find the corresponding RoundDetail
+            let roundDetail;
+            if (isNewSession) {
+                // For new sessions, find by round number
+                roundDetail = await RoundDetail.findOne({
+                    where: {
+                        game_session_id: gameSession.id,
+                        round_number: i + 1
+                    }
+                });
+            } else {
+                // For existing sessions, use the rounds from the game session
+                roundDetail = gameSession.rounds.find(r => r.round_number === (i + 1));
+            }
+
+            if (roundDetail) {
+                await UserRoundResponse.create({
+                    round_detail_id: roundDetail.id,
+                    game_history_id: gameHistory.id,
+                    user_id: userId,
+                    user_symbol: userRound.user_symbol || roundData.your_answer,
+                    response_time: userRound.response_time || roundData.response_time,
+                    is_correct: roundData.is_correct,
+                    points_earned: roundData.is_correct ? 100 : 0,
+                    answered_at: new Date()
+                });
+                console.log(`✅ Created UserRoundResponse for Round ${i + 1}: ${roundData.your_answer} (${roundData.is_correct ? 'Correct' : 'Wrong'})`);
+            } else {
+                console.error(`❌ Could not find RoundDetail for round ${i + 1} in session ${gameSession.id}`);
+            }
+        }
+        console.log(`📝 Created ${processedRounds.length} UserRoundResponse records for GameHistory ${gameHistory.id}`);
 
         // Calculate rewards (experience and coins)
         const experienceGained = Math.floor(finalScore * 0.1); // 10% of score as XP
         const coinsEarned = correctAnswers; // 1 coin per correct answer
 
         // Update user stats
-        const user = await User.findByPk(userId);
-        if (user) {
-            await user.update({
-                experience_points: user.experience_points + experienceGained,
-                coins: user.coins + coinsEarned,
-                current_level: Math.floor((user.experience_points + experienceGained) / 1000) + 1
-            });
-        }
+        const newExperience = user.experience_points + experienceGained;
+        const newLevel = Math.floor(newExperience / 1000) + 1;
 
-        res.status(200).json({
-            message: wasAutoAssigned ? 'Game assigned and completed successfully' : 'Game completed successfully',
+        await user.update({
+            experience_points: newExperience,
+            coins: user.coins + coinsEarned,
+            current_level: newLevel
+        });
+
+        console.log(`✅ Game ${gameSession.id} completed by user ${user.username}: ${correctAnswers}/${gameSession.number_of_rounds} correct, ${finalScore} points`);
+
+        // Return comprehensive results
+        res.status(isNewSession ? 201 : 200).json({
+            message: isNewSession ? 'Game created and completed successfully!' : 'Game completed successfully!',
+            session_info: {
+                mode: isNewSession ? 'new_session' : 'existing_session',
+                game_id: gameSession.id,
+                game_history_id: gameHistory.id,
+                completed_by: user.username
+            },
             game_result: {
-                score: finalScore,
-                correct_answers: correctAnswers,
-                total_rounds: gameSession.number_of_rounds,
-                accuracy: accuracy,
-                experience_gained: experienceGained,
-                coins_earned: coinsEarned,
-                session_type: gameSession.created_by_admin ? 'admin_assigned' : 'self_created',
-                auto_assigned: wasAutoAssigned
+                game_id: gameSession.id,
+                player: {
+                    username: user.username,
+                    level_before: user.current_level,
+                    level_after: newLevel,
+                    level_up: newLevel > user.current_level
+                },
+                performance: {
+                    total_rounds: gameSession.number_of_rounds,
+                    correct_answers: correctAnswers,
+                    wrong_answers: gameSession.number_of_rounds - correctAnswers,
+                    accuracy: accuracy,
+                    total_time: total_time,
+                    average_time_per_round: Math.round((total_time / gameSession.number_of_rounds) * 10) / 10
+                },
+                scoring: {
+                    final_score: finalScore,
+                    points_per_correct: 100,
+                    experience_gained: experienceGained,
+                    coins_earned: coinsEarned
+                },
+                session_type: gameSession.created_by_admin ? 'admin_assigned' : 'self_created'
+            },
+            detailed_rounds: processedRounds,
+            game_history_info: {
+                history_id: gameHistory.id,
+                view_detailed_responses: `GET /api/game/history-details/${gameHistory.id}`,
+                note: "Use the above endpoint to see detailed round-by-round user inputs and analysis"
+            },
+            summary: {
+                result: correctAnswers >= (gameSession.number_of_rounds * 0.7) ? '🎉 Great job!' :
+                    correctAnswers >= (gameSession.number_of_rounds * 0.5) ? '👍 Good effort!' :
+                        '💪 Keep practicing!',
+                next_suggestion: isNewSession && difficulty_level < 10 && accuracy >= 80 ?
+                    `Try difficulty level ${difficulty_level + 1} next!` :
+                    isNewSession && difficulty_level > 1 && accuracy < 50 ?
+                        `Try difficulty level ${difficulty_level - 1} next!` :
+                        'Keep playing to improve!'
             }
         });
 
     } catch (err) {
-        console.error('Error completing game session:', err);
-        res.status(500).json({ message: 'Server error', error: err.message });
+        console.error('❌ Error in complete game:', err);
+        res.status(500).json({
+            message: 'Server error while processing game',
+            error: err.message
+        });
     }
 };
 
@@ -1640,5 +1845,823 @@ export const submitWholeGame = async (req, res) => {
             message: 'Server error while processing game',
             error: err.message
         });
+    }
+};
+
+// POST /api/game/replay/{gameId} - Replay a completed game with same questions
+export const replayGame = async (req, res) => {
+    const userId = req.userId;
+    const gameId = req.params.gameId;
+
+    try {
+        // Find the original completed game
+        const originalGame = await GameSession.findByPk(gameId, {
+            include: [
+                {
+                    model: RoundDetail,
+                    as: 'rounds',
+                    attributes: [
+                        'round_number',
+                        'first_number',
+                        'second_number',
+                        'correct_symbol'
+                    ],
+                    order: [['round_number', 'ASC']]
+                },
+                {
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'username']
+                }
+            ]
+        });
+
+        if (!originalGame) {
+            return res.status(404).json({
+                message: 'Original game not found.'
+            });
+        }
+
+        if (!originalGame.completed) {
+            return res.status(400).json({
+                message: 'Can only replay completed games.'
+            });
+        }
+
+        // Get user info
+        const user = await User.findByPk(userId, {
+            attributes: ['id', 'username', 'full_name', 'current_level']
+        });
+
+        if (!user) {
+            return res.status(404).json({
+                message: 'User not found.'
+            });
+        }
+
+        // Create new game session for replay
+        const replaySession = await GameSession.create({
+            user_id: userId,
+            difficulty_level: originalGame.difficulty_level || 1,
+            number_of_rounds: originalGame.number_of_rounds,
+            total_time: 0,
+            correct_answers: 0,
+            score: 0,
+            completed: false,
+            is_public: true,
+            created_by_admin: null,
+            admin_instructions: `🔁 Replay of Game #${originalGame.id} (Originally played by ${originalGame.user?.username || 'Unknown'})`,
+            original_game_id: originalGame.id  // Reference to original game
+        });
+
+        // Create round details with same questions
+        const roundDetails = [];
+        for (const originalRound of originalGame.rounds) {
+            const roundDetail = await RoundDetail.create({
+                game_session_id: replaySession.id,
+                round_number: originalRound.round_number,
+                first_number: originalRound.first_number,
+                second_number: originalRound.second_number,
+                correct_symbol: originalRound.correct_symbol,
+                user_symbol: null,
+                response_time: null,
+                is_correct: false
+            });
+
+            roundDetails.push({
+                round_number: roundDetail.round_number,
+                first_number: roundDetail.first_number,
+                second_number: roundDetail.second_number
+                // Note: correct_symbol is not included for security
+            });
+        }
+
+        res.status(201).json({
+            message: 'Replay game created successfully! Same questions, new challenge!',
+            replay_info: {
+                original_game_id: originalGame.id,
+                original_score: originalGame.score,
+                original_accuracy: Math.round((originalGame.correct_answers / originalGame.number_of_rounds) * 100),
+                original_player: originalGame.user?.username || 'Unknown'
+            },
+            player: {
+                id: user.id,
+                username: user.username,
+                full_name: user.full_name,
+                current_level: user.current_level
+            },
+            game_session: {
+                id: replaySession.id,
+                number_of_rounds: replaySession.number_of_rounds,
+                admin_instructions: replaySession.admin_instructions,
+                time_limit: 600, // 10 minutes
+                round_time_limit: 60, // 60 seconds per round
+                points_per_correct: 100
+            },
+            rounds: roundDetails,
+            challenge: {
+                message: originalGame.score > 0 ?
+                    `🎯 Can you beat the original score of ${originalGame.score} points?` :
+                    `🎮 Try to get a better score this time!`,
+                target_score: originalGame.score,
+                target_accuracy: Math.round((originalGame.correct_answers / originalGame.number_of_rounds) * 100)
+            }
+        });
+
+    } catch (err) {
+        console.error('Error creating replay game:', err);
+        res.status(500).json({ message: 'Server error', error: err.message });
+    }
+};
+
+// GET /api/game/history/{gameId}/details - Get detailed history of a specific game
+export const getGameDetails = async (req, res) => {
+    const userId = req.userId;
+    const gameId = req.params.gameId;
+
+    try {
+        // Find the game with all details
+        const game = await GameSession.findByPk(gameId, {
+            include: [
+                {
+                    model: RoundDetail,
+                    as: 'rounds',
+                    attributes: [
+                        'round_number',
+                        'first_number',
+                        'second_number',
+                        'correct_symbol',
+                        'user_symbol',
+                        'response_time',
+                        'is_correct'
+                    ],
+                    order: [['round_number', 'ASC']]
+                },
+                {
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'username', 'full_name']
+                },
+                {
+                    model: User,
+                    as: 'adminCreator',
+                    attributes: ['id', 'username', 'full_name']
+                }
+            ]
+        });
+
+        if (!game) {
+            return res.status(404).json({
+                message: 'Game not found.'
+            });
+        }
+
+        // Check if user has access to this game
+        if (game.user_id !== userId) {
+            // Get user to check if they're admin
+            const user = await User.findByPk(userId);
+            if (!user || user.usertype !== 'Admin') {
+                return res.status(403).json({
+                    message: 'Access denied. You can only view your own games.'
+                });
+            }
+        }
+
+        // Calculate detailed statistics
+        const rounds = game.rounds || [];
+        const correctRounds = rounds.filter(r => r.is_correct);
+        const averageResponseTime = rounds.length > 0 ?
+            rounds.reduce((sum, r) => sum + (r.response_time || 0), 0) / rounds.length : 0;
+
+        const fastestCorrect = correctRounds.length > 0 ?
+            Math.min(...correctRounds.map(r => r.response_time)) : 0;
+
+        const slowestCorrect = correctRounds.length > 0 ?
+            Math.max(...correctRounds.map(r => r.response_time)) : 0;
+
+        res.status(200).json({
+            message: 'Game details retrieved successfully',
+            game: {
+                id: game.id,
+                player: game.user,
+                admin_creator: game.adminCreator,
+                session_info: {
+                    number_of_rounds: game.number_of_rounds,
+                    total_time: game.total_time,
+                    completed: game.completed,
+                    is_public: game.is_public,
+                    admin_instructions: game.admin_instructions,
+                    created_at: game.createdAt,
+                    completed_at: game.updatedAt
+                },
+                performance: {
+                    score: game.score,
+                    correct_answers: game.correct_answers,
+                    wrong_answers: game.number_of_rounds - game.correct_answers,
+                    accuracy: Math.round((game.correct_answers / game.number_of_rounds) * 100),
+                    average_response_time: Math.round(averageResponseTime * 100) / 100,
+                    fastest_correct_time: fastestCorrect,
+                    slowest_correct_time: slowestCorrect
+                },
+                rounds: rounds.map(round => ({
+                    round_number: round.round_number,
+                    question: `${round.first_number} ? ${round.second_number}`,
+                    correct_answer: round.correct_symbol,
+                    your_answer: round.user_symbol,
+                    is_correct: round.is_correct,
+                    response_time: round.response_time,
+                    result: round.is_correct ? '✅ Correct' : '❌ Wrong'
+                })),
+                replay_available: game.completed
+            }
+        });
+
+    } catch (err) {
+        console.error('Error retrieving game details:', err);
+        res.status(500).json({ message: 'Server error', error: err.message });
+    }
+};
+
+// POST /api/game/join-session/{sessionId} - Join a game session and create game history record
+export const joinGameSession = async (req, res) => {
+    const userId = req.userId;
+    const sessionId = req.params.sessionId;
+
+    try {
+        // Find the game session
+        const gameSession = await GameSession.findByPk(sessionId, {
+            include: [
+                {
+                    model: RoundDetail,
+                    as: 'rounds',
+                    attributes: ['id', 'round_number', 'first_number', 'second_number'],
+                    order: [['round_number', 'ASC']]
+                },
+                {
+                    model: User,
+                    as: 'adminCreator',
+                    attributes: ['id', 'username', 'full_name'],
+                    required: false
+                }
+            ]
+        });
+
+        if (!gameSession) {
+            return res.status(404).json({
+                message: 'Game session not found.'
+            });
+        }
+
+        // Check if session is completed
+        if (gameSession.completed) {
+            return res.status(409).json({
+                message: 'This game session has already been completed.'
+            });
+        }
+
+        // Check if user already joined this session
+        const existingHistory = await GameHistory.findOne({
+            where: {
+                game_session_id: sessionId,
+                user_id: userId
+            }
+        });
+
+        if (existingHistory) {
+            // User has already joined - return existing data without changing anything
+            console.log(`👥 User ${userId} re-accessing already joined game session ${sessionId}, history ID: ${existingHistory.id}`);
+
+            // Get user info for response
+            const user = await User.findByPk(userId, {
+                attributes: ['id', 'username', 'full_name', 'current_level', 'avatar']
+            });
+
+            return res.status(200).json({
+                message: 'You have already joined this game session. Returning existing data.',
+                user: user,
+                admin_creator: gameSession.adminCreator,
+                game_session: {
+                    id: gameSession.id,
+                    difficulty_level: gameSession.difficulty_level,
+                    number_of_rounds: gameSession.number_of_rounds,
+                    admin_instructions: gameSession.admin_instructions,
+                    is_public: gameSession.is_public,
+                    created_by_admin: gameSession.created_by_admin,
+                    completed: gameSession.completed // Return current status without changing it
+                },
+                game_history: {
+                    id: existingHistory.id,
+                    started_at: existingHistory.started_at,
+                    completed: existingHistory.completed,
+                    score: existingHistory.score,
+                    correct_answers: existingHistory.correct_answers
+                },
+                rounds: gameSession.rounds?.map(round => ({
+                    id: round.id,
+                    round_number: round.round_number,
+                    first_number: round.first_number,
+                    second_number: round.second_number
+                    // Note: correct_symbol is not included for security
+                })) || [],
+                note: "Existing session data returned. No changes made to completed status."
+            });
+        }
+
+        // Get user info
+        const user = await User.findByPk(userId, {
+            attributes: ['id', 'username', 'full_name', 'current_level', 'avatar']
+        });
+
+        // Create game history record
+        const gameHistory = await GameHistory.create({
+            game_session_id: sessionId,
+            user_id: userId,
+            started_at: new Date()
+        });
+
+        console.log(`🎮 User ${user.username} joined game session ${sessionId}, created history record ${gameHistory.id}`);
+
+        res.status(201).json({
+            message: 'Successfully joined game session!',
+            user: user,
+            admin_creator: gameSession.adminCreator,
+            game_session: {
+                id: gameSession.id,
+                difficulty_level: gameSession.difficulty_level,
+                number_of_rounds: gameSession.number_of_rounds,
+                admin_instructions: gameSession.admin_instructions,
+                is_public: gameSession.is_public,
+                created_by_admin: gameSession.created_by_admin
+            },
+            game_history: {
+                id: gameHistory.id,
+                started_at: gameHistory.started_at
+            },
+            rounds: gameSession.rounds?.map(round => ({
+                id: round.id,
+                round_number: round.round_number,
+                first_number: round.first_number,
+                second_number: round.second_number
+                // Note: correct_symbol is not included for security
+            })) || []
+        });
+
+    } catch (err) {
+        console.error('Error joining game session:', err);
+        res.status(500).json({ message: 'Server error', error: err.message });
+    }
+};
+
+// POST /api/game/complete-session - Complete a game session using game history (NEW API)
+export const completeGameSession = async (req, res) => {
+    const userId = req.userId;
+    const {
+        game_history_id,
+        total_time,
+        round_responses // Array of user responses to each round
+    } = req.body;
+
+    try {
+        // Validate required fields
+        if (!game_history_id || !total_time || !round_responses || !Array.isArray(round_responses)) {
+            return res.status(400).json({
+                message: 'game_history_id, total_time and round_responses array are required.'
+            });
+        }
+
+        // Find the game history record
+        const gameHistory = await GameHistory.findByPk(game_history_id, {
+            include: [
+                {
+                    model: GameSession,
+                    as: 'gameSession',
+                    include: [
+                        {
+                            model: RoundDetail,
+                            as: 'rounds',
+                            attributes: ['id', 'round_number', 'first_number', 'second_number', 'correct_symbol'],
+                            order: [['round_number', 'ASC']]
+                        },
+                        {
+                            model: User,
+                            as: 'adminCreator',
+                            attributes: ['id', 'username', 'full_name'],
+                            required: false
+                        }
+                    ]
+                },
+                {
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'username', 'full_name', 'current_level', 'experience_points', 'coins']
+                }
+            ]
+        });
+
+        if (!gameHistory) {
+            return res.status(404).json({
+                message: 'Game history record not found.'
+            });
+        }
+
+        // Check if this game history belongs to the user
+        if (gameHistory.user_id !== userId) {
+            return res.status(403).json({
+                message: 'This game history record does not belong to you.'
+            });
+        }
+
+        // Check if already completed
+        if (gameHistory.completed) {
+            return res.status(409).json({
+                message: 'This game session has already been completed.'
+            });
+        }
+
+        const gameSession = gameHistory.gameSession;
+        const user = gameHistory.user;
+        const rounds = gameSession.rounds;
+
+        // Validate round responses count
+        if (round_responses.length !== rounds.length) {
+            return res.status(400).json({
+                message: `Expected ${rounds.length} round responses, but received ${round_responses.length}.`
+            });
+        }
+
+        // Process all round responses
+        let correctAnswers = 0;
+        let totalScore = 0;
+        const processedRounds = [];
+
+        for (let i = 0; i < round_responses.length; i++) {
+            const userResponse = round_responses[i];
+            const roundDetail = rounds[i];
+
+            // Validate user response data
+            if (!userResponse.user_symbol || userResponse.response_time === undefined) {
+                return res.status(400).json({
+                    message: `Round ${i + 1}: user_symbol and response_time are required.`
+                });
+            }
+
+            // Validate symbol
+            if (!['>', '<', '='].includes(userResponse.user_symbol)) {
+                return res.status(400).json({
+                    message: `Round ${i + 1}: user_symbol must be '>', '<', or '='.`
+                });
+            }
+
+            // Check if answer is correct
+            const isCorrect = userResponse.user_symbol === roundDetail.correct_symbol;
+            const pointsEarned = isCorrect ? 100 : 0; // Default 100 points per correct answer
+
+            if (isCorrect) {
+                correctAnswers++;
+            }
+            totalScore += pointsEarned;
+
+            // Create user round response record
+            await UserRoundResponse.create({
+                round_detail_id: roundDetail.id,
+                game_history_id: gameHistory.id,
+                user_id: userId,
+                user_symbol: userResponse.user_symbol,
+                response_time: userResponse.response_time,
+                is_correct: isCorrect,
+                points_earned: pointsEarned,
+                answered_at: new Date()
+            });
+
+            processedRounds.push({
+                round_number: roundDetail.round_number,
+                question: `${roundDetail.first_number} ? ${roundDetail.second_number}`,
+                your_answer: userResponse.user_symbol,
+                correct_answer: roundDetail.correct_symbol,
+                is_correct: isCorrect,
+                points_earned: pointsEarned,
+                response_time: userResponse.response_time
+            });
+        }
+
+        // Calculate final results
+        const accuracy = Math.round((correctAnswers / rounds.length) * 100);
+
+        // Update game history with final results
+        await gameHistory.update({
+            total_time: total_time,
+            correct_answers: correctAnswers,
+            score: totalScore,
+            completed: true,
+            completed_at: new Date()
+        });
+
+        // Calculate rewards (experience and coins)
+        const experienceGained = Math.floor(totalScore * 0.1); // 10% of score as XP
+        const coinsEarned = correctAnswers; // 1 coin per correct answer
+
+        // Update user stats
+        const newExperience = user.experience_points + experienceGained;
+        const newLevel = Math.floor(newExperience / 1000) + 1;
+
+        await user.update({
+            experience_points: newExperience,
+            coins: user.coins + coinsEarned,
+            current_level: newLevel
+        });
+
+        console.log(`✅ Game session ${gameSession.id} completed by user ${user.username}: ${correctAnswers}/${rounds.length} correct, ${totalScore} points`);
+
+        // Return comprehensive results
+        res.status(200).json({
+            message: 'Game session completed successfully!',
+            session_info: {
+                game_session_id: gameSession.id,
+                game_history_id: gameHistory.id,
+                completed_by: user.username,
+                admin_creator: gameSession.adminCreator
+            },
+            game_result: {
+                player: {
+                    username: user.username,
+                    level_before: user.current_level,
+                    level_after: newLevel,
+                    level_up: newLevel > user.current_level
+                },
+                performance: {
+                    total_rounds: rounds.length,
+                    correct_answers: correctAnswers,
+                    wrong_answers: rounds.length - correctAnswers,
+                    accuracy: accuracy,
+                    total_time: total_time,
+                    average_time_per_round: Math.round((total_time / rounds.length) * 10) / 10
+                },
+                scoring: {
+                    final_score: totalScore,
+                    total_points_possible: rounds.length * 100, // 100 points per round
+                    experience_gained: experienceGained,
+                    coins_earned: coinsEarned
+                },
+                session_details: {
+                    difficulty_level: gameSession.difficulty_level,
+                    admin_instructions: gameSession.admin_instructions,
+                    created_by_admin: gameSession.created_by_admin
+                }
+            },
+            detailed_rounds: processedRounds,
+            summary: {
+                result: correctAnswers >= (rounds.length * 0.7) ? '🎉 Excellent performance!' :
+                    correctAnswers >= (rounds.length * 0.5) ? '👍 Good effort!' :
+                        '💪 Keep practicing to improve!',
+                recommendation: accuracy >= 80 ? 'Try a higher difficulty level next time!' :
+                    accuracy < 50 ? 'Consider reviewing the basics and trying again.' :
+                        'Keep practicing to build consistency!'
+            }
+        });
+
+    } catch (err) {
+        console.error('❌ Error in complete game session:', err);
+        res.status(500).json({
+            message: 'Server error while processing game completion',
+            error: err.message
+        });
+    }
+};
+
+// GET /api/game/my-history - Get user's game history across all sessions
+export const getUserGameHistory = async (req, res) => {
+    const userId = req.userId;
+    const { page = 1, limit = 20, completed_only = 'true' } = req.query;
+
+    try {
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        const offset = (pageNum - 1) * limitNum;
+
+        // Build where clause
+        const whereClause = { user_id: userId };
+        if (completed_only === 'true') {
+            whereClause.completed = true;
+        }
+
+        // Get total count
+        const totalHistory = await GameHistory.count({
+            where: whereClause
+        });
+
+        // Get game history with pagination
+        const gameHistories = await GameHistory.findAll({
+            where: whereClause,
+            include: [
+                {
+                    model: GameSession,
+                    as: 'gameSession',
+                    attributes: ['id', 'difficulty_level', 'number_of_rounds', 'admin_instructions', 'created_by_admin'],
+                    include: [
+                        {
+                            model: User,
+                            as: 'adminCreator',
+                            attributes: ['id', 'username', 'full_name'],
+                            required: false
+                        }
+                    ]
+                },
+                {
+                    model: UserRoundResponse,
+                    as: 'roundResponses',
+                    attributes: ['round_detail_id', 'user_symbol', 'response_time', 'is_correct', 'points_earned', 'answered_at'],
+                    include: [
+                        {
+                            model: RoundDetail,
+                            as: 'roundDetail',
+                            attributes: ['round_number', 'first_number', 'second_number', 'correct_symbol']
+                        }
+                    ],
+                    required: false
+                }
+            ],
+            order: [['createdAt', 'DESC']],
+            limit: limitNum,
+            offset: offset
+        });
+
+        // Calculate statistics
+        const stats = {
+            total_sessions_joined: totalHistory,
+            completed_sessions: await GameHistory.count({
+                where: { user_id: userId, completed: true }
+            }),
+            total_score: await GameHistory.sum('score', {
+                where: { user_id: userId, completed: true }
+            }) || 0,
+            best_score: await GameHistory.max('score', {
+                where: { user_id: userId, completed: true }
+            }) || 0
+        };
+
+        res.status(200).json({
+            message: 'Game history retrieved successfully',
+            pagination: {
+                total: totalHistory,
+                page: pageNum,
+                limit: limitNum,
+                totalPages: Math.ceil(totalHistory / limitNum)
+            },
+            statistics: stats,
+            game_histories: gameHistories.map(history => ({
+                id: history.id,
+                game_session: history.gameSession,
+                total_time: history.total_time,
+                correct_answers: history.correct_answers,
+                score: history.score,
+                completed: history.completed,
+                accuracy: history.gameSession && history.gameSession.number_of_rounds > 0 ?
+                    Math.round((history.correct_answers / history.gameSession.number_of_rounds) * 100) : 0,
+                started_at: history.started_at,
+                completed_at: history.completed_at,
+                round_responses_count: history.roundResponses ? history.roundResponses.length : 0,
+                detailed_rounds: history.roundResponses ? history.roundResponses.map(response => ({
+                    round_number: response.roundDetail ? response.roundDetail.round_number : null,
+                    question: response.roundDetail ?
+                        `${response.roundDetail.first_number} ? ${response.roundDetail.second_number}` : 'Unknown',
+                    user_answer: response.user_symbol,
+                    correct_answer: response.roundDetail ? response.roundDetail.correct_symbol : null,
+                    is_correct: response.is_correct,
+                    response_time: response.response_time,
+                    points_earned: response.points_earned,
+                    answered_at: response.answered_at
+                })).sort((a, b) => a.round_number - b.round_number) : []
+            }))
+        });
+
+    } catch (err) {
+        console.error('Error retrieving user game history:', err);
+        res.status(500).json({ message: 'Server error', error: err.message });
+    }
+};
+
+// GET /api/game/history-details/{historyId} - Get detailed round-by-round data for specific game history
+export const getGameHistoryDetails = async (req, res) => {
+    const userId = req.userId;
+    const historyId = req.params.historyId;
+
+    try {
+        // Find the game history record with all related data
+        const gameHistory = await GameHistory.findByPk(historyId, {
+            include: [
+                {
+                    model: GameSession,
+                    as: 'gameSession',
+                    attributes: ['id', 'difficulty_level', 'number_of_rounds', 'admin_instructions', 'created_by_admin'],
+                    include: [
+                        {
+                            model: User,
+                            as: 'adminCreator',
+                            attributes: ['id', 'username', 'full_name'],
+                            required: false
+                        }
+                    ]
+                },
+                {
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'username', 'full_name', 'current_level']
+                },
+                {
+                    model: UserRoundResponse,
+                    as: 'roundResponses',
+                    attributes: ['id', 'user_symbol', 'response_time', 'is_correct', 'points_earned', 'answered_at'],
+                    include: [
+                        {
+                            model: RoundDetail,
+                            as: 'roundDetail',
+                            attributes: ['round_number', 'first_number', 'second_number', 'correct_symbol']
+                        }
+                    ],
+                    order: [['roundDetail', 'round_number', 'ASC']]
+                }
+            ]
+        });
+
+        if (!gameHistory) {
+            return res.status(404).json({
+                message: 'Game history not found.'
+            });
+        }
+
+        // Check if this history belongs to the user
+        if (gameHistory.user_id !== userId) {
+            return res.status(403).json({
+                message: 'Access denied. You can only view your own game history.'
+            });
+        }
+
+        // Format the detailed round responses
+        const detailedRounds = gameHistory.roundResponses.map(response => ({
+            round_number: response.roundDetail.round_number,
+            question: `${response.roundDetail.first_number} ? ${response.roundDetail.second_number}`,
+            user_answer: response.user_symbol,
+            correct_answer: response.roundDetail.correct_symbol,
+            is_correct: response.is_correct,
+            response_time: response.response_time,
+            points_earned: response.points_earned,
+            answered_at: response.answered_at,
+            result_emoji: response.is_correct ? '✅' : '❌'
+        }));
+
+        // Calculate performance metrics
+        const accuracy = gameHistory.gameSession.number_of_rounds > 0 ?
+            Math.round((gameHistory.correct_answers / gameHistory.gameSession.number_of_rounds) * 100) : 0;
+
+        res.status(200).json({
+            message: 'Game history details retrieved successfully',
+            game_history: {
+                id: gameHistory.id,
+                user: gameHistory.user,
+                game_session: gameHistory.gameSession,
+                performance: {
+                    total_rounds: gameHistory.gameSession.number_of_rounds,
+                    correct_answers: gameHistory.correct_answers,
+                    wrong_answers: gameHistory.gameSession.number_of_rounds - gameHistory.correct_answers,
+                    accuracy: accuracy,
+                    total_time: gameHistory.total_time,
+                    average_time_per_round: gameHistory.total_time && gameHistory.gameSession.number_of_rounds > 0 ?
+                        Math.round((gameHistory.total_time / gameHistory.gameSession.number_of_rounds) * 10) / 10 : 0,
+                    final_score: gameHistory.score
+                },
+                timeline: {
+                    started_at: gameHistory.started_at,
+                    completed_at: gameHistory.completed_at,
+                    completed: gameHistory.completed
+                }
+            },
+            detailed_rounds: detailedRounds,
+            summary: {
+                fastest_correct_time: detailedRounds
+                    .filter(r => r.is_correct)
+                    .reduce((min, r) => Math.min(min, r.response_time), Infinity),
+                slowest_correct_time: detailedRounds
+                    .filter(r => r.is_correct)
+                    .reduce((max, r) => Math.max(max, r.response_time), 0),
+                most_common_mistake: detailedRounds
+                    .filter(r => !r.is_correct)
+                    .reduce((acc, r) => {
+                        const mistake = `Expected ${r.correct_answer}, answered ${r.user_answer}`;
+                        acc[mistake] = (acc[mistake] || 0) + 1;
+                        return acc;
+                    }, {}),
+                performance_trend: detailedRounds.map((round, index) => ({
+                    round_number: round.round_number,
+                    is_correct: round.is_correct,
+                    cumulative_accuracy: Math.round(
+                        (detailedRounds.slice(0, index + 1).filter(r => r.is_correct).length / (index + 1)) * 100
+                    )
+                }))
+            }
+        });
+
+    } catch (err) {
+        console.error('Error retrieving game history details:', err);
+        res.status(500).json({ message: 'Server error', error: err.message });
     }
 };

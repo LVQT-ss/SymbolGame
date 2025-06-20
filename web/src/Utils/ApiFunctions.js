@@ -60,7 +60,7 @@ async function signout() {
 	try {
 		localStorage.removeItem("token");
 		return { success: true };
-	} catch (error) {
+	} catch {
 		throw new Error("Signout failed");
 	}
 }
@@ -229,6 +229,24 @@ async function getGameHistory(page = 1, limit = 20) {
 		return response.data;
 	} catch (error) {
 		throw new Error(error.response?.data?.message || "Failed to get game history");
+	}
+}
+
+async function replayGame(gameId) {
+	try {
+		const response = await api.post(`/game/replay/${gameId}`, {}, { headers: getHeader() });
+		return response.data;
+	} catch (error) {
+		throw new Error(error.response?.data?.message || "Failed to create replay game");
+	}
+}
+
+async function getGameDetails(gameId) {
+	try {
+		const response = await api.get(`/game/history/${gameId}/details`, { headers: getHeader() });
+		return response.data;
+	} catch (error) {
+		throw new Error(error.response?.data?.message || "Failed to get game details");
 	}
 }
 
@@ -533,6 +551,8 @@ export {
 	getAssignedGames,
 	completeGame,
 	getGameHistory,
+	replayGame,
+	getGameDetails,
 	getGameStats,
 	getAdminGameDashboard,
 	getAvailableGames,

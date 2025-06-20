@@ -424,34 +424,29 @@ export const gameAPI = {
     // 🚀 NEW: Submit Whole Game - Play and submit entire game in one call
     submitWholeGame: async (gameData) => {
         try {
-            const defaultGameData = {
-                difficulty_level: 1,
-                number_of_rounds: 10,
-                total_time: 0,
-                rounds: []
-            };
-
-            const requestData = { ...defaultGameData, ...gameData };
-
-            console.log("🚀 Submitting whole game:", {
-                difficulty: requestData.difficulty_level,
-                rounds: requestData.number_of_rounds,
-                totalTime: requestData.total_time
-            });
-
-            const response = await api.post("/game/submit-whole-game", requestData);
-
-            console.log("✅ Whole game submitted successfully!");
-            console.log("📊 Results:", {
-                score: response.data.game_result?.scoring?.final_score,
-                accuracy: response.data.game_result?.performance?.accuracy,
-                correct: response.data.game_result?.performance?.correct_answers
-            });
-
+            const response = await api.post("/game/submit-whole", gameData);
             return response.data;
         } catch (error) {
-            console.error("❌ Failed to submit whole game:", error.response?.data || error.message);
             throw new Error(error.response?.data?.message || "Failed to submit whole game");
+        }
+    },
+
+    // Replay functionality
+    replayGame: async (gameId) => {
+        try {
+            const response = await api.post(`/game/replay/${gameId}`);
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to create replay game");
+        }
+    },
+
+    getGameDetails: async (gameId) => {
+        try {
+            const response = await api.get(`/game/history/${gameId}/details`);
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to get game details");
         }
     }
 };

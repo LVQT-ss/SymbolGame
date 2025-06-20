@@ -166,4 +166,62 @@ async function submitMyGame() {
 console.log('📱 Frontend example:');
 console.log(realExample);
 
+// 📝 UPDATED: /api/game/complete API - Now supports both modes!
+console.log(`
+🎯 UPDATED /api/game/complete API - Two Modes Available!
+======================================================
+
+MODE 1: CREATE NEW SESSION (Like submit-whole-game)
+--------------------------------------------------
+POST /api/game/complete
+{
+  "difficulty_level": 2,       // Optional (default: 1)
+  "total_time": 25.5,          // Required
+  "rounds": [                  // Required - only answers needed
+    {"user_symbol": ">", "response_time": 2.5},
+    {"user_symbol": "<", "response_time": 1.8},
+    {"user_symbol": "=", "response_time": 3.2}
+  ]
+}
+
+✅ Creates new game session automatically
+✅ Server generates questions  
+✅ Returns 201 Created
+✅ Anyone can use this mode
+
+MODE 2: COMPLETE EXISTING SESSION
+---------------------------------
+POST /api/game/complete
+{
+  "game_session_id": 123,      // Required - existing session
+  "total_time": 180.5,         // Required
+  "rounds": [                  // Required - full round data
+    {
+      "first_number": 15,       // Must match existing
+      "second_number": 8,       // Must match existing
+      "user_symbol": ">",       // Your answer
+      "response_time": 2.5      // Your time
+    }
+  ]
+}
+
+✅ Completes existing game session
+✅ Must match existing round numbers
+✅ Returns 200 OK
+✅ Anyone can complete any game session
+
+🎯 KEY CHANGES:
+- ❌ REMOVED: "This game session is already assigned to another user" error
+- ✅ ADDED: Anyone can complete any game session
+- ✅ ADDED: Creates new sessions when game_session_id is not provided
+- ✅ ADDED: Tracks which user completed each game for history
+- ✅ ADDED: Works exactly like submit-whole-game when no session ID provided
+
+🎮 USE CASES:
+- Mobile apps: Use Mode 1 (no session ID) for quick games
+- Joining existing games: Use Mode 2 with session ID
+- Game history: All completed games show who completed them
+- No more assignment conflicts!
+`);
+
 export { example, realExample }; 

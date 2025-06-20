@@ -12,7 +12,13 @@ import {
     getGameSession,
     submitRound,
     createInstantGame,
-    submitWholeGame
+    submitWholeGame,
+    replayGame,
+    getGameDetails,
+    joinGameSession,
+    completeGameSession,
+    getUserGameHistory,
+    getGameHistoryDetails
 } from '../controllers/game.controller.js';
 import { verifyToken } from '../middleware/verifyUser.js';
 
@@ -282,8 +288,32 @@ router.post('/create-instant', verifyToken, createInstantGame);
  *                   - user_symbol: "="
  *                     response_time: 3.2
  *     responses:
+ *       200:
+ *         description: Existing game session completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Game session completed successfully!
+ *                 game_result:
+ *                   type: object
+ *                   properties:
+ *                     session_info:
+ *                       type: object
+ *                       properties:
+ *                         mode:
+ *                           type: string
+ *                           enum: [existing_session, new_session]
+ *                         auto_assigned:
+ *                           type: boolean
+ *                         session_type:
+ *                           type: string
+ *                           enum: [admin_assigned, self_created]
  *       201:
- *         description: Game created and completed successfully
+ *         description: New game created and completed successfully
  *         content:
  *           application/json:
  *             schema:
@@ -725,16 +755,14 @@ router.post('/admin/create-custom', verifyToken, createGameWithCustomRounds);
  */
 router.get('/assigned', verifyToken, getAssignedSessions);
 
-
-
 /**
  * @swagger
  * /api/game/complete:
  *   post:
  *     tags:
  *     - Game Controller
- *     summary: Complete a game session
- *     description: Submit game results and calculate score/rewards. Customers can only complete admin-assigned sessions.
+ *     summary: Complete a game session or create a new one
+ *     description: Submit game results and calculate score/rewards. Can complete existing sessions OR create new sessions. Anyone can complete any available game session.
  *     security:
  *       - Authorization: []
  *     requestBody:
@@ -744,14 +772,20 @@ router.get('/assigned', verifyToken, getAssignedSessions);
  *           schema:
  *             type: object
  *             required:
- *               - game_session_id
  *               - total_time
  *               - rounds
  *             properties:
  *               game_session_id:
  *                 type: integer
  *                 example: 123
- *                 description: ID of the game session to complete
+ *                 description: Optional - ID of existing game session to complete. If not provided, creates new session.
+ *               difficulty_level:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 10
+ *                 default: 1
+ *                 example: 2
+ *                 description: Game difficulty level (only used when creating new session)
  *               total_time:
  *                 type: number
  *                 format: float
@@ -759,35 +793,56 @@ router.get('/assigned', verifyToken, getAssignedSessions);
  *                 description: Total time taken in seconds
  *               rounds:
  *                 type: array
+ *                 description: Array of round data (format depends on whether completing existing session or creating new one)
  *                 items:
- *                   type: object
- *                   required:
- *                     - first_number
- *                     - second_number
- *                     - user_symbol
- *                     - response_time
- *                   properties:
- *                     first_number:
- *                       type: integer
- *                       example: 15
- *                     second_number:
- *                       type: integer
- *                       example: 8
- *                     user_symbol:
- *                       type: string
- *                       enum: [">", "<", "="]
- *                       example: ">"
- *                     response_time:
- *                       type: number
- *                       format: float
- *                       example: 2.5
+ *                   oneOf:
+ *                     - type: object
+ *                       title: Existing Session Round
+ *                       required:
+ *                         - first_number
+ *                         - second_number
+ *                         - user_symbol
+ *                         - response_time
+ *                       properties:
+ *                         first_number:
+ *                           type: integer
+ *                           example: 15
+ *                           description: Must match existing round numbers
+ *                         second_number:
+ *                           type: integer
+ *                           example: 8
+ *                           description: Must match existing round numbers
+ *                         user_symbol:
+ *                           type: string
+ *                           enum: [">", "<", "="]
+ *                           example: ">"
+ *                         response_time:
+ *                           type: number
+ *                           format: float
+ *                           example: 2.5
+ *                     - type: object
+ *                       title: New Session Round
+ *                       required:
+ *                         - user_symbol
+ *                         - response_time
+ *                       properties:
+ *                         user_symbol:
+ *                           type: string
+ *                           enum: [">", "<", "="]
+ *                           example: ">"
+ *                           description: Your answer to the comparison
+ *                         response_time:
+ *                           type: number
+ *                           format: float
+ *                           example: 2.5
+ *                           description: Time taken for this round
  *               recording_url:
  *                 type: string
  *                 example: "https://example.com/recording.mp4"
  *                 description: Optional video recording URL
  *     responses:
  *       200:
- *         description: Game completed successfully
+ *         description: Existing game session completed successfully
  *         content:
  *           application/json:
  *             schema:
@@ -795,38 +850,111 @@ router.get('/assigned', verifyToken, getAssignedSessions);
  *               properties:
  *                 message:
  *                   type: string
- *                   example: Game completed successfully
+ *                   example: Game completed successfully!
+ *                 session_info:
+ *                   type: object
+ *                   properties:
+ *                     mode:
+ *                       type: string
+ *                       example: existing_session
+ *                     game_id:
+ *                       type: integer
+ *                       example: 123
+ *                     completed_by:
+ *                       type: string
+ *                       example: username
  *                 game_result:
  *                   type: object
  *                   properties:
- *                     score:
+ *                     game_id:
  *                       type: integer
- *                       example: 850
- *                     correct_answers:
- *                       type: integer
- *                       example: 8
- *                     total_rounds:
- *                       type: integer
- *                       example: 10
- *                     accuracy:
- *                       type: integer
- *                       example: 80
- *                     experience_gained:
- *                       type: integer
- *                       example: 85
- *                     coins_earned:
- *                       type: integer
- *                       example: 8
- *                     session_type:
+ *                       example: 123
+ *                     player:
+ *                       type: object
+ *                       properties:
+ *                         username:
+ *                           type: string
+ *                         level_before:
+ *                           type: integer
+ *                         level_after:
+ *                           type: integer
+ *                         level_up:
+ *                           type: boolean
+ *                     performance:
+ *                       type: object
+ *                       properties:
+ *                         total_rounds:
+ *                           type: integer
+ *                         correct_answers:
+ *                           type: integer
+ *                         accuracy:
+ *                           type: integer
+ *                         total_time:
+ *                           type: number
+ *                     scoring:
+ *                       type: object
+ *                       properties:
+ *                         final_score:
+ *                           type: integer
+ *                         experience_gained:
+ *                           type: integer
+ *                         coins_earned:
+ *                           type: integer
+ *       201:
+ *         description: New game session created and completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Game created and completed successfully!
+ *                 session_info:
+ *                   type: object
+ *                   properties:
+ *                     mode:
  *                       type: string
- *                       enum: [admin_assigned, self_created]
- *                       example: admin_assigned
+ *                       example: new_session
+ *                     game_id:
+ *                       type: integer
+ *                       example: 456
+ *                     completed_by:
+ *                       type: string
+ *                       example: username
+ *                 game_result:
+ *                   type: object
+ *                   properties:
+ *                     game_id:
+ *                       type: integer
+ *                     player:
+ *                       type: object
+ *                     performance:
+ *                       type: object
+ *                     scoring:
+ *                       type: object
+ *                 detailed_rounds:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       round_number:
+ *                         type: integer
+ *                       question:
+ *                         type: string
+ *                         example: "25 ? 17"
+ *                       your_answer:
+ *                         type: string
+ *                       correct_answer:
+ *                         type: string
+ *                       is_correct:
+ *                         type: boolean
  *       400:
- *         description: Bad request - missing required fields
- *       403:
- *         description: Customers can only complete admin-assigned sessions
+ *         description: Bad request - missing required fields or validation error
  *       404:
- *         description: Game session not found or already completed
+ *         description: Game session not found (when game_session_id is provided)
+ *       409:
+ *         description: Game session already completed
  *       500:
  *         description: Server error
  */
@@ -1119,5 +1247,483 @@ router.get('/stats', verifyToken, getGameStatsSummary);
  *         description: Server error
  */
 router.get('/admin/dashboard', verifyToken, getAdminGameDashboard);
+
+/**
+ * @swagger
+ * /api/game/replay/{gameId}:
+ *   post:
+ *     tags:
+ *     - Game Controller
+ *     summary: Replay a completed game with same questions
+ *     description: Create a new game session that replicates a previously completed game with identical questions
+ *     security:
+ *       - Authorization: []
+ *     parameters:
+ *       - name: gameId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         example: 123
+ *         description: ID of the completed game to replay
+ *     responses:
+ *       201:
+ *         description: Replay game created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Replay game created successfully! Same questions, new challenge!
+ *                 replay_info:
+ *                   type: object
+ *                   properties:
+ *                     original_game_id:
+ *                       type: integer
+ *                     original_score:
+ *                       type: integer
+ *                     original_accuracy:
+ *                       type: integer
+ *                 challenge:
+ *                   type: object
+ *                   properties:
+ *                     message:
+ *                       type: string
+ *                     target_score:
+ *                       type: integer
+ *       400:
+ *         description: Can only replay completed games
+ *       404:
+ *         description: Original game not found
+ *       500:
+ *         description: Server error
+ */
+router.post('/replay/:gameId', verifyToken, replayGame);
+
+/**
+ * @swagger
+ * /api/game/history/{gameId}/details:
+ *   get:
+ *     tags:
+ *     - Game Controller
+ *     summary: Get detailed game history
+ *     description: Retrieve comprehensive details of a specific completed game including round-by-round analysis
+ *     security:
+ *       - Authorization: []
+ *     parameters:
+ *       - name: gameId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         example: 123
+ *         description: ID of the game to get details for
+ *     responses:
+ *       200:
+ *         description: Game details retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 game:
+ *                   type: object
+ *                   properties:
+ *                     performance:
+ *                       type: object
+ *                       properties:
+ *                         score:
+ *                           type: integer
+ *                         accuracy:
+ *                           type: integer
+ *                         average_response_time:
+ *                           type: number
+ *                     rounds:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           question:
+ *                             type: string
+ *                           correct_answer:
+ *                             type: string
+ *                           your_answer:
+ *                             type: string
+ *                           is_correct:
+ *                             type: boolean
+ *                           response_time:
+ *                             type: number
+ *                     replay_available:
+ *                       type: boolean
+ *       403:
+ *         description: Access denied - can only view your own games
+ *       404:
+ *         description: Game not found
+ *       500:
+ *         description: Server error
+ */
+router.get('/history/:gameId/details', verifyToken, getGameDetails);
+
+/**
+ * @swagger
+ * /api/game/join-session/{sessionId}:
+ *   post:
+ *     tags:
+ *     - Game Controller - New History System
+ *     summary: Join a game session and create game history record
+ *     description: Join an admin-created game session and create a game history record to track user participation
+ *     security:
+ *       - Authorization: []
+ *     parameters:
+ *       - in: path
+ *         name: sessionId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: ID of the game session to join
+ *     responses:
+ *       201:
+ *         description: Successfully joined game session
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Successfully joined game session!
+ *                 game_history:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                       example: 789
+ *                     started_at:
+ *                       type: string
+ *                       format: date-time
+ *       404:
+ *         description: Game session not found
+ *       409:
+ *         description: Already joined this session or session is inactive
+ *       500:
+ *         description: Server error
+ */
+router.post('/join-session/:sessionId', verifyToken, joinGameSession);
+
+/**
+ * @swagger
+ * /api/game/complete-session:
+ *   post:
+ *     tags:
+ *     - Game Controller - New History System
+ *     summary: Complete a game session using game history
+ *     description: Complete a joined game session by submitting all round responses. This API uses the new game history structure.
+ *     security:
+ *       - Authorization: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - game_history_id
+ *               - total_time
+ *               - round_responses
+ *             properties:
+ *               game_history_id:
+ *                 type: integer
+ *                 example: 789
+ *                 description: ID of the game history record from joining the session
+ *               total_time:
+ *                 type: number
+ *                 format: float
+ *                 example: 145.5
+ *                 description: Total time taken to complete all rounds in seconds
+ *               round_responses:
+ *                 type: array
+ *                 description: Array of user responses for each round
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - user_symbol
+ *                     - response_time
+ *                   properties:
+ *                     user_symbol:
+ *                       type: string
+ *                       enum: [">", "<", "="]
+ *                       example: ">"
+ *                       description: User's chosen comparison symbol
+ *                     response_time:
+ *                       type: number
+ *                       format: float
+ *                       example: 12.5
+ *                       description: Time taken for this round in seconds
+ *     responses:
+ *       200:
+ *         description: Game session completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Game session completed successfully!
+ *                 session_info:
+ *                   type: object
+ *                   properties:
+ *                     game_session_id:
+ *                       type: integer
+ *                     game_history_id:
+ *                       type: integer
+ *                     session_name:
+ *                       type: string
+ *                     completed_by:
+ *                       type: string
+ *                 game_result:
+ *                   type: object
+ *                   properties:
+ *                     performance:
+ *                       type: object
+ *                       properties:
+ *                         total_rounds:
+ *                           type: integer
+ *                         correct_answers:
+ *                           type: integer
+ *                         accuracy:
+ *                           type: integer
+ *                         total_time:
+ *                           type: number
+ *                     scoring:
+ *                       type: object
+ *                       properties:
+ *                         final_score:
+ *                           type: integer
+ *                         experience_gained:
+ *                           type: integer
+ *                         coins_earned:
+ *                           type: integer
+ *                 detailed_rounds:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       round_number:
+ *                         type: integer
+ *                       question:
+ *                         type: string
+ *                       your_answer:
+ *                         type: string
+ *                       correct_answer:
+ *                         type: string
+ *                       is_correct:
+ *                         type: boolean
+ *                       points_earned:
+ *                         type: integer
+ *       400:
+ *         description: Invalid request data
+ *       404:
+ *         description: Game history record not found
+ *       409:
+ *         description: Game session already completed
+ *       500:
+ *         description: Server error
+ */
+router.post('/complete-session', verifyToken, completeGameSession);
+
+/**
+ * @swagger
+ * /api/game/my-history:
+ *   get:
+ *     tags:
+ *     - Game Controller - New History System
+ *     summary: Get user's game history across all sessions
+ *     description: Retrieve user's participation history in game sessions with filtering options
+ *     security:
+ *       - Authorization: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Number of records per page
+
+ *       - in: query
+ *         name: completed_only
+ *         schema:
+ *           type: string
+ *           enum: [true, false]
+ *           default: true
+ *         description: Show only completed sessions
+ *     responses:
+ *       200:
+ *         description: Game history retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Game history retrieved successfully
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     total:
+ *                       type: integer
+ *                     page:
+ *                       type: integer
+ *                     limit:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *                 statistics:
+ *                   type: object
+ *                   properties:
+ *                     total_sessions_joined:
+ *                       type: integer
+ *                     completed_sessions:
+ *                       type: integer
+ *                     total_score:
+ *                       type: integer
+ *                     best_score:
+ *                       type: integer
+ *                 game_histories:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       game_session:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: integer
+ *                           difficulty_level:
+ *                             type: integer
+ *                           number_of_rounds:
+ *                             type: integer
+ *                           admin_instructions:
+ *                             type: string
+ *                           created_by_admin:
+ *                             type: integer
+ *                       score:
+ *                         type: integer
+ *                       accuracy:
+ *                         type: integer
+ *                       completed:
+ *                         type: boolean
+ *                       started_at:
+ *                         type: string
+ *                         format: date-time
+ *                       completed_at:
+ *                         type: string
+ *                         format: date-time
+ *       500:
+ *         description: Server error
+ */
+router.get('/my-history', verifyToken, getUserGameHistory);
+
+/**
+ * @swagger
+ * /api/game/history-details/{historyId}:
+ *   get:
+ *     tags:
+ *     - Game Controller - New History System
+ *     summary: Get detailed round-by-round data for specific game history
+ *     description: Retrieve comprehensive details including all user inputs and responses for a specific game history record
+ *     security:
+ *       - Authorization: []
+ *     parameters:
+ *       - in: path
+ *         name: historyId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: ID of the game history record
+ *     responses:
+ *       200:
+ *         description: Detailed game history retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Game history details retrieved successfully
+ *                 game_history:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     performance:
+ *                       type: object
+ *                       properties:
+ *                         total_rounds:
+ *                           type: integer
+ *                         correct_answers:
+ *                           type: integer
+ *                         accuracy:
+ *                           type: integer
+ *                         final_score:
+ *                           type: integer
+ *                 detailed_rounds:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       round_number:
+ *                         type: integer
+ *                       question:
+ *                         type: string
+ *                         example: "15 ? 23"
+ *                       user_answer:
+ *                         type: string
+ *                         example: "<"
+ *                       correct_answer:
+ *                         type: string
+ *                         example: "<"
+ *                       is_correct:
+ *                         type: boolean
+ *                       response_time:
+ *                         type: number
+ *                       points_earned:
+ *                         type: integer
+ *                       result_emoji:
+ *                         type: string
+ *                         example: "✅"
+ *                 summary:
+ *                   type: object
+ *                   properties:
+ *                     fastest_correct_time:
+ *                       type: number
+ *                     slowest_correct_time:
+ *                       type: number
+ *                     most_common_mistake:
+ *                       type: object
+ *                     performance_trend:
+ *                       type: array
+ *       404:
+ *         description: Game history not found
+ *       403:
+ *         description: Access denied - can only view your own history
+ *       500:
+ *         description: Server error
+ */
+router.get('/history-details/:historyId', verifyToken, getGameHistoryDetails);
 
 export default router; 
