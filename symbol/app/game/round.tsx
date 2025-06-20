@@ -123,7 +123,7 @@ export default function GameRoundScreen() {
 
       if (response && response.success) {
         router.push({
-          pathname: "/game/game",
+          pathname: "/game/play",
           params: {
             sessionId: roundId,
             gameType: "Symbol Match",

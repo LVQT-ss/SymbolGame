@@ -1281,3 +1281,364 @@ function generateRandomRounds(numberOfRounds) {
     }
     return rounds;
 }
+
+// POST /api/game/create-instant - Create instant game for any user (QUICK PLAY)
+export const createInstantGame = async (req, res) => {
+    const userId = req.userId;
+    const {
+        difficulty_level = 1,
+        number_of_rounds = 10,
+        custom_rounds = null
+    } = req.body;
+
+    try {
+        // Validate input
+        if (number_of_rounds < 1 || number_of_rounds > 50) {
+            return res.status(400).json({
+                message: 'Number of rounds must be between 1 and 50.'
+            });
+        }
+
+        if (difficulty_level < 1 || difficulty_level > 10) {
+            return res.status(400).json({
+                message: 'Difficulty level must be between 1 and 10.'
+            });
+        }
+
+        // Get user info
+        const user = await User.findByPk(userId, {
+            attributes: ['id', 'username', 'full_name', 'current_level', 'experience_points']
+        });
+
+        if (!user) {
+            return res.status(404).json({
+                message: 'User not found.'
+            });
+        }
+
+        // Create game session for the user
+        const gameSession = await GameSession.create({
+            user_id: userId,
+            difficulty_level: difficulty_level,
+            number_of_rounds: number_of_rounds,
+            total_time: 0,
+            correct_answers: 0,
+            score: 0,
+            completed: false,
+            is_public: true,
+            created_by_admin: null, // This is a user-created instant game
+            admin_instructions: null
+        });
+
+        console.log(`🎮 Created instant game session ${gameSession.id} for user ${user.username}`);
+
+        // Generate rounds data
+        const roundsData = custom_rounds || generateDifficultyBasedRounds(number_of_rounds, difficulty_level);
+        const roundDetails = [];
+
+        // Create round details
+        for (let i = 0; i < number_of_rounds; i++) {
+            const round = roundsData[i];
+            let first_number, second_number;
+
+            // Adjust difficulty based on level
+            const maxNumber = Math.min(10 + (difficulty_level * 10), 100);
+
+            if (round) {
+                first_number = round.first_number;
+                second_number = round.second_number;
+            } else {
+                first_number = Math.floor(Math.random() * maxNumber) + 1;
+                second_number = Math.floor(Math.random() * maxNumber) + 1;
+            }
+
+            // Calculate correct symbol
+            let correct_symbol;
+            if (first_number > second_number) {
+                correct_symbol = '>';
+            } else if (first_number < second_number) {
+                correct_symbol = '<';
+            } else {
+                correct_symbol = '=';
+            }
+
+            const roundDetail = await RoundDetail.create({
+                game_session_id: gameSession.id,
+                round_number: i + 1,
+                first_number,
+                second_number,
+                correct_symbol,
+                user_symbol: null,
+                response_time: null,
+                is_correct: false
+            });
+
+            roundDetails.push({
+                round_number: roundDetail.round_number,
+                first_number: roundDetail.first_number,
+                second_number: roundDetail.second_number
+                // Note: correct_symbol is not included for security
+            });
+        }
+
+        console.log(`📝 Created ${roundDetails.length} rounds for game session ${gameSession.id}`);
+
+        // Response with game data ready to play
+        res.status(201).json({
+            message: 'Instant game created successfully! You can start playing immediately.',
+            player: {
+                id: user.id,
+                username: user.username,
+                full_name: user.full_name,
+                current_level: user.current_level
+            },
+            game_session: {
+                id: gameSession.id,
+                difficulty_level: gameSession.difficulty_level,
+                number_of_rounds: gameSession.number_of_rounds,
+                time_limit: 600, // 10 minutes total
+                round_time_limit: 60, // 60 seconds per round
+                points_per_correct: 100,
+                created_at: gameSession.createdAt,
+                status: 'ready_to_play'
+            },
+            rounds: roundDetails,
+            instructions: {
+                how_to_play: "Compare the two numbers and choose the correct symbol: > (greater than), < (less than), or = (equal to)",
+                scoring: "100 points per correct answer",
+                time_limit: "60 seconds per round, 10 minutes total",
+                next_steps: [
+                    `Use POST /api/game/${gameSession.id}/submit-round to submit each round`,
+                    `Use POST /api/game/complete to finish the game when all rounds are done`,
+                    `Use GET /api/game/${gameSession.id} to check current progress`
+                ]
+            }
+        });
+
+    } catch (err) {
+        console.error('❌ Error creating instant game:', err);
+        res.status(500).json({
+            message: 'Server error while creating instant game',
+            error: err.message
+        });
+    }
+};
+
+// Helper function to generate difficulty-based random rounds
+function generateDifficultyBasedRounds(numberOfRounds, difficultyLevel = 1) {
+    const rounds = [];
+    const maxNumber = Math.min(10 + (difficultyLevel * 10), 100);
+
+    for (let i = 0; i < numberOfRounds; i++) {
+        rounds.push({
+            first_number: Math.floor(Math.random() * maxNumber) + 1,
+            second_number: Math.floor(Math.random() * maxNumber) + 1
+        });
+    }
+    return rounds;
+}
+
+// POST /api/game/submit-whole-game - Create and submit entire game in one call
+export const submitWholeGame = async (req, res) => {
+    const userId = req.userId;
+    const {
+        difficulty_level = 1,
+        number_of_rounds = 10,
+        total_time,
+        rounds // Array of user answers
+    } = req.body;
+
+    try {
+        // Validate required fields
+        if (!total_time || !rounds || !Array.isArray(rounds)) {
+            return res.status(400).json({
+                message: 'total_time and rounds array are required.'
+            });
+        }
+
+        // Validate input ranges
+        if (number_of_rounds < 1 || number_of_rounds > 50) {
+            return res.status(400).json({
+                message: 'Number of rounds must be between 1 and 50.'
+            });
+        }
+
+        if (difficulty_level < 1 || difficulty_level > 10) {
+            return res.status(400).json({
+                message: 'Difficulty level must be between 1 and 10.'
+            });
+        }
+
+        // Validate rounds count
+        if (rounds.length !== number_of_rounds) {
+            return res.status(400).json({
+                message: `Expected ${number_of_rounds} rounds, but received ${rounds.length}.`
+            });
+        }
+
+        // Get user info
+        const user = await User.findByPk(userId, {
+            attributes: ['id', 'username', 'full_name', 'current_level', 'experience_points', 'coins']
+        });
+
+        if (!user) {
+            return res.status(404).json({
+                message: 'User not found.'
+            });
+        }
+
+        // Generate rounds data (server creates the questions)
+        const gameRounds = generateDifficultyBasedRounds(number_of_rounds, difficulty_level);
+
+        // Create game session
+        const gameSession = await GameSession.create({
+            user_id: userId,
+            difficulty_level: difficulty_level,
+            number_of_rounds: number_of_rounds,
+            total_time: total_time,
+            correct_answers: 0, // Will be calculated
+            score: 0, // Will be calculated
+            completed: true, // Game is completed immediately
+            is_public: true,
+            created_by_admin: null,
+            admin_instructions: null
+        });
+
+        console.log(`🎮 Created whole game session ${gameSession.id} for user ${user.username}`);
+
+        // Process all rounds
+        let correctAnswers = 0;
+        const processedRounds = [];
+
+        for (let i = 0; i < number_of_rounds; i++) {
+            const userRound = rounds[i];
+            const gameRound = gameRounds[i];
+
+            // Validate user round data
+            if (!userRound.user_symbol || !userRound.response_time) {
+                return res.status(400).json({
+                    message: `Round ${i + 1}: user_symbol and response_time are required.`
+                });
+            }
+
+            // Validate symbol
+            if (!['>', '<', '='].includes(userRound.user_symbol)) {
+                return res.status(400).json({
+                    message: `Round ${i + 1}: user_symbol must be '>', '<', or '='.`
+                });
+            }
+
+            // Calculate correct symbol for this round
+            let correct_symbol;
+            if (gameRound.first_number > gameRound.second_number) {
+                correct_symbol = '>';
+            } else if (gameRound.first_number < gameRound.second_number) {
+                correct_symbol = '<';
+            } else {
+                correct_symbol = '=';
+            }
+
+            // Check if answer is correct
+            const isCorrect = userRound.user_symbol === correct_symbol;
+            if (isCorrect) {
+                correctAnswers++;
+            }
+
+            // Create round detail in database
+            await RoundDetail.create({
+                game_session_id: gameSession.id,
+                round_number: i + 1,
+                first_number: gameRound.first_number,
+                second_number: gameRound.second_number,
+                correct_symbol: correct_symbol,
+                user_symbol: userRound.user_symbol,
+                response_time: userRound.response_time,
+                is_correct: isCorrect
+            });
+
+            processedRounds.push({
+                round_number: i + 1,
+                question: `${gameRound.first_number} ? ${gameRound.second_number}`,
+                your_answer: userRound.user_symbol,
+                correct_answer: correct_symbol,
+                is_correct: isCorrect,
+                response_time: userRound.response_time
+            });
+        }
+
+        // Calculate final score and update game session
+        const finalScore = correctAnswers * 100; // 100 points per correct answer
+        const accuracy = Math.round((correctAnswers / number_of_rounds) * 100);
+
+        await gameSession.update({
+            correct_answers: correctAnswers,
+            score: finalScore
+        });
+
+        // Calculate rewards
+        const experienceGained = Math.floor(finalScore * 0.1); // 10% of score as XP
+        const coinsEarned = correctAnswers; // 1 coin per correct answer
+
+        // Update user stats
+        const newExperience = user.experience_points + experienceGained;
+        const newLevel = Math.floor(newExperience / 1000) + 1;
+
+        await user.update({
+            experience_points: newExperience,
+            coins: user.coins + coinsEarned,
+            current_level: newLevel
+        });
+
+        console.log(`✅ Game ${gameSession.id} completed: ${correctAnswers}/${number_of_rounds} correct, ${finalScore} points`);
+
+        // Return comprehensive results
+        res.status(201).json({
+            message: 'Game created and completed successfully!',
+            game_result: {
+                game_id: gameSession.id,
+                player: {
+                    username: user.username,
+                    level_before: user.current_level,
+                    level_after: newLevel,
+                    level_up: newLevel > user.current_level
+                },
+                performance: {
+                    total_rounds: number_of_rounds,
+                    correct_answers: correctAnswers,
+                    wrong_answers: number_of_rounds - correctAnswers,
+                    accuracy: accuracy,
+                    total_time: total_time,
+                    average_time_per_round: Math.round((total_time / number_of_rounds) * 10) / 10
+                },
+                scoring: {
+                    final_score: finalScore,
+                    points_per_correct: 100,
+                    experience_gained: experienceGained,
+                    coins_earned: coinsEarned
+                },
+                difficulty: {
+                    level: difficulty_level,
+                    number_range: `1-${Math.min(10 + (difficulty_level * 10), 100)}`
+                }
+            },
+            detailed_rounds: processedRounds,
+            summary: {
+                result: correctAnswers >= (number_of_rounds * 0.7) ? '🎉 Great job!' :
+                    correctAnswers >= (number_of_rounds * 0.5) ? '👍 Good effort!' :
+                        '💪 Keep practicing!',
+                next_suggestion: difficulty_level < 10 && accuracy >= 80 ?
+                    `Try difficulty level ${difficulty_level + 1} next!` :
+                    difficulty_level > 1 && accuracy < 50 ?
+                        `Try difficulty level ${difficulty_level - 1} next!` :
+                        'Keep playing to improve!'
+            }
+        });
+
+    } catch (err) {
+        console.error('❌ Error in submit whole game:', err);
+        res.status(500).json({
+            message: 'Server error while processing game',
+            error: err.message
+        });
+    }
+};

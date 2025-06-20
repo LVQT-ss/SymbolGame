@@ -396,6 +396,63 @@ export const gameAPI = {
         } catch (error) {
             throw new Error(error.response?.data?.message || "Failed to complete game");
         }
+    },
+
+    // 🎮 NEW: Create Instant Game - Creates a ready-to-play game immediately
+    createInstantGame: async (gameOptions = {}) => {
+        try {
+            const defaultOptions = {
+                difficulty_level: 1,        // Easy level
+                number_of_rounds: 10,       // 10 rounds
+                // custom_rounds can be added if needed
+            };
+
+            const requestData = { ...defaultOptions, ...gameOptions };
+
+            console.log("🎮 Creating instant game with options:", requestData);
+
+            const response = await api.post("/game/create-instant", requestData);
+
+            console.log("✅ Instant game created successfully!");
+            return response.data;
+        } catch (error) {
+            console.error("❌ Failed to create instant game:", error.response?.data || error.message);
+            throw new Error(error.response?.data?.message || "Failed to create instant game");
+        }
+    },
+
+    // 🚀 NEW: Submit Whole Game - Play and submit entire game in one call
+    submitWholeGame: async (gameData) => {
+        try {
+            const defaultGameData = {
+                difficulty_level: 1,
+                number_of_rounds: 10,
+                total_time: 0,
+                rounds: []
+            };
+
+            const requestData = { ...defaultGameData, ...gameData };
+
+            console.log("🚀 Submitting whole game:", {
+                difficulty: requestData.difficulty_level,
+                rounds: requestData.number_of_rounds,
+                totalTime: requestData.total_time
+            });
+
+            const response = await api.post("/game/submit-whole-game", requestData);
+
+            console.log("✅ Whole game submitted successfully!");
+            console.log("📊 Results:", {
+                score: response.data.game_result?.scoring?.final_score,
+                accuracy: response.data.game_result?.performance?.accuracy,
+                correct: response.data.game_result?.performance?.correct_answers
+            });
+
+            return response.data;
+        } catch (error) {
+            console.error("❌ Failed to submit whole game:", error.response?.data || error.message);
+            throw new Error(error.response?.data?.message || "Failed to submit whole game");
+        }
     }
 };
 

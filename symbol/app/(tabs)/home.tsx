@@ -14,7 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { apiUtils, authAPI, userAPI } from "../../services/api";
+import { apiUtils, authAPI, userAPI, gameAPI } from "../../services/api";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -65,27 +65,6 @@ const getGameCardWidth = () => {
     return (screenWidth - padding * 2 - gap) / 2;
   }
 };
-
-const getStatsCardLayout = () => {
-  const { isTablet, isLargeScreen, isPortrait } = getResponsiveDimensions();
-
-  if (isLargeScreen) {
-    return { columns: isPortrait ? 3 : 5, showAllStats: true };
-  } else if (isTablet) {
-    return { columns: isPortrait ? 2 : 4, showAllStats: true };
-  } else {
-    return { columns: 3, showAllStats: false };
-  }
-};
-
-interface UserStats {
-  totalScore: number;
-  gamesPlayed: number;
-  winRate: number;
-  currentLevel: number;
-  currentRank: number;
-  totalUsers: number;
-}
 
 interface UserProfile {
   id?: number;
@@ -144,14 +123,6 @@ export default function HomeScreen() {
   const [dimensions, setDimensions] = useState(getResponsiveDimensions());
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
-  const [userStats, setUserStats] = useState<UserStats>({
-    totalScore: 0,
-    gamesPlayed: 0,
-    winRate: 0,
-    currentLevel: 1,
-    currentRank: 0,
-    totalUsers: 0,
-  });
 
   const [userProfile, setUserProfile] = useState<UserProfile>({
     username: "Guest",
@@ -175,6 +146,7 @@ export default function HomeScreen() {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [editingUsername, setEditingUsername] = useState(false);
   const [tempUsername, setTempUsername] = useState(userProfile.username);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     checkAuthStatus();
@@ -293,23 +265,6 @@ export default function HomeScreen() {
 
       setUserProfile(mappedProfile);
 
-      // Update user stats from the profile data
-      setUserStats({
-        totalScore: profileData.statistics?.total_score || 0,
-        gamesPlayed: profileData.statistics?.games_played || 0,
-        winRate:
-          profileData.statistics?.games_played > 0
-            ? Math.round(
-                ((mappedProfile.totalWins || 0) /
-                  profileData.statistics.games_played) *
-                  100
-              )
-            : 0,
-        currentLevel: profileData.current_level || 1,
-        currentRank: 0, // This would need to come from leaderboard API
-        totalUsers: 1000, // This would need to come from a separate API
-      });
-
       console.log("Profile successfully mapped and set");
     } catch (error: any) {
       console.error("Error fetching user profile:", error);
@@ -325,30 +280,22 @@ export default function HomeScreen() {
       id: "symbol-match",
       title: "Symbol Match",
       icon: "shapes",
-      color: "#FF6B6B",
+      color: "#FF4757", // Vibrant red-orange
       description: "Match symbols to score points",
     },
     {
-      id: "memory-game",
-      title: "Memory Game",
-      icon: "library",
-      color: "#4ECDC4",
-      description: "Test your memory skills",
+      id: "practice-mode",
+      title: "Practice Mode",
+      icon: "school",
+      color: "#4CAF50", // Vibrant green like menu
+      description: "Practice offline without pressure",
     },
     {
-      id: "speed-challenge",
-      title: "Speed Challenge",
+      id: "instant-game",
+      title: "Instant Game",
       icon: "flash",
-      color: "#45B7D1",
-      description: "Race against time",
-    },
-    {
-      id: "puzzle-master",
-      title: "Puzzle Master",
-      icon: "extension-puzzle",
-      color: "#96CEB4",
-      description: "Solve complex puzzles",
-      isLocked: true,
+      color: "#FF9800", // Vibrant orange like menu
+      description: "Quick game, instant fun",
     },
   ];
 
@@ -414,11 +361,59 @@ export default function HomeScreen() {
     } else if (game.id === "symbol-match") {
       // Navigate to game menu for Symbol Match
       router.push("/game/menu");
+    } else if (game.id === "practice-mode") {
+      handlePracticeMode();
+    } else if (game.id === "instant-game") {
+      handleInstantGame();
     } else {
       Alert.alert("Start Game", `Ready to play ${game.title}?`, [
         { text: "Cancel", style: "cancel" },
         { text: "Play", onPress: () => console.log(`Starting ${game.title}`) },
       ]);
+    }
+  };
+
+  const handlePracticeMode = () => {
+    console.log(`🎮 Starting practice mode from home`);
+
+    router.push({
+      pathname: "/game/play",
+      params: {
+        sessionId: "practice",
+        gameType: "Practice Mode",
+        title: "Practice Game",
+      },
+    });
+  };
+
+  const handleInstantGame = async () => {
+    console.log(`🎮 Creating instant game from home`);
+
+    try {
+      setLoading(true);
+
+      // Create instant game with default settings
+      const result = await gameAPI.createInstantGame({
+        difficulty_level: 2,
+        number_of_rounds: 10,
+      });
+
+      console.log("✅ Instant game created:", result);
+
+      // Navigate to game with the created session
+      router.push({
+        pathname: "/game/play",
+        params: {
+          sessionId: result.game_session.id.toString(),
+          gameType: "Instant Game",
+          title: "Quick Play",
+        },
+      });
+    } catch (error) {
+      console.error("❌ Failed to create instant game:", error);
+      Alert.alert("Error", "Failed to create instant game. Please try again.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -452,7 +447,6 @@ export default function HomeScreen() {
 
   const styles = getResponsiveStyles(dimensions);
   const cardWidth = getGameCardWidth();
-  const statsLayout = getStatsCardLayout();
 
   const handleLogout = async () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
@@ -677,35 +671,6 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          <View style={styles.profileStatsSection}>
-            <Text style={styles.profileSectionTitle}>Game Statistics</Text>
-
-            <View style={styles.modalStatsGrid}>
-              <View style={styles.modalStatItem}>
-                <Text style={styles.modalStatValue}>
-                  {userProfile.totalWins}
-                </Text>
-                <Text style={styles.profileStatLabel}>Total Wins</Text>
-              </View>
-              <View style={styles.modalStatItem}>
-                <Text style={styles.modalStatValue}>
-                  {userProfile.totalLosses}
-                </Text>
-                <Text style={styles.profileStatLabel}>Total Losses</Text>
-              </View>
-              <View style={styles.modalStatItem}>
-                <Text style={styles.modalStatValue}>{userStats.winRate}%</Text>
-                <Text style={styles.profileStatLabel}>Win Rate</Text>
-              </View>
-              <View style={styles.modalStatItem}>
-                <Text style={styles.modalStatValue}>
-                  #{userStats.currentRank}
-                </Text>
-                <Text style={styles.profileStatLabel}>Global Rank</Text>
-              </View>
-            </View>
-          </View>
-
           <View style={styles.experienceSection}>
             <Text style={styles.profileSectionTitle}>Experience Progress</Text>
             <View style={styles.expProgressContainer}>
@@ -844,42 +809,12 @@ export default function HomeScreen() {
       {/* Show profile modal only for authenticated users */}
       {isAuthenticated && <ProfileModal />}
 
-      <View style={styles.statsContainer}>
-        <View style={styles.statCard}>
-          <Ionicons
-            name="trophy"
-            size={getResponsiveFontSize(24)}
-            color="#FFD700"
-          />
-          <Text style={styles.statNumber}>
-            {formatNumber(userStats.totalScore)}
-          </Text>
-          <Text style={styles.statLabel}>Total Score</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Ionicons
-            name="game-controller"
-            size={getResponsiveFontSize(24)}
-            color="#4ECDC4"
-          />
-          <Text style={styles.statNumber}>{userStats.gamesPlayed}</Text>
-          <Text style={styles.statLabel}>Games Played</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Ionicons
-            name="trending-up"
-            size={getResponsiveFontSize(24)}
-            color="#FF6B6B"
-          />
-          <Text style={styles.statNumber}>{userStats.winRate}%</Text>
-          <Text style={styles.statLabel}>Win Rate</Text>
-        </View>
-      </View>
-
       <View style={styles.progressSection}>
         <View style={styles.progressHeader}>
           <Text style={styles.sectionTitle}>Level Progress</Text>
-          <Text style={styles.levelText}>Level {userStats.currentLevel}</Text>
+          <Text style={styles.levelText}>
+            Level {userProfile.current_level}
+          </Text>
         </View>
         <View style={styles.progressBar}>
           <View style={[styles.progressFill, { width: "70%" }]} />
@@ -887,81 +822,48 @@ export default function HomeScreen() {
         <Text style={styles.progressText}>7,200 / 10,000 XP to next level</Text>
       </View>
 
-      <View style={styles.rankSection}>
-        <View style={styles.rankCard}>
-          <View style={styles.rankInfo}>
-            <Ionicons
-              name="podium"
-              size={getResponsiveFontSize(32)}
-              color="#ffd33d"
-            />
-            <View style={styles.rankDetails}>
-              <Text style={styles.rankTitle}>Current Rank</Text>
-              <Text style={styles.rankNumber}>#{userStats.currentRank}</Text>
-              <Text style={styles.rankSubtext}>
-                out of {formatNumber(userStats.totalUsers)} players
-              </Text>
-            </View>
-          </View>
-          <TouchableOpacity style={styles.viewLeaderboardButton}>
-            <Link href="/leaderboard" asChild>
-              <TouchableOpacity style={styles.linkButton}>
-                <Text style={styles.linkButtonText}>View Leaderboard</Text>
-                <Ionicons
-                  name="chevron-forward"
-                  size={getResponsiveFontSize(16)}
-                  color="#25292e"
-                />
-              </TouchableOpacity>
-            </Link>
-          </TouchableOpacity>
-        </View>
-      </View>
-
       <View style={styles.gamesSection}>
-        <Text style={styles.sectionTitle}>Game Modes</Text>
-        <View style={styles.gamesGrid}>
-          {gameCategories.map((game) => (
-            <TouchableOpacity
-              key={game.id}
-              style={[
-                styles.gameCard,
-                { width: cardWidth },
-                game.isLocked && styles.lockedCard,
-              ]}
-              onPress={() => handleGamePress(game)}
-            >
-              <View style={[styles.gameIcon, { backgroundColor: game.color }]}>
-                <Ionicons
-                  name={game.icon as any}
-                  size={getResponsiveFontSize(28)}
-                  color="#fff"
-                />
-                {game.isLocked && (
-                  <View style={styles.lockOverlay}>
-                    <Ionicons
-                      name="lock-closed"
-                      size={getResponsiveFontSize(20)}
-                      color="#666"
-                    />
-                  </View>
-                )}
-              </View>
-              <Text
-                style={[styles.gameTitle, game.isLocked && styles.lockedText]}
-              >
-                {game.title}
-              </Text>
-              <Text
-                style={[
-                  styles.gameDescription,
-                  game.isLocked && styles.lockedText,
-                ]}
-              >
-                {game.description}
-              </Text>
-            </TouchableOpacity>
-          ))}
+        <Text style={styles.sectionTitle}>🎮 Game Modes</Text>
+        <View style={styles.gameModeContainer}>
+          {/* Symbol Match - Browse Games */}
+          <TouchableOpacity
+            style={styles.symbolMatchButton}
+            onPress={() => handleGamePress(gameCategories[0])}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="shapes" size={24} color="#fff" />
+            <Text style={styles.symbolMatchButtonText}>🎯 Symbol Match</Text>
+            <Text style={styles.symbolMatchButtonSubtext}>
+              Browse available games
+            </Text>
+          </TouchableOpacity>
+
+          {/* Practice Mode */}
+          <TouchableOpacity
+            style={styles.practiceButton}
+            onPress={() => handleGamePress(gameCategories[1])}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="school" size={24} color="#fff" />
+            <Text style={styles.practiceButtonText}>🎯 Practice Mode</Text>
+            <Text style={styles.practiceButtonSubtext}>
+              Offline • No progress saved
+            </Text>
+          </TouchableOpacity>
+
+          {/* Instant Game */}
+          <TouchableOpacity
+            style={styles.instantGameButton}
+            onPress={() => handleGamePress(gameCategories[2])}
+            activeOpacity={0.8}
+            disabled={loading}
+          >
+            <Ionicons name="flash" size={24} color="#fff" />
+            <Text style={styles.instantGameButtonText}>⚡ Instant Game</Text>
+            <Text style={styles.instantGameButtonSubtext}>
+              Quick setup • Full tracking
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -1072,35 +974,7 @@ const getResponsiveStyles = (dimensions: any) =>
       borderWidth: 2,
       borderColor: "#ffd33d",
     },
-    statsContainer: {
-      flexDirection: "row",
-      paddingHorizontal: getResponsivePadding(),
-      marginTop: getResponsivePadding(),
-      gap: dimensions.isTablet ? 16 : 12,
-      flexWrap: dimensions.isLargeScreen ? "wrap" : "nowrap",
-    },
-    statCard: {
-      flex: 1,
-      backgroundColor: "#333",
-      borderRadius: dimensions.isTablet ? 16 : 12,
-      padding: dimensions.isTablet ? 20 : 16,
-      alignItems: "center",
-      borderWidth: 1,
-      borderColor: "#444",
-      minWidth: dimensions.isLargeScreen ? 200 : undefined,
-    },
-    statNumber: {
-      fontSize: getResponsiveFontSize(20),
-      fontWeight: "bold",
-      color: "#fff",
-      marginTop: 8,
-      marginBottom: 4,
-    },
-    statLabel: {
-      fontSize: getResponsiveFontSize(12),
-      color: "#888",
-      textAlign: "center",
-    },
+
     progressSection: {
       margin: getResponsivePadding(),
       backgroundColor: "#333",
@@ -1196,57 +1070,92 @@ const getResponsiveStyles = (dimensions: any) =>
       paddingHorizontal: getResponsivePadding(),
       marginBottom: getResponsivePadding(),
     },
-    gamesGrid: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 12,
+    gameModeContainer: {
+      paddingHorizontal: getResponsivePadding(),
       marginTop: 12,
-      justifyContent: dimensions.isLargeScreen ? "flex-start" : "space-between",
     },
-    gameCard: {
-      backgroundColor: "#333",
-      borderRadius: dimensions.isTablet ? 16 : 12,
-      padding: dimensions.isTablet ? 20 : 16,
+    symbolMatchButton: {
+      flexDirection: "column",
       alignItems: "center",
-      borderWidth: 1,
-      borderColor: "#444",
+      backgroundColor: "#FF4757",
+      padding: 20,
+      borderRadius: 15,
+      marginBottom: 16,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+      elevation: 6,
     },
-    lockedCard: {
-      opacity: 0.6,
-    },
-    gameIcon: {
-      width: dimensions.isTablet ? 64 : 56,
-      height: dimensions.isTablet ? 64 : 56,
-      borderRadius: dimensions.isTablet ? 32 : 28,
-      justifyContent: "center",
-      alignItems: "center",
-      marginBottom: 12,
-      position: "relative",
-    },
-    lockOverlay: {
-      position: "absolute",
-      width: "100%",
-      height: "100%",
-      backgroundColor: "rgba(0,0,0,0.7)",
-      borderRadius: dimensions.isTablet ? 32 : 28,
-      justifyContent: "center",
-      alignItems: "center",
-    },
-    gameTitle: {
-      fontSize: getResponsiveFontSize(14),
-      fontWeight: "bold",
+    symbolMatchButtonText: {
       color: "#fff",
+      fontSize: getResponsiveFontSize(18),
+      fontWeight: "bold",
+      marginLeft: 8,
       textAlign: "center",
-      marginBottom: 4,
     },
-    gameDescription: {
+    symbolMatchButtonSubtext: {
+      color: "#FFE8E8",
       fontSize: getResponsiveFontSize(12),
-      color: "#888",
+      marginTop: 5,
+      textAlign: "center",
+      fontStyle: "italic",
+    },
+    practiceButton: {
+      flexDirection: "column",
+      alignItems: "center",
+      backgroundColor: "#4CAF50",
+      padding: 20,
+      borderRadius: 15,
+      marginBottom: 16,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+      elevation: 6,
+    },
+    practiceButtonText: {
+      color: "#fff",
+      fontSize: getResponsiveFontSize(18),
+      fontWeight: "bold",
+      marginLeft: 8,
       textAlign: "center",
     },
-    lockedText: {
-      color: "#666",
+    practiceButtonSubtext: {
+      color: "#E8F5E8",
+      fontSize: getResponsiveFontSize(12),
+      marginTop: 5,
+      textAlign: "center",
+      fontStyle: "italic",
     },
+    instantGameButton: {
+      flexDirection: "column",
+      alignItems: "center",
+      backgroundColor: "#FF9800",
+      padding: 20,
+      borderRadius: 15,
+      marginBottom: 16,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+      elevation: 6,
+    },
+    instantGameButtonText: {
+      color: "#fff",
+      fontSize: getResponsiveFontSize(18),
+      fontWeight: "bold",
+      marginLeft: 8,
+      textAlign: "center",
+    },
+    instantGameButtonSubtext: {
+      color: "#FFF3E0",
+      fontSize: getResponsiveFontSize(12),
+      marginTop: 5,
+      textAlign: "center",
+      fontStyle: "italic",
+    },
+
     achievementsSection: {
       paddingHorizontal: getResponsivePadding(),
       marginBottom: getResponsivePadding(),
@@ -1306,14 +1215,17 @@ const getResponsiveStyles = (dimensions: any) =>
     },
     loginButton: {
       backgroundColor: "#ffd33d",
-      borderRadius: 20,
-      padding: 12,
+      borderRadius: 16,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
       alignItems: "center",
+      flexDirection: "row",
     },
     loginButtonText: {
       color: "#25292e",
       fontWeight: "bold",
-      fontSize: getResponsiveFontSize(14),
+      fontSize: getResponsiveFontSize(12),
+      marginLeft: 4,
     },
     modalContainer: {
       flex: 1,

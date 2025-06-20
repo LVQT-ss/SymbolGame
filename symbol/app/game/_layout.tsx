@@ -32,6 +32,13 @@ export default function GameLayout() {
           title: "Round by Round",
         }}
       />
+      <Stack.Screen
+        name="play"
+        options={{
+          headerShown: false,
+          title: "Play",
+        }}
+      />
     </Stack>
   );
 }

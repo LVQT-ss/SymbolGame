@@ -10,7 +10,9 @@ import {
     getAvailableGames,
     joinGame,
     getGameSession,
-    submitRound
+    submitRound,
+    createInstantGame,
+    submitWholeGame
 } from '../controllers/game.controller.js';
 import { verifyToken } from '../middleware/verifyUser.js';
 
@@ -93,6 +95,274 @@ router.post('/start', verifyToken, startGame);
  *         description: Server error
  */
 router.post('/join', verifyToken, joinGame);
+
+/**
+ * @swagger
+ * /api/game/create-instant:
+ *   post:
+ *     tags:
+ *     - Game Controller
+ *     summary: Create instant game for immediate play (QUICK PLAY)
+ *     description: Create a new game session instantly for any user with automatic round generation. Perfect for quick play without waiting for admin assignments.
+ *     security:
+ *       - Authorization: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               difficulty_level:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 10
+ *                 default: 1
+ *                 example: 3
+ *                 description: Game difficulty level (affects number range)
+ *               number_of_rounds:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 50
+ *                 default: 10
+ *                 example: 15
+ *                 description: Number of game rounds
+ *               custom_rounds:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     first_number:
+ *                       type: integer
+ *                       example: 25
+ *                     second_number:
+ *                       type: integer
+ *                       example: 17
+ *                 description: Optional custom rounds instead of auto-generation
+ *     responses:
+ *       201:
+ *         description: Instant game created successfully, ready to play
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Instant game created successfully! You can start playing immediately.
+ *                 player:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     username:
+ *                       type: string
+ *                     full_name:
+ *                       type: string
+ *                     current_level:
+ *                       type: integer
+ *                 game_session:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                       example: 456
+ *                     difficulty_level:
+ *                       type: integer
+ *                     number_of_rounds:
+ *                       type: integer
+ *                     time_limit:
+ *                       type: integer
+ *                       example: 600
+ *                     round_time_limit:
+ *                       type: integer
+ *                       example: 60
+ *                     points_per_correct:
+ *                       type: integer
+ *                       example: 100
+ *                     status:
+ *                       type: string
+ *                       example: ready_to_play
+ *                 rounds:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       round_number:
+ *                         type: integer
+ *                       first_number:
+ *                         type: integer
+ *                       second_number:
+ *                         type: integer
+ *                 instructions:
+ *                   type: object
+ *                   properties:
+ *                     how_to_play:
+ *                       type: string
+ *                     scoring:
+ *                       type: string
+ *                     next_steps:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *       400:
+ *         description: Invalid input parameters
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Server error
+ */
+router.post('/create-instant', verifyToken, createInstantGame);
+
+/**
+ * @swagger
+ * /api/game/submit-whole-game:
+ *   post:
+ *     tags:
+ *     - Game Controller
+ *     summary: Submit complete game in one call (EASIEST WAY)
+ *     description: Create a game and submit all answers in a single API call. Perfect for mobile apps or offline play.
+ *     security:
+ *       - Authorization: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - total_time
+ *               - rounds
+ *             properties:
+ *               difficulty_level:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 10
+ *                 default: 1
+ *                 example: 2
+ *                 description: Game difficulty level
+ *               number_of_rounds:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 50
+ *                 default: 10
+ *                 example: 5
+ *                 description: Number of rounds
+ *               total_time:
+ *                 type: number
+ *                 format: float
+ *                 example: 25.5
+ *                 description: Total time spent on game (seconds)
+ *               rounds:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - user_symbol
+ *                     - response_time
+ *                   properties:
+ *                     user_symbol:
+ *                       type: string
+ *                       enum: [">", "<", "="]
+ *                       example: ">"
+ *                       description: Your answer to the comparison
+ *                     response_time:
+ *                       type: number
+ *                       format: float
+ *                       example: 2.5
+ *                       description: Time taken for this round (seconds)
+ *                 description: Array of your answers for each round
+ *                 example:
+ *                   - user_symbol: ">"
+ *                     response_time: 2.5
+ *                   - user_symbol: "<"
+ *                     response_time: 1.8
+ *                   - user_symbol: "="
+ *                     response_time: 3.2
+ *     responses:
+ *       201:
+ *         description: Game created and completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Game created and completed successfully!
+ *                 game_result:
+ *                   type: object
+ *                   properties:
+ *                     game_id:
+ *                       type: integer
+ *                       example: 789
+ *                     player:
+ *                       type: object
+ *                       properties:
+ *                         username:
+ *                           type: string
+ *                         level_before:
+ *                           type: integer
+ *                         level_after:
+ *                           type: integer
+ *                         level_up:
+ *                           type: boolean
+ *                     performance:
+ *                       type: object
+ *                       properties:
+ *                         total_rounds:
+ *                           type: integer
+ *                         correct_answers:
+ *                           type: integer
+ *                         accuracy:
+ *                           type: integer
+ *                         total_time:
+ *                           type: number
+ *                     scoring:
+ *                       type: object
+ *                       properties:
+ *                         final_score:
+ *                           type: integer
+ *                         experience_gained:
+ *                           type: integer
+ *                         coins_earned:
+ *                           type: integer
+ *                 detailed_rounds:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       round_number:
+ *                         type: integer
+ *                       question:
+ *                         type: string
+ *                         example: "25 ? 17"
+ *                       your_answer:
+ *                         type: string
+ *                       correct_answer:
+ *                         type: string
+ *                       is_correct:
+ *                         type: boolean
+ *                 summary:
+ *                   type: object
+ *                   properties:
+ *                     result:
+ *                       type: string
+ *                       example: "🎉 Great job!"
+ *                     next_suggestion:
+ *                       type: string
+ *       400:
+ *         description: Invalid input data
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Server error
+ */
+router.post('/submit-whole-game', verifyToken, submitWholeGame);
 
 /**
  * @swagger

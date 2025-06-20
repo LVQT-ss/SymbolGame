@@ -153,7 +153,7 @@ export default function RoundByRoundGame() {
         (finalResults ? `Coins Earned: ${finalResults.coins_earned}` : ""),
       [
         { text: "Play Again", onPress: () => router.back() },
-        { text: "View Stats", onPress: () => router.push("/game/stats") },
+        { text: "Back to Menu", onPress: () => router.back() },
       ]
     );
   };

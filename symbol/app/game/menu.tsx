@@ -656,15 +656,6 @@ export default function GameMenuScreen() {
       case "available":
         return (
           <View style={styles.tabContent}>
-            {/* <TouchableOpacity
-              style={styles.createRoundButton}
-              onPress={() => router.push("/game/round")}
-            >
-              <Ionicons name="add-circle" size={24} color="#fff" />
-              <Text style={styles.createRoundButtonText}>
-                Create Game Round
-              </Text>
-            </TouchableOpacity> */}
             <FlatList
               data={availableGames}
               renderItem={renderGameSession}
@@ -743,12 +734,6 @@ export default function GameMenuScreen() {
             </Text>
           </View>
         </View>
-      </View>
-
-      {/* Tabs */}
-      <View style={styles.tabContainer}>
-        {renderTabButton("available", "Available", "play")}
-        {/* {renderTabButton("stats", "Stats", "analytics")} */}
       </View>
 
       {/* Content */}
