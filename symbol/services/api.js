@@ -271,17 +271,145 @@ export const gameAPI = {
         }
     },
 
+    // 🎯 ENHANCED: Complete Game API - Fixed to match expected format
     completeGame: async (gameResults) => {
         try {
-            const response = await api.post("/game/complete", {
-                game_session_id: gameResults.game_session_id,
-                total_time: gameResults.total_time,
-                rounds: gameResults.rounds,
-                recording_url: gameResults.recording_url
-            });
-            return response.data;
+            console.log("🎮 Starting game completion via api/game/complete");
+            console.log("📊 Input data:", gameResults);
+
+            // Validate required fields
+            if (!gameResults.game_session_id) {
+                throw new Error("game_session_id is required for game completion");
+            }
+            if (!gameResults.total_time || !gameResults.rounds || !Array.isArray(gameResults.rounds)) {
+                throw new Error("total_time and rounds array are required for game completion");
+            }
+
+            // Validate rounds data
+            if (gameResults.rounds.length === 0) {
+                throw new Error("At least one round is required to complete a game");
+            }
+
+            // Validate existing session rounds (must include first_number, second_number)
+            const invalidRounds = gameResults.rounds.filter(round =>
+                !round.first_number || !round.second_number ||
+                !round.user_symbol || round.response_time === undefined
+            );
+
+            if (invalidRounds.length > 0) {
+                throw new Error("All rounds must include first_number, second_number, user_symbol, and response_time");
+            }
+
+            // Prepare request payload to match expected format exactly
+            const requestPayload = {
+                game_session_id: parseInt(gameResults.game_session_id),
+                difficulty_level: gameResults.difficulty_level || 2,
+                total_time: parseFloat(gameResults.total_time),
+                rounds: gameResults.rounds.map(round => ({
+                    first_number: parseInt(round.first_number),
+                    second_number: parseInt(round.second_number),
+                    user_symbol: round.user_symbol,
+                    response_time: parseFloat(round.response_time)
+                })),
+                recording_url: gameResults.recording_url || null
+            };
+
+            console.log("📤 Calling POST /api/game/complete");
+            console.log("📦 Request payload:", requestPayload);
+
+            const response = await api.post("/game/complete", requestPayload);
+
+            console.log("✅ Game completed successfully via api/game/complete!");
+            console.log("📊 Server response status:", response.status);
+            console.log("📊 Server response data:", response.data);
+
+            // Validate server response
+            if (!response.data) {
+                throw new Error("Empty response from server");
+            }
+
+            return {
+                success: true,
+                data: response.data,
+                // Extract useful info for easy access
+                gameId: response.data.session_info?.game_id,
+                finalScore: response.data.game_result?.scoring?.final_score,
+                correctAnswers: response.data.game_result?.performance?.correct_answers,
+                accuracy: response.data.game_result?.performance?.accuracy,
+                experienceGained: response.data.game_result?.scoring?.experience_gained,
+                coinsEarned: response.data.game_result?.scoring?.coins_earned,
+                leveledUp: response.data.game_result?.player?.level_up,
+                newLevel: response.data.game_result?.player?.level_after,
+                _api_endpoint: "/api/game/complete"
+            };
+
         } catch (error) {
-            throw new Error(error.response?.data?.message || "Failed to complete game");
+            console.error("❌ Failed to complete game via api/game/complete:", error);
+
+            // Enhanced error handling
+            let errorMessage = "Failed to complete game";
+
+            if (error.response?.status === 400) {
+                errorMessage = error.response.data?.message || "Invalid game data provided";
+                console.error("❌ Bad Request (400):", errorMessage);
+            } else if (error.response?.status === 404) {
+                errorMessage = "Game session not found";
+                console.error("❌ Not Found (404):", errorMessage);
+            } else if (error.response?.status === 409) {
+                errorMessage = "Game session already completed or unavailable";
+                console.error("❌ Conflict (409):", errorMessage);
+            } else if (error.response?.data?.message) {
+                errorMessage = error.response.data.message;
+                console.error("❌ Server error:", errorMessage);
+            } else if (error.message) {
+                errorMessage = error.message;
+                console.error("❌ Client error:", errorMessage);
+            }
+
+            throw new Error(errorMessage);
+        }
+    },
+
+    // 🎯 ENHANCED: Complete Game with Auto-Detection
+    // This method automatically detects the mode and formats data appropriately
+    completeGameAuto: async (gameData) => {
+        try {
+            const {
+                sessionId,
+                rounds,
+                totalTime,
+                difficultyLevel = 1,
+                recordingUrl = null
+            } = gameData;
+
+            let formattedGameResults;
+
+            if (sessionId && sessionId !== 0 && sessionId !== "practice" && sessionId !== "quick-submit") {
+                // Existing session mode - need full round data
+                formattedGameResults = {
+                    game_session_id: sessionId,
+                    total_time: totalTime,
+                    rounds: rounds,
+                    recording_url: recordingUrl
+                };
+            } else {
+                // New session mode - only need user responses
+                formattedGameResults = {
+                    difficulty_level: difficultyLevel,
+                    total_time: totalTime,
+                    rounds: rounds.map(round => ({
+                        user_symbol: round.user_symbol,
+                        response_time: round.response_time
+                    })),
+                    recording_url: recordingUrl
+                };
+            }
+
+            return await gameAPI.completeGame(formattedGameResults);
+
+        } catch (error) {
+            console.error("❌ Auto-complete game failed:", error);
+            throw error;
         }
     },
 
@@ -318,9 +446,96 @@ export const gameAPI = {
 
     joinGame: async (gameSessionId) => {
         try {
+            console.log(`🎮 Joining game session: ${gameSessionId}`);
             const response = await api.post("/game/join", { game_session_id: gameSessionId });
-            return response.data;
+
+            console.log("✅ Successfully joined game");
+
+            // After joining, the response should include basic game info and rounds
+            // If rounds are missing or incomplete, we'll fetch them separately
+            const joinData = response.data;
+
+            if (!joinData.rounds || joinData.rounds.length === 0) {
+                console.log("🔄 Join response missing rounds, fetching full game data...");
+
+                // Small delay to ensure backend has processed the join
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                try {
+                    const gameData = await gameAPI.getGameSession(gameSessionId);
+                    console.log(`✅ Fetched game data with ${gameData.rounds?.length || 0} rounds`);
+
+                    if (!gameData.rounds || gameData.rounds.length === 0) {
+                        console.warn("⚠️ Still no rounds after fetching game data");
+                        // Try one more time with longer delay
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        const retryGameData = await gameAPI.getGameSession(gameSessionId);
+
+                        if (!retryGameData.rounds || retryGameData.rounds.length === 0) {
+                            throw new Error("No rounds data available after multiple attempts");
+                        }
+
+                        return {
+                            ...joinData,
+                            ...retryGameData,
+                            _enhanced: true,
+                            _retry_count: 2
+                        };
+                    }
+
+                    return {
+                        ...joinData,
+                        ...gameData,
+                        _enhanced: true,
+                        _retry_count: 1
+                    };
+                } catch (fetchError) {
+                    console.warn("⚠️ Could not fetch full game data after join:", fetchError);
+                    // Return the original join response even if rounds are missing
+                    return {
+                        ...joinData,
+                        _fetch_error: fetchError.message
+                    };
+                }
+            }
+
+            // Validate rounds data if present
+            if (joinData.rounds && Array.isArray(joinData.rounds)) {
+                const validRounds = joinData.rounds.filter(round =>
+                    round &&
+                    typeof round.round_number === 'number' &&
+                    typeof round.first_number === 'number' &&
+                    typeof round.second_number === 'number'
+                );
+
+                console.log(`✅ Join response has ${validRounds.length} valid rounds`);
+
+                return {
+                    ...joinData,
+                    rounds: validRounds,
+                    _enhanced: false
+                };
+            }
+
+            return joinData;
+
         } catch (error) {
+            console.error("❌ Failed to join game:", error);
+
+            // Enhanced error handling
+            if (error.response?.status === 404) {
+                throw new Error("Game session not found");
+            } else if (error.response?.status === 409) {
+                if (error.response.data?.message?.includes("completed")) {
+                    throw new Error("This game session has already been completed");
+                } else if (error.response.data?.message?.includes("assigned")) {
+                    throw new Error("This game session is already assigned to another user");
+                }
+                throw new Error(error.response.data?.message || "Game session is not available");
+            } else if (error.response?.status === 400) {
+                throw new Error("Invalid game session ID");
+            }
+
             throw new Error(error.response?.data?.message || "Failed to join game");
         }
     },
@@ -346,10 +561,83 @@ export const gameAPI = {
 
     getGameSession: async (gameSessionId) => {
         try {
+            console.log(`🔄 Calling GET /api/game/${gameSessionId}`);
             const response = await api.get(`/game/${gameSessionId}`);
-            return response.data;
+
+            console.log(`✅ GET /api/game/${gameSessionId} - Status:`, response.status);
+            console.log("📊 Raw server response:", response.data);
+
+            // Validate response structure
+            if (!response.data) {
+                throw new Error("Empty response from server");
+            }
+
+            const { game_session, rounds, progress, current_round } = response.data;
+
+            // Validate game session data
+            if (!game_session || !game_session.id) {
+                throw new Error("Invalid game session data received");
+            }
+
+            console.log(`✅ Game session ${game_session.id} loaded successfully`);
+            console.log(`📊 Game details: ${game_session.number_of_rounds} rounds, completed: ${game_session.completed}`);
+
+            // Validate rounds data
+            if (!rounds || !Array.isArray(rounds)) {
+                console.warn("⚠️ No rounds array found in response");
+                // Don't throw error here, let the frontend handle it
+                return {
+                    ...response.data,
+                    rounds: [] // Ensure rounds is at least an empty array
+                };
+            }
+
+            // Validate round structure
+            const validRounds = rounds.filter(round =>
+                round &&
+                typeof round.round_number === 'number' &&
+                typeof round.first_number === 'number' &&
+                typeof round.second_number === 'number'
+            );
+
+            if (validRounds.length !== rounds.length) {
+                console.warn(`⚠️ Some rounds have invalid data. Valid: ${validRounds.length}/${rounds.length}`);
+            }
+
+            console.log(`✅ Rounds validated: ${validRounds.length} valid rounds available`);
+            console.log("📊 Round sample:", validRounds.slice(0, 2)); // Show first 2 rounds as sample
+
+            return {
+                ...response.data,
+                rounds: validRounds,
+                _meta: {
+                    total_rounds_expected: game_session.number_of_rounds,
+                    total_rounds_received: validRounds.length,
+                    data_complete: validRounds.length === game_session.number_of_rounds,
+                    _api_endpoint: `/api/game/${gameSessionId}`
+                }
+            };
+
         } catch (error) {
-            throw new Error(error.response?.data?.message || "Failed to get game session");
+            console.error(`❌ Failed GET /api/game/${gameSessionId}:`, error);
+
+            // Enhanced error messages
+            if (error.response?.status === 404) {
+                console.error("❌ Not Found (404): Game session doesn't exist");
+                throw new Error("Game session not found. It may have been deleted or doesn't exist.");
+            } else if (error.response?.status === 403) {
+                console.error("❌ Forbidden (403): Access denied to game session");
+                throw new Error("You don't have permission to access this game session.");
+            } else if (error.response?.status === 400) {
+                console.error("❌ Bad Request (400): Invalid session ID");
+                throw new Error("Invalid game session ID provided.");
+            } else if (error.response?.data?.message) {
+                console.error("❌ Server error:", error.response.data.message);
+                throw new Error(error.response.data.message);
+            }
+
+            console.error("❌ Unknown error:", error.message);
+            throw new Error(error.message || "Failed to get game session");
         }
     },
 
@@ -431,6 +719,38 @@ export const gameAPI = {
         }
     },
 
+    // 🎯 UTILITY: Simple Game Completion Helper
+    // Simplified function for common game completion scenarios
+    finishGame: async (rounds, options = {}) => {
+        try {
+            const {
+                sessionId = null,
+                difficultyLevel = 1,
+                recordingUrl = null,
+                gameStartTime = null
+            } = options;
+
+            // Calculate total time
+            const totalTime = gameStartTime
+                ? (Date.now() - gameStartTime) / 1000
+                : rounds.reduce((sum, round) => sum + (round.response_time || 0), 0);
+
+            console.log(`🎮 Finishing game - SessionID: ${sessionId}, Rounds: ${rounds.length}, Time: ${totalTime}s`);
+
+            return await gameAPI.completeGameAuto({
+                sessionId,
+                rounds,
+                totalTime,
+                difficultyLevel,
+                recordingUrl
+            });
+
+        } catch (error) {
+            console.error("❌ Failed to finish game:", error);
+            throw error;
+        }
+    },
+
     // Replay functionality
     replayGame: async (gameId) => {
         try {
@@ -447,6 +767,64 @@ export const gameAPI = {
             return response.data;
         } catch (error) {
             throw new Error(error.response?.data?.message || "Failed to get game details");
+        }
+    },
+
+    // 🛠️ UTILITY: Enhanced Game Session Fetcher
+    // This method ensures we always get complete round data when fetching a game session
+    getGameSessionWithRounds: async (gameSessionId, maxRetries = 3) => {
+        console.log(`🔄 Getting game session ${gameSessionId} with guaranteed rounds (max ${maxRetries} retries)`);
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                console.log(`🔄 Attempt ${attempt}/${maxRetries}`);
+
+                // Progressive delay: 0ms, 1s, 2s
+                if (attempt > 1) {
+                    const delay = (attempt - 1) * 1000;
+                    console.log(`⏱️ Waiting ${delay}ms before retry...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+
+                const response = await gameAPI.getGameSession(gameSessionId);
+
+                if (response && response.rounds && Array.isArray(response.rounds)) {
+                    const validRounds = response.rounds.filter(round =>
+                        round &&
+                        typeof round.round_number === 'number' &&
+                        typeof round.first_number === 'number' &&
+                        typeof round.second_number === 'number'
+                    );
+
+                    if (validRounds.length > 0) {
+                        console.log(`✅ Success on attempt ${attempt}: ${validRounds.length} valid rounds found`);
+                        return {
+                            ...response,
+                            rounds: validRounds,
+                            _meta: {
+                                ...response._meta,
+                                retry_attempt: attempt,
+                                valid_rounds_count: validRounds.length,
+                                _enhanced_fetch: true
+                            }
+                        };
+                    }
+                }
+
+                console.log(`⚠️ Attempt ${attempt} failed - no valid rounds found`);
+
+                if (attempt === maxRetries) {
+                    console.error(`❌ All ${maxRetries} attempts failed to get valid rounds`);
+                    throw new Error(`No valid rounds found after ${maxRetries} attempts`);
+                }
+
+            } catch (error) {
+                console.error(`❌ Attempt ${attempt} failed with error:`, error.message);
+
+                if (attempt === maxRetries) {
+                    throw error;
+                }
+            }
         }
     }
 };

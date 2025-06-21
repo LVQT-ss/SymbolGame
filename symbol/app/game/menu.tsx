@@ -312,90 +312,132 @@ export default function GameMenuScreen() {
         return;
       }
 
-      Alert.alert(
-        "Join Game",
-        `Join "${session.title}"?\n\nDifficulty: ${
-          session.difficulty
-        }\nReward: ${session.reward.coins} coins + ${
-          session.reward.experience
-        } XP${
-          session.currentPlayers > 0
-            ? "\n\n⚠️ This game is currently assigned to another player. Joining will take it over."
-            : ""
-        }`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: session.currentPlayers > 0 ? "Take Over Game" : "Join Game",
-            onPress: async () => {
-              try {
-                console.log(`🎮 Attempting to join game session ${session.id}`);
-                const result = await gameAPI.joinGame(session.id);
-                console.log("✅ Join game result:", result);
+      // Join game directly without confirmation dialog
+      setLoading(true);
+      console.log(`🎮 Joining game session: ${session.id}`);
 
-                // Show success and offer to start game immediately
-                Alert.alert(
-                  "Success!",
-                  "Successfully joined the game! Ready to start playing?",
-                  [
-                    { text: "Later", style: "cancel" },
-                    {
-                      text: "Start Now",
-                      onPress: () => {
-                        // Navigate directly to game screen with the session ID
-                        console.log(
-                          `🎮 Starting game with session ID: ${session.id}`
-                        );
-                        router.push({
-                          pathname: "/game/game",
-                          params: {
-                            sessionId: session.id.toString(),
-                            gameType: session.category,
-                            title: session.title,
-                          },
-                        });
-                      },
-                    },
-                  ]
-                );
+      // Fetch complete game session details using api/game/{id}
+      console.log(`🔄 Fetching game session details for ${session.id}`);
 
-                // Update the local state to reflect joined status
-                setAvailableGames((prevGames) =>
-                  prevGames.map((game) =>
-                    game.id === session.id
-                      ? {
-                          ...game,
-                          isJoined: true,
-                          status: "active",
-                          currentPlayers: game.currentPlayers + 1,
-                        }
-                      : game
-                  )
-                );
-              } catch (error: any) {
-                console.error("❌ Error joining game:", error);
+      let gameSessionData;
+      let roundsCount = 0;
 
-                // Provide specific error messages
-                let errorMessage = error.message || "Failed to join game";
-                if (errorMessage.includes("already been completed")) {
-                  errorMessage =
-                    "This game session has already been completed. Please choose a different game.";
-                } else if (errorMessage.includes("already assigned")) {
-                  errorMessage =
-                    "This game is already being played by another user.";
-                } else if (errorMessage.includes("not found")) {
-                  errorMessage =
-                    "Game session not found. It may have been deleted.";
-                }
+      try {
+        // Fetch game session details directly using api/game/{id}
+        gameSessionData = await gameAPI.getGameSession(session.id);
+        console.log("✅ Fetched game session details:", gameSessionData);
 
-                Alert.alert("Cannot Join Game", errorMessage);
-              }
+        roundsCount = gameSessionData.rounds?.length || 0;
+      } catch (fetchError: any) {
+        console.error("❌ Failed to fetch game session details:", fetchError);
+        throw new Error(
+          "Failed to load game session details: " +
+            (fetchError.message || fetchError)
+        );
+      }
+
+      // Validate that we have rounds data
+      if (roundsCount === 0) {
+        console.error(
+          "❌ No rounds data found in game session after all attempts"
+        );
+        Alert.alert(
+          "Game Data Error",
+          "Unable to load game rounds. This might be a configuration issue with the game.\n\nOptions:",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Try Practice Mode",
+              onPress: () => {
+                router.push({
+                  pathname: "/game/play",
+                  params: {
+                    sessionId: "practice",
+                    gameType: "Symbol Match",
+                    title: "Practice Game",
+                  },
+                });
+              },
             },
-          },
-        ]
+            {
+              text: "Refresh & Retry",
+              onPress: () => {
+                loadAvailableGames();
+              },
+            },
+          ]
+        );
+        return;
+      }
+
+      console.log(`✅ Game has ${roundsCount} rounds available`);
+
+      // Navigate directly to game lobby with details
+      console.log(`🎮 Navigating to game lobby with session ID: ${session.id}`);
+
+      router.push({
+        pathname: "/game/play",
+        params: {
+          sessionId: session.id.toString(),
+          gameType: session.category,
+          title: session.title,
+          difficulty: session.difficulty,
+          rounds: roundsCount.toString(),
+          timeLimit: session.timeLimit.toString(),
+          adminInstructions:
+            gameSessionData.game_session?.admin_instructions || "",
+          createdBy:
+            gameSessionData.game_session?.admin_creator?.full_name ||
+            gameSessionData.game_session?.admin_creator?.username ||
+            "Admin",
+          rewards: `${session.reward.coins} coins + ${session.reward.experience} XP`,
+        },
+      });
+
+      // Update the local state to reflect joined status
+      setAvailableGames((prevGames) =>
+        prevGames.map((game) =>
+          game.id === session.id
+            ? {
+                ...game,
+                isJoined: true,
+                status: "active",
+                currentPlayers: Math.min(
+                  game.currentPlayers + 1,
+                  game.maxPlayers
+                ),
+              }
+            : game
+        )
       );
     } catch (error: any) {
-      Alert.alert("Error", error.message || "Failed to join game");
+      console.error("❌ Error joining game:", error);
+
+      // Provide specific error messages
+      let errorMessage = error.message || "Failed to join game";
+      if (errorMessage.includes("already been completed")) {
+        errorMessage =
+          "This game session has already been completed. Please choose a different game.";
+      } else if (errorMessage.includes("already assigned")) {
+        errorMessage = "This game is already being played by another user.";
+      } else if (errorMessage.includes("not found")) {
+        errorMessage = "Game session not found. It may have been deleted.";
+      } else if (errorMessage.includes("Game session not found")) {
+        errorMessage =
+          "Unable to load game details. The game may have been removed.";
+      }
+
+      Alert.alert("Cannot Join Game", errorMessage, [
+        { text: "OK" },
+        {
+          text: "Refresh Games",
+          onPress: () => {
+            loadAvailableGames();
+          },
+        },
+      ]);
+    } finally {
+      setLoading(false);
     }
   };
 

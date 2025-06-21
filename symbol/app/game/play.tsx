@@ -10,6 +10,7 @@ import {
   View,
   ActivityIndicator,
   FlatList,
+  ScrollView,
 } from "react-native";
 import { gameAPI } from "../../services/api";
 
@@ -201,11 +202,39 @@ export default function GameScreen() {
       console.log(`🔄 Loading game session ${parsedSessionId}`);
       const response = await gameAPI.getGameSession(parsedSessionId);
 
+      console.log("📊 Game session API response:", response);
+
+      // Validate response structure matches expected format
       if (response && response.game_session) {
+        console.log("✅ Valid game session data received");
+        console.log(
+          "🎯 Game completed status:",
+          response.game_session.completed
+        );
+        console.log("📊 Rounds received:", response.rounds?.length || 0);
+        console.log("📋 First round sample:", response.rounds?.[0]);
+
+        // Set game session data
         setGameSession(response.game_session);
         setRounds(response.rounds || []);
         setScore(response.game_session.score || 0);
         setCorrectAnswers(response.game_session.correct_answers || 0);
+
+        // Validate rounds data
+        const validRounds =
+          response.rounds?.filter(
+            (round: any) =>
+              round &&
+              typeof round.round_number === "number" &&
+              typeof round.first_number === "number" &&
+              typeof round.second_number === "number"
+          ) || [];
+
+        if (validRounds.length === 0) {
+          throw new Error("No valid rounds found in game session");
+        }
+
+        console.log(`📊 Game loaded: ${validRounds.length} rounds available`);
 
         // Check if game is already completed
         if (
@@ -214,88 +243,115 @@ export default function GameScreen() {
         ) {
           setGameCompleted(true);
 
-          // Show completion summary
           Alert.alert(
             "Game Already Completed! 🎉",
-            `This game has been finished!\n\nFinal Score: ${
-              response.game_session.score || 0
-            }\nCorrect Answers: ${response.game_session.correct_answers || 0}/${
-              response.game_session.number_of_rounds
-            }\nTotal Time: ${(response.game_session.total_time || 0).toFixed(
-              1
-            )}s`,
+            `This game has been finished!\n\n` +
+              `Final Score: ${response.game_session.score || 0}\n` +
+              `Correct Answers: ${response.game_session.correct_answers || 0}/${
+                response.game_session.number_of_rounds
+              }\n` +
+              `Total Time: ${(response.game_session.total_time || 0).toFixed(
+                1
+              )}s\n\n` +
+              `Created by: ${
+                response.game_session.admin_creator?.full_name ||
+                response.game_session.admin_creator?.username ||
+                "Admin"
+              }`,
             [
               { text: "View Results", style: "default" },
               { text: "Back to Menu", onPress: () => router.back() },
             ]
           );
         } else {
-          // Find current round
-          const completedRounds = response.rounds.filter(
-            (r: Round) => r.user_symbol
-          ).length;
-          setCurrentRoundIndex(completedRounds);
+          // Game is not completed - user needs to play
+          console.log("🎮 Game is not completed, preparing for gameplay");
 
-          // Check if all rounds are actually completed but game not marked as completed
-          if (completedRounds >= response.game_session.number_of_rounds) {
+          // Clear any pre-existing user_symbol data for fresh gameplay
+          // This ensures user can play even if API returns pre-filled data
+          const freshRounds =
+            response.rounds?.map((round: any) => ({
+              round_number: round.round_number,
+              first_number: round.first_number,
+              second_number: round.second_number,
+              // Clear user input data for fresh gameplay
+              user_symbol: undefined,
+              response_time: undefined,
+              is_correct: undefined,
+            })) || [];
+
+          setRounds(freshRounds);
+          setCurrentRoundIndex(0); // Start from first round
+          setScore(0); // Reset score for fresh gameplay
+          setCorrectAnswers(0); // Reset correct answers
+
+          console.log(
+            `🎮 Game ready to play - ${freshRounds.length} rounds loaded`
+          );
+          console.log("📊 Sample rounds:", freshRounds.slice(0, 2));
+
+          // Show admin instructions if available
+          if (response.game_session.admin_instructions) {
             Alert.alert(
-              "Game Completed! 🎉",
-              "All rounds have been completed! The game will be marked as finished.",
-              [{ text: "OK", onPress: () => router.back() }]
+              "Game Instructions",
+              response.game_session.admin_instructions,
+              [{ text: "Got it!" }]
             );
-            setGameCompleted(true);
           }
         }
+      } else {
+        throw new Error("Invalid game session response format");
       }
     } catch (error: any) {
       console.error("❌ Error loading game session:", error);
 
-      // Check if this is the specific "invalid session ID" error
-      if (error.message && error.message.includes("Must be a valid number")) {
+      // Enhanced error handling
+      if (error.message?.includes("not found")) {
         Alert.alert(
-          "Invalid Game Session",
-          "The game session ID is invalid. This might happen in offline mode.",
-          [
-            {
-              text: "Go Back",
-              onPress: () => router.back(),
-            },
-            {
-              text: "Try Practice Mode",
-              onPress: () => {
-                // Create a simple practice round
-                const practiceRounds: Round[] = [
-                  { round_number: 1, first_number: 25, second_number: 18 },
-                  { round_number: 2, first_number: 7, second_number: 31 },
-                  { round_number: 3, first_number: 50, second_number: 50 },
-                ];
-
-                setRounds(practiceRounds);
-                setGameSession({
-                  id: 0,
-                  number_of_rounds: 3,
-                  completed: false,
-                  score: 0,
-                  correct_answers: 0,
-                  total_time: 0,
-                });
-
-                Alert.alert(
-                  "Practice Mode",
-                  "Playing in offline practice mode. Your progress won't be saved.",
-                  [{ text: "OK" }]
-                );
-              },
-            },
-          ]
+          "Game Not Found",
+          "The selected game session could not be found. It may have been deleted or is no longer available.",
+          [{ text: "Back to Menu", onPress: () => router.back() }]
         );
+      } else if (error.message?.includes("Must be a valid number")) {
+        Alert.alert("Invalid Game Session", "The game session ID is invalid.", [
+          { text: "Go Back", onPress: () => router.back() },
+          {
+            text: "Try Practice Mode",
+            onPress: () => {
+              const practiceRounds: Round[] = [
+                { round_number: 1, first_number: 25, second_number: 18 },
+                { round_number: 2, first_number: 7, second_number: 31 },
+                { round_number: 3, first_number: 50, second_number: 50 },
+              ];
+
+              setRounds(practiceRounds);
+              setGameSession({
+                id: 0,
+                number_of_rounds: 3,
+                completed: false,
+                score: 0,
+                correct_answers: 0,
+                total_time: 0,
+              });
+
+              Alert.alert(
+                "Practice Mode",
+                "Playing in offline practice mode. Your progress won't be saved.",
+                [{ text: "OK" }]
+              );
+            },
+          },
+        ]);
       } else {
         Alert.alert(
-          "Connection Error",
+          "Loading Error",
           `Failed to load game session: ${
             error.message || "Unknown error"
-          }. Please check your connection and try again.`,
-          [{ text: "Go Back", onPress: () => router.back() }]
+          }. Please try again.`,
+          [
+            { text: "Retry", onPress: () => loadGameSession() },
+            { text: "Back to Menu", onPress: () => router.back() },
+          ]
         );
       }
     } finally {
@@ -347,15 +403,6 @@ export default function GameScreen() {
     }
 
     try {
-      // Only submit to backend if not practice mode
-      if (sessionId !== "practice" && parsedSessionId) {
-        await gameAPI.submitRound(parsedSessionId, {
-          round_number: currentRound.round_number,
-          user_symbol: symbol,
-          response_time: responseTime,
-        });
-      }
-
       // Move to next round or complete game
       if (currentRoundIndex + 1 >= rounds.length) {
         // Game completed
@@ -366,10 +413,7 @@ export default function GameScreen() {
             `Score: ${score + (isCorrect ? 100 : 0)}\nCorrect: ${
               correctAnswers + (isCorrect ? 1 : 0)
             }/${rounds.length}\n\nThis was practice mode - no progress saved.`,
-            [
-              { text: "Play Again", onPress: () => initializePracticeMode() },
-              { text: "Back to Menu", onPress: () => router.back() },
-            ]
+            [{ text: "Back to Menu", onPress: () => router.back() }]
           );
         } else if (sessionId === "quick-submit") {
           // Submit whole game at once
@@ -390,41 +434,77 @@ export default function GameScreen() {
 
   const completeGame = async (finalRounds: Round[]) => {
     try {
-      const totalTime = finalRounds.reduce(
-        (sum, round) => sum + (round.response_time || 0),
-        0
-      );
+      console.log("🎮 Completing game with session ID:", parsedSessionId);
 
+      // Skip completion for practice mode
+      if (parsedSessionId === "practice") {
+        setGameCompleted(true);
+        Alert.alert(
+          "Practice Complete!",
+          `Great job practicing!\nCorrect Answers: ${correctAnswers}/${rounds.length}`,
+          [
+            {
+              text: "Back to Menu",
+              onPress: () => router.replace("/game/menu"),
+            },
+          ]
+        );
+        return;
+      }
+
+      // Calculate total time from actual gameplay
+      const totalTime = (Date.now() - gameStartTime) / 1000; // Convert to seconds
+
+      // Prepare game completion data to match expected format
       const gameResults = {
         game_session_id: parsedSessionId,
+        difficulty_level: 2, // Default difficulty level
         total_time: totalTime,
         rounds: finalRounds.map((round) => ({
-          round_number: round.round_number,
           first_number: round.first_number,
           second_number: round.second_number,
-          user_symbol: round.user_symbol,
-          response_time: round.response_time,
+          user_symbol: round.user_symbol || "",
+          response_time: round.response_time || 0,
         })),
+        recording_url: null, // Optional field
       };
 
-      await gameAPI.completeGame(gameResults);
+      console.log("📤 Submitting game completion:", gameResults);
+
+      const result = await gameAPI.completeGame(gameResults);
       setGameCompleted(true);
 
+      console.log("✅ Game completed successfully:", result);
+
+      // Show results with data from server response
+      const finalScore =
+        result.data?.game_result?.scoring?.final_score || score;
+      const finalCorrect =
+        result.data?.game_result?.performance?.correct_answers ||
+        correctAnswers;
+      const accuracy =
+        result.data?.game_result?.performance?.accuracy ||
+        Math.round((correctAnswers / rounds.length) * 100);
+      const xpGained =
+        result.data?.game_result?.scoring?.experience_gained || 0;
+      const coinsEarned = result.data?.game_result?.scoring?.coins_earned || 0;
+
       Alert.alert(
-        "Game Complete!",
-        `Final Score: ${
-          score + (finalRounds[currentRoundIndex]?.is_correct ? 100 : 0)
-        }\nCorrect Answers: ${
-          correctAnswers + (finalRounds[currentRoundIndex]?.is_correct ? 1 : 0)
-        }/${rounds.length}`,
-        [
-          { text: "Play Again", onPress: () => router.back() },
-          { text: "Menu", onPress: () => router.replace("/game/menu") },
-        ]
+        "Game Complete! 🎉",
+        `Final Score: ${finalScore}\n` +
+          `Accuracy: ${accuracy}%\n` +
+          `Correct Answers: ${finalCorrect}/${rounds.length}\n` +
+          `XP Gained: ${xpGained}\n` +
+          `Coins Earned: ${coinsEarned}`,
+        [{ text: "Back to Menu", onPress: () => router.replace("/game/menu") }]
       );
-    } catch (error) {
-      console.error("Error completing game:", error);
-      Alert.alert("Error", "Failed to complete game");
+    } catch (error: any) {
+      console.error("❌ Error completing game:", error);
+      Alert.alert(
+        "Completion Error",
+        `Failed to complete game: ${error.message || "Unknown error"}`,
+        [{ text: "Back to Menu", onPress: () => router.replace("/game/menu") }]
+      );
     }
   };
 
@@ -473,10 +553,7 @@ export default function GameScreen() {
             result.game_result?.scoring?.experience_gained || 0
           }\n` +
           `Coins Earned: ${result.game_result?.scoring?.coins_earned || 0}`,
-        [
-          { text: "Play Again", onPress: () => initializeQuickSubmitMode() },
-          { text: "Back to Menu", onPress: () => router.back() },
-        ]
+        [{ text: "Back to Menu", onPress: () => router.back() }]
       );
     } catch (error) {
       console.error("❌ Failed to submit whole game:", error);
@@ -674,61 +751,133 @@ export default function GameScreen() {
     return rounds[currentRoundIndex];
   };
 
-  const renderWaitingScreen = () => (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBackToMenu}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Game Lobby</Text>
-        <View style={styles.placeholder} />
-      </View>
+  const renderWaitingScreen = () => {
+    // Get game details from navigation params
+    const {
+      difficulty,
+      rounds,
+      timeLimit,
+      adminInstructions,
+      createdBy,
+      rewards,
+    } = params;
 
-      <View style={styles.content}>
-        {loading ? (
-          <ActivityIndicator size="large" color="#ffd33d" />
-        ) : (
-          <>
-            <View style={styles.gameInfo}>
-              <Ionicons name="game-controller" size={64} color="#ffd33d" />
-              <Text style={styles.gameTitle}>
-                {title || "Symbol Match Game"}
-              </Text>
-              <Text style={styles.gameType}>
-                {gameType || "Symbol Comparison"}
-              </Text>
-              <Text style={styles.sessionId}>Session: {sessionId}</Text>
-              {gameSession && (
-                <Text style={styles.roundsInfo}>
-                  {gameSession.number_of_rounds} rounds to play
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={handleBackToMenu}
+          >
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Game Lobby</Text>
+          <View style={styles.placeholder} />
+        </View>
+
+        <ScrollView
+          style={styles.scrollContainer}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#ffd33d" />
+              <Text style={styles.loadingText}>Loading game session...</Text>
+            </View>
+          ) : (
+            <>
+              {/* Success Banner */}
+              <View style={styles.successBanner}>
+                <Ionicons name="checkmark-circle" size={32} color="#4CAF50" />
+                <Text style={styles.successText}>
+                  Successfully Joined Game!
                 </Text>
-              )}
-            </View>
+              </View>
 
-            <View style={styles.instructions}>
-              <Text style={styles.instructionsTitle}>How to Play:</Text>
-              <Text style={styles.instructionsText}>
-                • Compare two numbers{"\n"}• Choose the correct symbol: {">"},{" "}
-                {"<"}, or {"="}
-                {"\n"}• Answer as quickly as possible{"\n"}• Earn 100 points for
-                each correct answer
-                {sessionId === "practice"
-                  ? "\n• Practice mode - no progress saved"
-                  : ""}
-              </Text>
-            </View>
+              {/* Game Details Card */}
+              <View style={styles.gameDetailsCard}>
+                <View style={styles.gameCardHeader}>
+                  <Ionicons name="game-controller" size={48} color="#ffd33d" />
+                  <View style={styles.gameCardTitleSection}>
+                    <Text style={styles.gameCardTitle}>
+                      {title || "Symbol Match Game"}
+                    </Text>
+                    <Text style={styles.gameCardSubtitle}>
+                      Created by {createdBy || "Admin"}
+                    </Text>
+                  </View>
+                </View>
 
-            <TouchableOpacity
-              style={styles.startButton}
-              onPress={handleStartGame}
-            >
-              <Text style={styles.startButtonText}>Start Game</Text>
-            </TouchableOpacity>
-          </>
-        )}
+                <View style={styles.gameStatsGrid}>
+                  <View style={styles.statItem}>
+                    <Ionicons name="layers" size={24} color="#2196F3" />
+                    <Text style={styles.statLabel}>Rounds</Text>
+                    <Text style={styles.statValue}>
+                      {rounds || gameSession?.number_of_rounds || "N/A"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.statItem}>
+                    <Ionicons name="speedometer" size={24} color="#FF9800" />
+                    <Text style={styles.statLabel}>Difficulty</Text>
+                    <Text style={styles.statValue}>
+                      {difficulty || "Medium"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.statItem}>
+                    <Ionicons name="time" size={24} color="#9C27B0" />
+                    <Text style={styles.statLabel}>Time Limit</Text>
+                    <Text style={styles.statValue}>
+                      {timeLimit ? `${timeLimit}m` : "10m"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.statItem}>
+                    <Ionicons name="diamond" size={24} color="#4CAF50" />
+                    <Text style={styles.statLabel}>Rewards</Text>
+                    <Text style={styles.statValueSmall}>
+                      {rewards || "100 coins + 50 XP"}
+                    </Text>
+                  </View>
+                </View>
+
+                {adminInstructions &&
+                  typeof adminInstructions === "string" &&
+                  adminInstructions.trim() !== "" && (
+                    <View style={styles.instructionsCard}>
+                      <View style={styles.instructionsHeader}>
+                        <Ionicons
+                          name="information-circle"
+                          size={20}
+                          color="#2196F3"
+                        />
+                        <Text style={styles.instructionsTitle}>
+                          Game Instructions
+                        </Text>
+                      </View>
+                      <Text style={styles.instructionsText}>
+                        {adminInstructions}
+                      </Text>
+                    </View>
+                  )}
+              </View>
+
+              {/* Start Game Button */}
+              <TouchableOpacity
+                style={styles.primaryStartButton}
+                onPress={handleStartGame}
+              >
+                <Ionicons name="play" size={24} color="#fff" />
+                <Text style={styles.primaryStartButtonText}>Start Game</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </ScrollView>
       </View>
-    </View>
-  );
+    );
+  };
 
   const renderCountdown = () => (
     <View style={styles.container}>
@@ -1622,5 +1771,191 @@ const styles = StyleSheet.create({
     fontSize: getResponsiveFontSize(14),
     textAlign: "center",
     lineHeight: 20,
+  },
+  // New lobby styles
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingText: {
+    color: "#fff",
+    fontSize: getResponsiveFontSize(16),
+    marginTop: 16,
+    fontWeight: "600",
+  },
+  successBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(76, 175, 80, 0.1)",
+    borderColor: "#4CAF50",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+  },
+  successText: {
+    color: "#4CAF50",
+    fontSize: getResponsiveFontSize(18),
+    fontWeight: "bold",
+    marginLeft: 12,
+  },
+  gameDetailsCard: {
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+  },
+  gameCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  gameCardTitleSection: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  gameCardTitle: {
+    color: "#fff",
+    fontSize: getResponsiveFontSize(22),
+    fontWeight: "bold",
+    marginBottom: 4,
+  },
+  gameCardSubtitle: {
+    color: "#888",
+    fontSize: getResponsiveFontSize(14),
+    fontWeight: "500",
+  },
+  gameStatsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  statItem: {
+    width: "48%",
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+  },
+  statLabel: {
+    color: "#888",
+    fontSize: getResponsiveFontSize(12),
+    fontWeight: "600",
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  statValue: {
+    color: "#fff",
+    fontSize: getResponsiveFontSize(18),
+    fontWeight: "bold",
+  },
+  statValueSmall: {
+    color: "#fff",
+    fontSize: getResponsiveFontSize(12),
+    fontWeight: "bold",
+    textAlign: "center",
+  },
+  instructionsCard: {
+    backgroundColor: "rgba(33, 150, 243, 0.1)",
+    borderColor: "#2196F3",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 8,
+  },
+  instructionsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  howToPlayCard: {
+    backgroundColor: "rgba(255, 211, 61, 0.1)",
+    borderColor: "#ffd33d",
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+  },
+  howToPlayHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  howToPlayTitle: {
+    color: "#ffd33d",
+    fontSize: getResponsiveFontSize(18),
+    fontWeight: "bold",
+    marginLeft: 8,
+  },
+  howToPlaySteps: {
+    marginBottom: 12,
+  },
+  playStep: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  stepNumber: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#ffd33d",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 16,
+  },
+  stepNumberText: {
+    color: "#25292e",
+    fontSize: getResponsiveFontSize(16),
+    fontWeight: "bold",
+  },
+  stepText: {
+    color: "#fff",
+    fontSize: getResponsiveFontSize(16),
+    fontWeight: "500",
+    flex: 1,
+  },
+  practiceNote: {
+    color: "#ffd33d",
+    fontSize: getResponsiveFontSize(14),
+    fontStyle: "italic",
+    textAlign: "center",
+    marginTop: 8,
+  },
+  primaryStartButton: {
+    backgroundColor: "#4CAF50",
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#4CAF50",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  primaryStartButtonText: {
+    color: "#fff",
+    fontSize: getResponsiveFontSize(20),
+    fontWeight: "bold",
+    marginLeft: 8,
+  },
+  // Scroll styles
+  scrollContainer: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: getResponsivePadding(),
+    paddingVertical: 16,
+    paddingBottom: 32,
   },
 });
