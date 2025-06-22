@@ -186,6 +186,32 @@ export const userAPI = {
         }
     },
 
+    // Debug function to check current user identity
+    debugCurrentUser: async () => {
+        try {
+            const token = await getToken();
+            const storedUser = await AsyncStorage.getItem("user_profile");
+
+            console.log("🔍 Debug Current User Identity:");
+            console.log("- Token present:", token ? "Yes" : "No");
+            console.log("- Token preview:", token ? token.substring(0, 20) + "..." : "None");
+            console.log("- Stored user data:", storedUser ? JSON.parse(storedUser) : "None");
+
+            // Try to get current user from API
+            try {
+                const response = await api.get("/user/me");
+                console.log("- API user data:", response.data);
+                return response.data;
+            } catch (error) {
+                console.log("- API user fetch failed:", error.message);
+                return null;
+            }
+        } catch (error) {
+            console.error("Debug user identity error:", error);
+            return null;
+        }
+    },
+
     updateProfile: async (userId, userData) => {
         try {
             const response = await api.put(`/user/update/${userId}`, userData);
@@ -214,9 +240,15 @@ export const battleAPI = {
     // Create a new battle session
     createBattle: async (battleData) => {
         try {
+            const token = await getToken();
+            console.log("🔑 Creating battle with token:", token ? "Present" : "Missing");
+            console.log("📝 Battle data:", battleData);
+
             const response = await api.post("/battle/create", battleData);
+            console.log("✅ Create battle API response:", response.data);
             return response.data;
         } catch (error) {
+            console.error("❌ Create battle API error:", error.response?.data || error.message);
             throw new Error(error.response?.data?.message || "Failed to create battle");
         }
     },
@@ -224,9 +256,15 @@ export const battleAPI = {
     // Join a battle using battle code
     joinBattle: async (battleCode) => {
         try {
+            const token = await getToken();
+            console.log("🔑 Joining battle with token:", token ? "Present" : "Missing");
+            console.log("🎯 Battle code:", battleCode);
+
             const response = await api.post("/battle/join", { battle_code: battleCode });
+            console.log("✅ Join battle API response:", response.data);
             return response.data;
         } catch (error) {
+            console.error("❌ Join battle API error:", error.response?.data || error.message);
             throw new Error(error.response?.data?.message || "Failed to join battle");
         }
     },
@@ -257,9 +295,18 @@ export const battleAPI = {
     // Get battle session details
     getBattleSession: async (battleId) => {
         try {
+            console.log("🔍 Getting battle session for ID:", battleId);
             const response = await api.get(`/battle/${battleId}`);
+            console.log("📊 Battle session data:", {
+                id: response.data.battle_session?.id,
+                battle_code: response.data.battle_session?.battle_code,
+                creator: response.data.creator?.username,
+                opponent: response.data.opponent?.username,
+                hasOpponent: !!response.data.opponent
+            });
             return response.data;
         } catch (error) {
+            console.error("❌ Get battle session error:", error.response?.data || error.message);
             throw new Error(error.response?.data?.message || "Failed to get battle session");
         }
     },
@@ -298,6 +345,35 @@ export const battleAPI = {
             return response.data;
         } catch (error) {
             throw new Error(error.response?.data?.message || "Failed to get available battles");
+        }
+    },
+
+    // Debug function to check battle state by code
+    debugBattleByCode: async (battleCode) => {
+        try {
+            console.log("🔍 Debug: Checking battle state for code:", battleCode);
+            // We'll make a test call to see battle state
+            const response = await api.get("/battle/available");
+            const availableBattles = response.data.battles || [];
+
+            const targetBattle = availableBattles.find(battle => battle.battle_code === battleCode);
+
+            if (targetBattle) {
+                console.log("📊 Debug: Found battle in available list:", {
+                    id: targetBattle.id,
+                    code: targetBattle.battle_code,
+                    creator: targetBattle.creator?.username,
+                    hasOpponent: !!targetBattle.opponent_id,
+                    isPublic: targetBattle.is_public
+                });
+            } else {
+                console.log("❌ Debug: Battle not found in available battles list");
+            }
+
+            return targetBattle;
+        } catch (error) {
+            console.error("❌ Debug battle check error:", error.response?.data || error.message);
+            return null;
         }
     }
 };

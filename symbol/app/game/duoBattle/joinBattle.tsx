@@ -11,7 +11,7 @@ import {
   View,
   ActivityIndicator,
 } from "react-native";
-import { battleAPI } from "../../../services/api";
+import { battleAPI, userAPI } from "../../../services/api";
 
 const BattleCodeInput = React.memo(({ value, onChangeText, ...props }: any) => (
   <TextInput
@@ -62,42 +62,58 @@ export default function JoinBattleScreen() {
       return;
     }
 
+    // Prevent multiple concurrent join requests
+    if (loading) {
+      console.log("Join request already in progress, ignoring duplicate");
+      return;
+    }
+
     try {
       setLoading(true);
+      console.log("🔄 Attempting to join battle with code:", cleanCode);
+
+      // Debug: Check current user identity and battle state
+      await userAPI.debugCurrentUser();
+      await battleAPI.debugBattleByCode(cleanCode);
 
       const response = await battleAPI.joinBattle(cleanCode);
+      console.log("✅ Join battle response:", response);
 
       if (response && response.battle_session) {
-        Alert.alert(
-          "Battle Joined! ⚔️",
-          `Successfully joined the battle!\n\nBattle Code: ${response.battle_session.battle_code}`,
-          [
-            {
-              text: "Start Battle",
-              onPress: () => {
-                router.push({
-                  pathname: "/game/duoBattle/battleGame",
-                  params: {
-                    battleId: response.battle_session.id.toString(),
-                    battleCode: response.battle_session.battle_code,
-                  },
-                });
-              },
-            },
-          ]
+        console.log(
+          "🎮 Navigating to battle game - Battle ID:",
+          response.battle_session.id
         );
+
+        // Automatically navigate to battle game without requiring user to press button
+        router.replace({
+          pathname: "/game/duoBattle/battleGame",
+          params: {
+            battleId: response.battle_session.id.toString(),
+            battleCode: response.battle_session.battle_code,
+            source: "join",
+          },
+        });
       } else {
         throw new Error("Invalid response from server");
       }
     } catch (error: any) {
-      console.error("Error joining battle:", error);
+      console.error("❌ Error joining battle:", error);
+      console.error("Error details:", {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
 
       let errorMessage = "Failed to join battle. Please try again.";
 
       if (error.message?.includes("not found")) {
         errorMessage = "Battle not found. Please check the battle code.";
-      } else if (error.message?.includes("full")) {
-        errorMessage = "This battle is already full.";
+      } else if (error.message?.includes("already has an opponent")) {
+        errorMessage = "This battle is already full. Someone else has joined.";
+      } else if (error.message?.includes("cannot join your own")) {
+        errorMessage =
+          "You cannot join your own battle. Share the code with someone else.";
       } else if (error.message?.includes("expired")) {
         errorMessage = "This battle has expired.";
       } else if (error.message?.includes("network")) {

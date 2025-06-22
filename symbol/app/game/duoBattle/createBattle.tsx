@@ -10,7 +10,7 @@ import {
   View,
   ActivityIndicator,
 } from "react-native";
-import { battleAPI } from "../../../services/api";
+import { battleAPI, userAPI } from "../../../services/api";
 
 export default function CreateBattleScreen() {
   const [loading, setLoading] = useState(false);
@@ -31,6 +31,12 @@ export default function CreateBattleScreen() {
   };
 
   const handleCreateBattle = async () => {
+    // Prevent multiple concurrent create requests
+    if (loading) {
+      console.log("Create request already in progress, ignoring duplicate");
+      return;
+    }
+
     try {
       setLoading(true);
 
@@ -40,9 +46,19 @@ export default function CreateBattleScreen() {
         is_public: isPublic,
       };
 
+      // Debug: Check current user identity
+      await userAPI.debugCurrentUser();
+
+      console.log("🔄 Creating battle with data:", battleData);
       const response = await battleAPI.createBattle(battleData);
+      console.log("✅ Create battle response:", response);
 
       if (response && response.battle_session) {
+        console.log(
+          "🎮 Battle created successfully - ID:",
+          response.battle_session.id
+        );
+
         Alert.alert(
           "Battle Created! ⚔️",
           `Your battle has been created!\n\nBattle Code: ${response.battle_session.battle_code}\n\nShare this code with your opponent or wait for someone to join.`,
@@ -56,11 +72,13 @@ export default function CreateBattleScreen() {
             {
               text: "Enter Battle",
               onPress: () => {
+                console.log("🚀 Creator entering battle");
                 router.push({
                   pathname: "/game/duoBattle/battleGame",
                   params: {
                     battleId: response.battle_session.id.toString(),
                     battleCode: response.battle_session.battle_code,
+                    source: "create",
                   },
                 });
               },
@@ -69,7 +87,13 @@ export default function CreateBattleScreen() {
         );
       }
     } catch (error: any) {
-      console.error("Error creating battle:", error);
+      console.error("❌ Error creating battle:", error);
+      console.error("Error details:", {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+
       Alert.alert(
         "Error",
         error.message || "Failed to create battle. Please try again."

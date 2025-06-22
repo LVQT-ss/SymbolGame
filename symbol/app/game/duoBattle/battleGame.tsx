@@ -10,9 +10,8 @@ import {
   StyleSheet,
   ActivityIndicator,
   Animated,
-  Image,
 } from "react-native";
-import { battleAPI, gameAPI } from "../../../services/api";
+import { battleAPI, userAPI } from "../../../services/api";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -22,105 +21,122 @@ interface BattleSession {
   number_of_rounds: number;
   time_limit: number;
   is_public: boolean;
-  status: string;
-  creator: {
-    id: number;
-    username: string;
-    full_name: string;
-    avatar: string;
-    current_level: number;
-  };
-  opponent?: {
-    id: number;
-    username: string;
-    full_name: string;
-    avatar: string;
-    current_level: number;
-  };
-  winner?: {
-    id: number;
-    username: string;
-  };
   creator_score: number;
   opponent_score: number;
-  creator_total_time: number;
-  opponent_total_time: number;
-  rounds: Array<{
-    round_number: number;
-    symbols: string[];
-    correct_answer: string;
-    creator_answer?: string;
-    opponent_answer?: string;
-    creator_time?: number;
-    opponent_time?: number;
-    creator_correct?: boolean;
-    opponent_correct?: boolean;
-  }>;
-  current_round: number;
-  is_completed: boolean;
+  creator_correct_answers: number;
+  opponent_correct_answers: number;
+  creator_completed: boolean;
+  opponent_completed: boolean;
+  started_at: string;
+  completed_at: string;
 }
 
-interface GameRound {
+interface Player {
+  id: number;
+  username: string;
+  full_name: string;
+  avatar: string;
+  current_level: number;
+}
+
+interface BattleRound {
   round_number: number;
-  symbols: string[];
-  correct_answer: string;
-  difficulty_level: number;
+  first_number: number;
+  second_number: number;
+  correct_symbol: string;
+  creator_symbol?: string;
+  creator_response_time?: number;
+  creator_is_correct?: boolean;
+  opponent_symbol?: string;
+  opponent_response_time?: number;
+  opponent_is_correct?: boolean;
+  round_winner?: string;
 }
 
 export default function BattleGameScreen() {
   const params = useLocalSearchParams();
   const battleId = params.battleId as string;
   const battleCode = params.battleCode as string;
+  const source = params.source as string; // 'create' or 'join' to help identify user role
 
   const [battleSession, setBattleSession] = useState<BattleSession | null>(
     null
   );
-  const [currentRound, setCurrentRound] = useState<GameRound | null>(null);
+  const [creator, setCreator] = useState<Player | null>(null);
+  const [opponent, setOpponent] = useState<Player | null>(null);
+  const [winner, setWinner] = useState<Player | null>(null);
+  const [rounds, setRounds] = useState<BattleRound[]>([]);
+  const [currentRoundIndex, setCurrentRoundIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [gameLoading, setGameLoading] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState<string>("");
   const [roundStartTime, setRoundStartTime] = useState<number>(0);
   const [gameStartTime, setGameStartTime] = useState<number>(Date.now());
-  const [roundTimer, setRoundTimer] = useState<number>(0);
+  const [totalGameTime, setTotalGameTime] = useState<number>(0);
   const [gamePhase, setGamePhase] = useState<
     "waiting" | "playing" | "completed"
   >("waiting");
+  const [isMyTurn, setIsMyTurn] = useState(true);
+  const [submittingAnswer, setSubmittingAnswer] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [waitingForOpponent, setWaitingForOpponent] = useState(false);
+  const [showRoundResult, setShowRoundResult] = useState(false);
+  const [lastRoundResult, setLastRoundResult] = useState<any>(null);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const timerInterval = useRef<number | null>(null);
+  const pollingInterval = useRef<any>(null);
+  const roundPollingInterval = useRef<any>(null);
 
   useEffect(() => {
     if (battleId) {
-      loadBattleSession();
+      initializeUser();
     }
-  }, [battleId]);
 
-  useEffect(() => {
     return () => {
-      if (timerInterval.current) {
-        clearInterval(timerInterval.current);
+      if (pollingInterval.current) {
+        clearInterval(pollingInterval.current);
+      }
+      if (roundPollingInterval.current) {
+        clearInterval(roundPollingInterval.current);
       }
     };
-  }, []);
+  }, [battleId]);
+
+  const initializeUser = async () => {
+    try {
+      // Try to get current user data
+      const userData = await userAPI.getStoredUserData();
+      if (userData && userData.id) {
+        setCurrentUserId(userData.id);
+      }
+      await loadBattleSession();
+    } catch (error) {
+      console.error("Error initializing user:", error);
+      await loadBattleSession();
+    }
+  };
 
   useEffect(() => {
-    if (gamePhase === "playing" && currentRound) {
-      startRoundTimer();
+    if (gamePhase === "playing" && rounds.length > 0) {
+      setRoundStartTime(Date.now());
     }
-  }, [gamePhase, currentRound]);
+  }, [gamePhase, currentRoundIndex]);
 
-  const startRoundTimer = () => {
-    if (timerInterval.current) {
-      clearInterval(timerInterval.current);
-    }
-
-    setRoundStartTime(Date.now());
-    setRoundTimer(0);
-
-    timerInterval.current = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - roundStartTime) / 1000);
-      setRoundTimer(elapsed);
-    }, 1000);
+  const startPulseAnimation = () => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
   };
 
   const loadBattleSession = async () => {
@@ -130,27 +146,99 @@ export default function BattleGameScreen() {
 
       if (response && response.battle_session) {
         setBattleSession(response.battle_session);
+        setCreator(response.creator);
+        setOpponent(response.opponent);
+        setWinner(response.winner);
+        setRounds(response.rounds || []);
 
-        // Check if battle is ready to start
-        if (
-          response.battle_session.opponent &&
-          !response.battle_session.is_completed
-        ) {
-          if (
-            response.battle_session.current_round <=
-            response.battle_session.number_of_rounds
-          ) {
-            // Load the current round
-            await loadCurrentRound(response.battle_session);
-            setGamePhase("playing");
+        // Determine current user based on source parameter and battle context
+        if (!currentUserId) {
+          console.log("Determining current user - Source:", source);
+          console.log("Battle has opponent:", !!response.opponent);
+          console.log("Creator:", response.creator.username);
+          console.log("Opponent:", response.opponent?.username);
+
+          // Use source parameter to determine user role
+          if (source === "create") {
+            // User created the battle, they are the creator
+            setCurrentUserId(response.creator.id);
+            console.log(
+              "Set current user as creator:",
+              response.creator.username
+            );
+          } else if (source === "join") {
+            // User joined the battle, they are the opponent
+            if (response.opponent) {
+              setCurrentUserId(response.opponent.id);
+              console.log(
+                "Set current user as opponent:",
+                response.opponent.username
+              );
+            } else {
+              // This shouldn't happen, but fallback to creator
+              setCurrentUserId(response.creator.id);
+              console.log("Fallback: Set current user as creator");
+            }
           } else {
-            setGamePhase("completed");
+            // No source parameter, use fallback logic
+            if (!response.opponent) {
+              // No opponent yet, so current user must be the creator
+              setCurrentUserId(response.creator.id);
+              console.log("No opponent: Set current user as creator");
+            } else {
+              // Use battle timing to determine
+              const battleJustStarted =
+                response.battle_session.started_at &&
+                new Date(response.battle_session.started_at).getTime() >
+                  Date.now() - 30000;
+
+              if (battleJustStarted) {
+                setCurrentUserId(response.opponent.id);
+                console.log(
+                  "Battle just started: Set current user as opponent"
+                );
+              } else {
+                setCurrentUserId(response.creator.id);
+                console.log("Existing battle: Set current user as creator");
+              }
+            }
           }
-        } else if (response.battle_session.is_completed) {
+        } else {
+          // Verify currentUserId matches one of the players
+          if (
+            currentUserId !== response.creator.id &&
+            currentUserId !== response.opponent?.id
+          ) {
+            console.warn(
+              "Current user not part of this battle, using source to determine"
+            );
+            if (source === "join" && response.opponent) {
+              setCurrentUserId(response.opponent.id);
+            } else {
+              setCurrentUserId(response.creator.id);
+            }
+          } else {
+            console.log("Current user verified:", currentUserId);
+          }
+        }
+
+        // Determine game phase
+        if (response.battle_session.completed_at) {
           setGamePhase("completed");
+        } else if (
+          response.opponent &&
+          response.rounds &&
+          response.rounds.length > 0
+        ) {
+          setGamePhase("playing");
+          // Find current round
+          const currentRound = findCurrentRound(
+            response.rounds,
+            response.creator.id
+          );
+          setCurrentRoundIndex(currentRound);
         } else {
           setGamePhase("waiting");
-          // Poll for opponent joining
           startPollingForOpponent();
         }
       }
@@ -163,384 +251,476 @@ export default function BattleGameScreen() {
     }
   };
 
-  const loadCurrentRound = async (battle: BattleSession) => {
+  const findCurrentRound = (
+    gameRounds: BattleRound[],
+    userId: number
+  ): number => {
+    // Find the first round where current user hasn't answered
+    const isCreator = creator?.id === userId;
+
+    for (let i = 0; i < gameRounds.length; i++) {
+      const round = gameRounds[i];
+      const userAnswered = isCreator
+        ? round.creator_symbol !== null && round.creator_symbol !== undefined
+        : round.opponent_symbol !== null && round.opponent_symbol !== undefined;
+
+      if (!userAnswered) {
+        return i;
+      }
+    }
+
+    // All rounds answered
+    return gameRounds.length;
+  };
+
+  const startPollingForOpponent = () => {
+    startPulseAnimation();
+
+    pollingInterval.current = setInterval(async () => {
+      try {
+        const response = await battleAPI.getBattleSession(battleId);
+        if (response && response.opponent) {
+          setOpponent(response.opponent);
+          setRounds(response.rounds || []);
+          setGamePhase("playing");
+          setCurrentRoundIndex(0);
+
+          if (pollingInterval.current) {
+            clearInterval(pollingInterval.current);
+          }
+        }
+      } catch (error) {
+        console.error("Error polling for opponent:", error);
+      }
+    }, 2000);
+  };
+
+  const startWaitingForOpponent = () => {
+    console.log("🔄 Starting to wait for opponent answer...");
+
+    roundPollingInterval.current = setInterval(async () => {
+      try {
+        const response = await battleAPI.getBattleSession(battleId);
+        if (response && response.rounds) {
+          const currentRound = response.rounds[currentRoundIndex];
+          if (currentRound) {
+            const isCreator = currentUserId === creator?.id;
+            const opponentAnswered = isCreator
+              ? currentRound.opponent_symbol !== null &&
+                currentRound.opponent_symbol !== undefined
+              : currentRound.creator_symbol !== null &&
+                currentRound.creator_symbol !== undefined;
+
+            if (opponentAnswered) {
+              console.log("✅ Opponent answered! Moving to next round");
+
+              // Update rounds with opponent's answer
+              setRounds(response.rounds);
+              setWaitingForOpponent(false);
+              setShowRoundResult(true);
+
+              if (roundPollingInterval.current) {
+                clearInterval(roundPollingInterval.current);
+              }
+
+              // Show result then move to next round
+              setTimeout(() => {
+                setShowRoundResult(false);
+                moveToNextRound();
+              }, 2000);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error polling for opponent answer:", error);
+      }
+    }, 1000); // Poll every second for faster response
+  };
+
+  const startWaitingForOpponentToFinish = () => {
+    console.log("🔄 Waiting for opponent to finish all rounds...");
+
+    roundPollingInterval.current = setInterval(async () => {
+      try {
+        const response = await battleAPI.getBattleSession(battleId);
+        if (response && response.rounds) {
+          const allRoundsCompleted = response.rounds.every(
+            (round: BattleRound) => {
+              return (
+                round.creator_symbol !== null &&
+                round.creator_symbol !== undefined &&
+                round.opponent_symbol !== null &&
+                round.opponent_symbol !== undefined
+              );
+            }
+          );
+
+          if (allRoundsCompleted) {
+            console.log(
+              "✅ Both players finished all rounds! Completing battle"
+            );
+            setRounds(response.rounds);
+            setWaitingForOpponent(false);
+
+            if (roundPollingInterval.current) {
+              clearInterval(roundPollingInterval.current);
+            }
+
+            completeBattle();
+          }
+        }
+      } catch (error) {
+        console.error("Error polling for opponent completion:", error);
+      }
+    }, 2000);
+  };
+
+  const submitAnswer = async (answer: string) => {
+    if (
+      submittingAnswer ||
+      !battleSession ||
+      currentRoundIndex >= rounds.length
+    ) {
+      return;
+    }
+
+    try {
+      setSubmittingAnswer(true);
+      setSelectedAnswer(answer);
+
+      const currentRound = rounds[currentRoundIndex];
+      const responseTime = Math.floor((Date.now() - roundStartTime) / 1000);
+      const isCreator = currentUserId === creator?.id;
+
+      // Immediately update UI with user's answer for instant feedback
+      const updatedRounds = [...rounds];
+      if (isCreator) {
+        updatedRounds[currentRoundIndex] = {
+          ...updatedRounds[currentRoundIndex],
+          creator_symbol: answer,
+          creator_response_time: responseTime,
+        };
+      } else {
+        updatedRounds[currentRoundIndex] = {
+          ...updatedRounds[currentRoundIndex],
+          opponent_symbol: answer,
+          opponent_response_time: responseTime,
+        };
+      }
+      setRounds(updatedRounds);
+
+      // Submit to backend
+      const response = await battleAPI.submitBattleRound({
+        battle_session_id: battleSession.id,
+        round_number: currentRound.round_number,
+        user_symbol: answer,
+        response_time: responseTime,
+      });
+
+      if (response && response.round_result) {
+        // Update with server response
+        const serverUpdatedRounds = [...updatedRounds];
+        if (isCreator) {
+          serverUpdatedRounds[currentRoundIndex] = {
+            ...serverUpdatedRounds[currentRoundIndex],
+            creator_is_correct: response.round_result.is_correct,
+          };
+        } else {
+          serverUpdatedRounds[currentRoundIndex] = {
+            ...serverUpdatedRounds[currentRoundIndex],
+            opponent_is_correct: response.round_result.is_correct,
+          };
+        }
+        setRounds(serverUpdatedRounds);
+        setLastRoundResult(response.round_result);
+
+        // Immediately move to next round - no delays or round results
+        moveToNextRound();
+      }
+    } catch (error) {
+      console.error("Error submitting answer:", error);
+      Alert.alert("Error", "Failed to submit answer. Please try again.");
+
+      // Revert UI changes on error
+      setSelectedAnswer("");
+      const revertedRounds = [...rounds];
+      const isCreator = currentUserId === creator?.id;
+      if (isCreator) {
+        revertedRounds[currentRoundIndex] = {
+          ...revertedRounds[currentRoundIndex],
+          creator_symbol: undefined,
+          creator_response_time: undefined,
+        };
+      } else {
+        revertedRounds[currentRoundIndex] = {
+          ...revertedRounds[currentRoundIndex],
+          opponent_symbol: undefined,
+          opponent_response_time: undefined,
+        };
+      }
+      setRounds(revertedRounds);
+    } finally {
+      setSubmittingAnswer(false);
+    }
+  };
+
+  const moveToNextRound = () => {
+    setSelectedAnswer("");
+
+    if (currentRoundIndex + 1 >= rounds.length) {
+      // All rounds completed for this player - complete battle immediately
+      completeBattle();
+    } else {
+      // Move to next round immediately
+      setCurrentRoundIndex(currentRoundIndex + 1);
+      setRoundStartTime(Date.now());
+    }
+  };
+
+  const completeBattle = async () => {
     try {
       setGameLoading(true);
+      const totalTime = Math.floor((Date.now() - gameStartTime) / 1000);
+      setTotalGameTime(totalTime);
 
-      // Check if round already exists in battle session
-      const existingRound = battle.rounds?.find(
-        (r) => r.round_number === battle.current_round
+      const response = await battleAPI.completeBattle(
+        battleSession!.id,
+        totalTime
       );
 
-      if (existingRound) {
-        setCurrentRound({
-          round_number: existingRound.round_number,
-          symbols: existingRound.symbols,
-          correct_answer: existingRound.correct_answer,
-          difficulty_level: 2, // Default difficulty
-        });
-      } else {
-        // Generate new round using game API
-        const roundResponse = await gameAPI.createInstantGame({
-          difficulty_level: 2,
-          number_of_rounds: 1,
-        });
-
-        if (
-          roundResponse &&
-          roundResponse.rounds &&
-          roundResponse.rounds.length > 0
-        ) {
-          const newRound = roundResponse.rounds[0];
-          setCurrentRound({
-            round_number: battle.current_round,
-            symbols: newRound.symbols,
-            correct_answer: newRound.correct_answer,
-            difficulty_level: newRound.difficulty_level,
-          });
+      if (response) {
+        if (response.battle_completed) {
+          // Battle is fully completed, show final results
+          await loadBattleSession();
+          setGamePhase("completed");
+        } else {
+          // Current player finished, but waiting for opponent to complete
+          setWaitingForOpponent(true);
+          startWaitingForOpponentToFinish();
         }
       }
     } catch (error) {
-      console.error("Error loading current round:", error);
-      Alert.alert("Error", "Failed to load round data.");
+      console.error("Error completing battle:", error);
+      Alert.alert("Error", "Failed to complete battle. Please try again.");
     } finally {
       setGameLoading(false);
     }
   };
 
-  const startPollingForOpponent = () => {
-    const pollInterval = setInterval(async () => {
-      try {
-        const response = await battleAPI.getBattleSession(battleId);
-        if (
-          response &&
-          response.battle_session &&
-          response.battle_session.opponent
-        ) {
-          clearInterval(pollInterval);
-          setBattleSession(response.battle_session);
-          await loadCurrentRound(response.battle_session);
-          setGamePhase("playing");
-        }
-      } catch (error) {
-        console.error("Error polling for opponent:", error);
-      }
-    }, 3000); // Poll every 3 seconds
-
-    // Stop polling after 5 minutes
-    setTimeout(() => {
-      clearInterval(pollInterval);
-    }, 300000);
-  };
-
-  const submitAnswer = async (answer: string) => {
-    if (!battleSession || !currentRound || selectedAnswer) return;
-
-    try {
-      setSelectedAnswer(answer);
-
-      if (timerInterval.current) {
-        clearInterval(timerInterval.current);
-      }
-
-      const responseTime = Math.floor((Date.now() - roundStartTime) / 1000);
-
-      const roundData = {
-        battle_session_id: battleSession.id,
-        round_number: currentRound.round_number,
-        answer: answer,
-        response_time: responseTime,
-        symbols: currentRound.symbols,
-        correct_answer: currentRound.correct_answer,
-      };
-
-      await battleAPI.submitBattleRound(roundData);
-
-      // Show answer feedback
-      setTimeout(async () => {
-        await moveToNextRound();
-      }, 2000);
-    } catch (error: any) {
-      console.error("Error submitting answer:", error);
-      Alert.alert("Error", error.message || "Failed to submit answer.");
-      setSelectedAnswer("");
-    }
-  };
-
-  const moveToNextRound = async () => {
-    if (!battleSession) return;
-
-    try {
-      // Reload battle session to get updated data
-      const response = await battleAPI.getBattleSession(battleId);
-
-      if (response && response.battle_session) {
-        setBattleSession(response.battle_session);
-
-        if (
-          response.battle_session.current_round <=
-          response.battle_session.number_of_rounds
-        ) {
-          // Load next round
-          await loadCurrentRound(response.battle_session);
-          setSelectedAnswer("");
-          setRoundTimer(0);
-        } else {
-          // Battle completed
-          await completeBattle();
-        }
-      }
-    } catch (error) {
-      console.error("Error moving to next round:", error);
-    }
-  };
-
-  const completeBattle = async () => {
-    if (!battleSession) return;
-
-    try {
-      const totalTime = Math.floor((Date.now() - gameStartTime) / 1000);
-      await battleAPI.completeBattle(battleSession.id, totalTime);
-
-      // Reload final battle data
-      const response = await battleAPI.getBattleSession(battleId);
-      if (response && response.battle_session) {
-        setBattleSession(response.battle_session);
-      }
-
-      setGamePhase("completed");
-    } catch (error) {
-      console.error("Error completing battle:", error);
-      setGamePhase("completed");
-    }
+  const getCurrentRound = (): BattleRound | null => {
+    if (currentRoundIndex >= rounds.length) return null;
+    return rounds[currentRoundIndex];
   };
 
   const getAnswerStyle = (answer: string) => {
-    if (!selectedAnswer) return styles.answerButton;
-
-    if (answer === selectedAnswer) {
-      if (answer === currentRound?.correct_answer) {
-        return [styles.answerButton, styles.correctAnswer];
-      } else {
-        return [styles.answerButton, styles.wrongAnswer];
-      }
+    const baseStyle = styles.answerButton;
+    if (selectedAnswer === answer) {
+      return [baseStyle, styles.selectedAnswer];
     }
-
-    if (answer === currentRound?.correct_answer) {
-      return [styles.answerButton, styles.correctAnswer];
-    }
-
-    return [styles.answerButton, styles.disabledAnswer];
+    return baseStyle;
   };
 
   const renderWaitingScreen = () => (
     <View style={styles.waitingContainer}>
-      <View style={styles.waitingContent}>
-        <Animated.View
-          style={[
-            styles.battleCodeContainer,
-            {
-              transform: [{ scale: pulseAnim }],
-            },
-          ]}
-        >
-          <Text style={styles.battleCodeTitle}>Battle Code</Text>
-          <Text style={styles.battleCode}>{battleCode}</Text>
-        </Animated.View>
+      <Animated.View
+        style={[styles.waitingIcon, { transform: [{ scale: pulseAnim }] }]}
+      >
+        <Ionicons name="hourglass-outline" size={80} color="#E91E63" />
+      </Animated.View>
 
-        <View style={styles.waitingInfo}>
-          <Ionicons name="time" size={32} color="#E91E63" />
-          <Text style={styles.waitingTitle}>Waiting for Opponent</Text>
-          <Text style={styles.waitingDescription}>
-            Share the battle code with your opponent or wait for someone to
-            join.
-          </Text>
-        </View>
+      <Text style={styles.waitingTitle}>Waiting for Opponent</Text>
+      <Text style={styles.waitingSubtitle}>
+        Share this battle code with your opponent:
+      </Text>
 
-        <View style={styles.battleCreator}>
-          <Text style={styles.creatorLabel}>Battle Creator</Text>
-          <View style={styles.playerInfo}>
-            <Image
-              source={{
-                uri:
-                  battleSession?.creator?.avatar ||
-                  "https://i.pravatar.cc/100?img=1",
-              }}
-              style={styles.playerAvatar}
-            />
-            <View>
-              <Text style={styles.playerName}>
-                {battleSession?.creator?.username || "Unknown"}
-              </Text>
-              <Text style={styles.playerLevel}>
-                Level {battleSession?.creator?.current_level || 1}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        <TouchableOpacity style={styles.shareButton}>
-          <Ionicons name="share" size={20} color="#fff" />
-          <Text style={styles.shareButtonText}>Share Battle Code</Text>
+      <View style={styles.battleCodeContainer}>
+        <Text style={styles.battleCodeText}>{battleCode}</Text>
+        <TouchableOpacity style={styles.copyButton}>
+          <Ionicons name="copy-outline" size={20} color="#E91E63" />
         </TouchableOpacity>
       </View>
+
+      <Text style={styles.waitingInfo}>
+        The battle will start automatically when someone joins.
+      </Text>
     </View>
   );
 
-  const renderGameplayScreen = () => (
-    <View style={styles.gameplayContainer}>
-      <View style={styles.gameHeader}>
-        <View style={styles.roundInfo}>
-          <Text style={styles.roundText}>
-            Round {currentRound?.round_number} /{" "}
-            {battleSession?.number_of_rounds}
-          </Text>
-          <Text style={styles.timerText}>{roundTimer}s</Text>
-        </View>
+  const renderGameplayScreen = () => {
+    const currentRound = getCurrentRound();
 
-        <View style={styles.playersContainer}>
-          <View style={styles.playerScore}>
-            <Image
-              source={{
-                uri:
-                  battleSession?.creator?.avatar ||
-                  "https://i.pravatar.cc/100?img=1",
-              }}
-              style={styles.miniAvatar}
-            />
-            <Text style={styles.scoreText}>{battleSession?.creator_score}</Text>
-          </View>
-
-          <Text style={styles.vsText}>VS</Text>
-
-          <View style={styles.playerScore}>
-            <Text style={styles.scoreText}>
-              {battleSession?.opponent_score}
+    // If waiting for opponent to finish all rounds
+    if (waitingForOpponent) {
+      return (
+        <View style={styles.gameplayContainer}>
+          <View style={styles.waitingForOpponentContainer}>
+            <ActivityIndicator size="large" color="#E91E63" />
+            <Text style={styles.waitingTitle}>All rounds completed!</Text>
+            <Text style={styles.waitingText}>
+              Waiting for opponent to finish...
             </Text>
-            <Image
-              source={{ uri: battleSession?.opponent?.avatar }}
-              style={styles.miniAvatar}
+          </View>
+        </View>
+      );
+    }
+
+    if (!currentRound) return null;
+
+    const isCreator = currentUserId === creator?.id;
+    const userAnswered = isCreator
+      ? currentRound.creator_symbol !== null &&
+        currentRound.creator_symbol !== undefined
+      : currentRound.opponent_symbol !== null &&
+        currentRound.opponent_symbol !== undefined;
+
+    return (
+      <View style={styles.gameplayContainer}>
+        {/* Progress Bar */}
+        <View style={styles.progressContainer}>
+          <View style={styles.progressBar}>
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: `${((currentRoundIndex + 1) / rounds.length) * 100}%`,
+                },
+              ]}
             />
           </View>
+          <Text style={styles.progressText}>
+            Round {currentRoundIndex + 1} of {rounds.length}
+          </Text>
         </View>
+
+        {/* Players Info */}
+        <View style={styles.playersContainer}>
+          <View style={styles.playerInfo}>
+            <Text style={styles.playerName}>{creator?.username}</Text>
+            <Text style={styles.playerScore}>
+              {battleSession?.creator_score || 0}
+            </Text>
+          </View>
+          <Text style={styles.vsText}>VS</Text>
+          <View style={styles.playerInfo}>
+            <Text style={styles.playerName}>{opponent?.username}</Text>
+            <Text style={styles.playerScore}>
+              {battleSession?.opponent_score || 0}
+            </Text>
+          </View>
+        </View>
+
+        {/* Game Question */}
+        <View style={styles.questionContainer}>
+          <Text style={styles.questionTitle}>Compare the numbers:</Text>
+          <View style={styles.numbersContainer}>
+            <Text style={styles.number}>{currentRound.first_number}</Text>
+            <Text style={styles.questionMark}>?</Text>
+            <Text style={styles.number}>{currentRound.second_number}</Text>
+          </View>
+        </View>
+
+        {/* Answer Buttons */}
+        <View style={styles.answersContainer}>
+          <TouchableOpacity
+            style={getAnswerStyle("<")}
+            onPress={() => submitAnswer("<")}
+            disabled={submittingAnswer}
+          >
+            <Text style={styles.answerText}>{"<"}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={getAnswerStyle("=")}
+            onPress={() => submitAnswer("=")}
+            disabled={submittingAnswer}
+          >
+            <Text style={styles.answerText}>{"="}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={getAnswerStyle(">")}
+            onPress={() => submitAnswer(">")}
+            disabled={submittingAnswer}
+          >
+            <Text style={styles.answerText}>{">"}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {submittingAnswer && (
+          <View style={styles.submittingOverlay}>
+            <ActivityIndicator size="large" color="#E91E63" />
+            <Text style={styles.submittingText}>Submitting answer...</Text>
+          </View>
+        )}
       </View>
-
-      {gameLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#E91E63" />
-          <Text style={styles.loadingText}>Loading round...</Text>
-        </View>
-      ) : currentRound ? (
-        <View style={styles.gameContent}>
-          <View style={styles.symbolsContainer}>
-            <Text style={styles.questionText}>Find the missing symbol:</Text>
-            <View style={styles.symbolsGrid}>
-              {currentRound.symbols.map((symbol, index) => (
-                <View key={index} style={styles.symbolCard}>
-                  <Text style={styles.symbolText}>{symbol}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.answersContainer}>
-            <Text style={styles.answersTitle}>Choose your answer:</Text>
-            <View style={styles.answersGrid}>
-              {/* Generate answer options - in a real implementation, you'd get these from the API */}
-              {["A", "B", "C", "D"].map((answer) => (
-                <TouchableOpacity
-                  key={answer}
-                  style={getAnswerStyle(answer)}
-                  onPress={() => submitAnswer(answer)}
-                  disabled={!!selectedAnswer}
-                >
-                  <Text style={styles.answerText}>{answer}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        </View>
-      ) : null}
-    </View>
-  );
+    );
+  };
 
   const renderCompletedScreen = () => {
-    const isWinner = battleSession?.winner?.id === battleSession?.creator.id;
+    const isCreator = currentUserId === creator?.id;
+    const userWon = winner?.id === currentUserId;
+    const isTie = !winner;
 
     return (
       <View style={styles.completedContainer}>
-        <View style={styles.resultHeader}>
-          <Text style={styles.resultTitle}>
-            {isWinner ? "Victory! 🏆" : "Battle Complete"}
-          </Text>
-          <Text style={styles.resultSubtitle}>
-            {battleSession?.winner
-              ? `${battleSession.winner.username} wins!`
-              : "It's a tie!"}
-          </Text>
+        <View style={styles.resultIcon}>
+          <Ionicons
+            name={userWon ? "trophy" : isTie ? "ribbon" : "medal"}
+            size={80}
+            color={userWon ? "#FFD700" : isTie ? "#C0C0C0" : "#CD7F32"}
+          />
         </View>
 
-        <View style={styles.finalScores}>
-          <View style={styles.playerResult}>
-            <Image
-              source={{
-                uri:
-                  battleSession?.creator?.avatar ||
-                  "https://i.pravatar.cc/100?img=1",
-              }}
-              style={styles.resultAvatar}
-            />
-            <Text style={styles.resultName}>
-              {battleSession?.creator?.username || "Unknown"}
+        <Text style={styles.resultTitle}>
+          {userWon ? "Victory!" : isTie ? "It's a Tie!" : "Defeat"}
+        </Text>
+
+        <Text style={styles.resultSubtitle}>
+          {userWon
+            ? "Congratulations! You won the battle!"
+            : isTie
+            ? "Great game! You both performed equally well."
+            : "Good effort! Better luck next time."}
+        </Text>
+
+        {/* Final Scores */}
+        <View style={styles.finalScoresContainer}>
+          <View style={styles.finalPlayerScore}>
+            <Text style={styles.finalPlayerName}>{creator?.username}</Text>
+            <Text style={styles.finalPlayerPoints}>
+              {battleSession?.creator_score || 0}
             </Text>
-            <Text style={styles.resultScore}>
-              {battleSession?.creator_score} points
-            </Text>
-            <Text style={styles.resultTime}>
-              {Math.floor((battleSession?.creator_total_time || 0) / 60)}:
-              {String((battleSession?.creator_total_time || 0) % 60).padStart(
-                2,
-                "0"
-              )}
+            <Text style={styles.finalPlayerDetails}>
+              {battleSession?.creator_correct_answers || 0}/{rounds.length}{" "}
+              correct
             </Text>
           </View>
 
-          <Text style={styles.finalVs}>VS</Text>
-
-          <View style={styles.playerResult}>
-            <Image
-              source={{ uri: battleSession?.opponent?.avatar }}
-              style={styles.resultAvatar}
-            />
-            <Text style={styles.resultName}>
-              {battleSession?.opponent?.username}
+          <View style={styles.finalPlayerScore}>
+            <Text style={styles.finalPlayerName}>{opponent?.username}</Text>
+            <Text style={styles.finalPlayerPoints}>
+              {battleSession?.opponent_score || 0}
             </Text>
-            <Text style={styles.resultScore}>
-              {battleSession?.opponent_score} points
-            </Text>
-            <Text style={styles.resultTime}>
-              {Math.floor((battleSession?.opponent_total_time || 0) / 60)}:
-              {String((battleSession?.opponent_total_time || 0) % 60).padStart(
-                2,
-                "0"
-              )}
+            <Text style={styles.finalPlayerDetails}>
+              {battleSession?.opponent_correct_answers || 0}/{rounds.length}{" "}
+              correct
             </Text>
           </View>
         </View>
 
-        <View style={styles.actionButtons}>
+        {/* Action Buttons */}
+        <View style={styles.actionButtonsContainer}>
           <TouchableOpacity
-            style={styles.newBattleButton}
-            onPress={() => router.replace("/game/duoBattle/battleMenu")}
+            style={styles.primaryButton}
+            onPress={() => router.push("/game/duoBattle/battleMenu")}
           >
-            <Text style={styles.buttonText}>New Battle</Text>
+            <Ionicons name="refresh" size={24} color="#fff" />
+            <Text style={styles.primaryButtonText}>New Battle</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.homeButton}
-            onPress={() => router.replace("/(tabs)/home")}
+            style={styles.secondaryButton}
+            onPress={() => router.push("/game/duoBattle/battleMenu")}
           >
-            <Text style={[styles.buttonText, styles.homeButtonText]}>Home</Text>
+            <Text style={styles.secondaryButtonText}>Back to Menu</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -565,7 +745,7 @@ export default function BattleGameScreen() {
         >
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Battle Arena</Text>
+        <Text style={styles.headerTitle}>Battle: {battleCode}</Text>
         <View style={styles.placeholder} />
       </View>
 
@@ -589,6 +769,8 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 20,
     backgroundColor: "#1a1a1a",
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
   },
   backButton: {
     width: 40,
@@ -599,7 +781,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: "bold",
     color: "#fff",
   },
@@ -608,303 +790,322 @@ const styles = StyleSheet.create({
   },
   loadingContainer: {
     flex: 1,
-    alignItems: "center",
     justifyContent: "center",
-    gap: 12,
+    alignItems: "center",
+    backgroundColor: "#0a0a0a",
   },
   loadingText: {
-    color: "#888",
+    color: "#fff",
     fontSize: 16,
+    marginTop: 16,
   },
   // Waiting Screen Styles
   waitingContainer: {
     flex: 1,
-    padding: 20,
-  },
-  waitingContent: {
-    flex: 1,
-    alignItems: "center",
     justifyContent: "center",
-    gap: 32,
-  },
-  battleCodeContainer: {
-    backgroundColor: "#1a1a1a",
-    padding: 24,
-    borderRadius: 16,
     alignItems: "center",
-    borderWidth: 2,
-    borderColor: "#E91E63",
+    paddingHorizontal: 20,
   },
-  battleCodeTitle: {
-    fontSize: 16,
-    color: "#888",
-    marginBottom: 8,
-  },
-  battleCode: {
-    fontSize: 32,
-    fontWeight: "bold",
-    color: "#E91E63",
-    fontFamily: "monospace",
-  },
-  waitingInfo: {
-    alignItems: "center",
-    gap: 12,
+  waitingIcon: {
+    marginBottom: 32,
   },
   waitingTitle: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: "bold",
     color: "#fff",
+    marginBottom: 16,
+    textAlign: "center",
   },
-  waitingDescription: {
+  waitingSubtitle: {
     fontSize: 16,
     color: "#888",
     textAlign: "center",
-    maxWidth: 280,
+    marginBottom: 24,
   },
-  battleCreator: {
-    alignItems: "center",
-    gap: 12,
-  },
-  creatorLabel: {
-    fontSize: 14,
-    color: "#888",
-  },
-  playerInfo: {
+  battleCodeContainer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    backgroundColor: "#1a1a1a",
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: "#E91E63",
+    marginBottom: 24,
   },
-  playerAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-  },
-  playerName: {
-    fontSize: 18,
+  battleCodeText: {
+    fontSize: 24,
     fontWeight: "bold",
-    color: "#fff",
+    color: "#E91E63",
+    fontFamily: "monospace",
+    letterSpacing: 2,
+    marginRight: 16,
   },
-  playerLevel: {
+  copyButton: {
+    padding: 8,
+  },
+  waitingInfo: {
     fontSize: 14,
-    color: "#888",
-  },
-  shareButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "#E91E63",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  shareButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
+    color: "#666",
+    textAlign: "center",
+    lineHeight: 20,
   },
   // Gameplay Screen Styles
   gameplayContainer: {
     flex: 1,
-  },
-  gameHeader: {
-    backgroundColor: "#1a1a1a",
     padding: 20,
-    gap: 16,
   },
-  roundInfo: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+  progressContainer: {
+    marginBottom: 24,
   },
-  roundText: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#fff",
+  progressBar: {
+    height: 6,
+    backgroundColor: "#333",
+    borderRadius: 3,
+    overflow: "hidden",
   },
-  timerText: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#E91E63",
+  progressFill: {
+    height: "100%",
+    backgroundColor: "#E91E63",
+  },
+  progressText: {
+    fontSize: 14,
+    color: "#888",
+    textAlign: "center",
+    marginTop: 8,
   },
   playersContainer: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 40,
+    paddingHorizontal: 20,
+  },
+  playerInfo: {
+    alignItems: "center",
+  },
+  playerName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fff",
+    marginBottom: 4,
   },
   playerScore: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  miniAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-  },
-  scoreText: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: "bold",
-    color: "#fff",
+    color: "#E91E63",
   },
   vsText: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#888",
-  },
-  gameContent: {
-    flex: 1,
-    padding: 20,
-    gap: 32,
-  },
-  symbolsContainer: {
-    alignItems: "center",
-    gap: 16,
-  },
-  questionText: {
     fontSize: 18,
-    color: "#fff",
-    textAlign: "center",
+    fontWeight: "bold",
+    color: "#666",
   },
-  symbolsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    justifyContent: "center",
-  },
-  symbolCard: {
-    width: 60,
-    height: 60,
-    backgroundColor: "#1a1a1a",
-    borderRadius: 12,
+  questionContainer: {
     alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#333",
+    marginBottom: 40,
   },
-  symbolText: {
-    fontSize: 24,
+  questionTitle: {
+    fontSize: 18,
+    color: "#888",
+    marginBottom: 24,
+  },
+  numbersContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 20,
+  },
+  number: {
+    fontSize: 48,
+    fontWeight: "bold",
     color: "#fff",
+    backgroundColor: "#1a1a1a",
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderRadius: 16,
+    textAlign: "center",
+    minWidth: 100,
+  },
+  questionMark: {
+    fontSize: 48,
+    fontWeight: "bold",
+    color: "#E91E63",
   },
   answersContainer: {
-    gap: 16,
-  },
-  answersTitle: {
-    fontSize: 18,
-    color: "#fff",
-    textAlign: "center",
-  },
-  answersGrid: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    justifyContent: "center",
+    justifyContent: "space-around",
+    paddingHorizontal: 20,
   },
   answerButton: {
-    width: (screenWidth - 60) / 2,
-    height: 60,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: "#1a1a1a",
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
     borderWidth: 2,
     borderColor: "#333",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  correctAnswer: {
-    backgroundColor: "#4CAF50",
-    borderColor: "#4CAF50",
-  },
-  wrongAnswer: {
-    backgroundColor: "#F44336",
-    borderColor: "#F44336",
-  },
-  disabledAnswer: {
-    opacity: 0.5,
+  selectedAnswer: {
+    backgroundColor: "#E91E63",
+    borderColor: "#E91E63",
   },
   answerText: {
-    fontSize: 18,
+    fontSize: 32,
     fontWeight: "bold",
     color: "#fff",
+  },
+  waitingForOpponentContainer: {
+    alignItems: "center",
+    paddingVertical: 40,
+  },
+  waitingText: {
+    fontSize: 16,
+    color: "#888",
+    textAlign: "center",
+  },
+  waitingForOpponentText: {
+    fontSize: 16,
+    color: "#888",
+    marginTop: 16,
+  },
+  submittingOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.8)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  submittingText: {
+    fontSize: 16,
+    color: "#fff",
+    marginTop: 16,
   },
   // Completed Screen Styles
   completedContainer: {
     flex: 1,
-    padding: 20,
-    gap: 32,
-  },
-  resultHeader: {
+    justifyContent: "center",
     alignItems: "center",
-    gap: 8,
-    marginTop: 32,
+    padding: 20,
+  },
+  resultIcon: {
+    marginBottom: 24,
   },
   resultTitle: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: "bold",
     color: "#fff",
+    marginBottom: 16,
+    textAlign: "center",
   },
   resultSubtitle: {
-    fontSize: 18,
-    color: "#E91E63",
+    fontSize: 16,
+    color: "#888",
+    textAlign: "center",
+    marginBottom: 40,
+    lineHeight: 24,
   },
-  finalScores: {
+  finalScoresContainer: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    width: "100%",
+    marginBottom: 40,
+  },
+  finalPlayerScore: {
+    alignItems: "center",
+  },
+  finalPlayerName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fff",
+    marginBottom: 8,
+  },
+  finalPlayerPoints: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#E91E63",
+    marginBottom: 4,
+  },
+  finalPlayerDetails: {
+    fontSize: 12,
+    color: "#666",
+  },
+  actionButtonsContainer: {
+    width: "100%",
+    gap: 16,
+  },
+  primaryButton: {
+    backgroundColor: "#E91E63",
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-around",
+    justifyContent: "center",
+    paddingVertical: 16,
+    borderRadius: 12,
+    gap: 8,
+  },
+  primaryButtonText: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  secondaryButton: {
+    backgroundColor: "transparent",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: "#333",
+    borderRadius: 12,
+  },
+  secondaryButtonText: {
+    color: "#888",
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  // Round Result Styles
+  roundResultContainer: {
+    alignItems: "center",
+    paddingVertical: 40,
     backgroundColor: "#1a1a1a",
     borderRadius: 16,
-    padding: 20,
+    marginHorizontal: 20,
   },
-  playerResult: {
+  roundResultTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#E91E63",
+    marginBottom: 20,
+  },
+  roundResultDetails: {
     alignItems: "center",
     gap: 8,
   },
-  resultAvatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-  },
-  resultName: {
+  roundResultText: {
     fontSize: 16,
-    fontWeight: "bold",
     color: "#fff",
+    textAlign: "center",
   },
-  resultScore: {
-    fontSize: 20,
+  roundWinnerText: {
+    fontSize: 18,
     fontWeight: "bold",
-    color: "#E91E63",
+    color: "#4CAF50",
+    marginTop: 8,
   },
-  resultTime: {
+  // Answered State Styles
+  answeredContainer: {
+    alignItems: "center",
+    paddingVertical: 40,
+  },
+  answeredText: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#fff",
+    marginBottom: 8,
+  },
+  answeredSubtext: {
     fontSize: 14,
-    color: "#888",
-  },
-  finalVs: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#888",
-  },
-  actionButtons: {
-    gap: 12,
-    marginTop: 32,
-  },
-  newBattleButton: {
-    backgroundColor: "#E91E63",
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  homeButton: {
-    backgroundColor: "transparent",
-    borderWidth: 2,
-    borderColor: "#E91E63",
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  buttonText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-  homeButtonText: {
-    color: "#E91E63",
+    color: "#4CAF50",
   },
 });
