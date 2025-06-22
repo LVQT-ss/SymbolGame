@@ -235,12 +235,7 @@ export const getGameSession = async (req, res) => {
             });
         }
 
-        // Check if session is assigned to user or available to join
-        if (gameSession.user_id && gameSession.user_id !== userId) {
-            return res.status(403).json({
-                message: 'This game session is not accessible to you.'
-            });
-        }
+        // Permission check removed - everyone can access any game session
 
         // Get current round (first incomplete round)
         const currentRound = gameSession.rounds.find(round => !round.user_symbol) || null;
