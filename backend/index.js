@@ -9,9 +9,6 @@ import userRoutes from './routes/user.route.js';
 import authRoutes from './routes/auth.route.js';
 import socialRoutes from './routes/social.route.js';
 import gameRoutes from './routes/game.route.js';
-import leaderboardRoutes from './routes/leaderboard.route.js';
-import notificationRoutes from './routes/notification.route.js';
-import achievementRoutes from './routes/achievement.route.js';
 import adminRoutes from './routes/admin.route.js';
 import commentRoutes from './routes/comment.route.js';
 import transactionRoutes from './routes/transaction.route.js';
@@ -41,9 +38,6 @@ app.use('/api/user', userRoutes);
 app.use('/api/users', socialRoutes);
 app.use('/api/game', gameRoutes);
 app.use('/api/comments', commentRoutes);
-app.use('/api/leaderboard', leaderboardRoutes);
-app.use('/api/achievements', achievementRoutes);
-app.use('/api/notifications', notificationRoutes);
 app.use('/api/transactions', transactionRoutes);
 
 // Health check endpoint with system stats

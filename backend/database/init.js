@@ -7,10 +7,6 @@ import GameSession from '../model/game-sessions.model.js';
 import RoundDetail from '../model/round-details.model.js';
 import GameSessionLike from '../model/game-session-likes.model.js';
 import GameSessionComment from '../model/game-session-comments.model.js';
-import LeaderboardEntry from '../model/leaderboard-entries.model.js';
-import Achievement from '../model/achievements.model.js';
-import UserAchievement from '../model/user-achievements.model.js';
-import Notification from '../model/notifications.model.js';
 import PaymentTransaction from '../model/payment-transactions.model.js';
 
 const initDB = async () => {
@@ -22,8 +18,7 @@ const initDB = async () => {
         const models = [
             User, UserStatistics, FollowerRelationship, GameSession,
             RoundDetail, GameSessionLike, GameSessionComment,
-            LeaderboardEntry, Achievement, UserAchievement,
-            Notification, PaymentTransaction
+            PaymentTransaction
         ];
 
         console.log(`Loaded ${models.length} models`);
@@ -36,7 +31,7 @@ const initDB = async () => {
             console.warn('Database sync encountered issues, trying individual model sync...');
 
             // Models that might need schema updates
-            const modelsNeedingAlter = ['LeaderboardEntry', 'Achievement', 'UserAchievement'];
+            const modelsNeedingAlter = [];
 
             // Try to sync models individually to identify problematic ones
             for (const model of models) {

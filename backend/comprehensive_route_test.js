@@ -172,61 +172,9 @@ async function testGameRoutes() {
     }
 }
 
-async function testAchievementRoutes() {
-    console.log('\n🎖️ === ACHIEVEMENT ROUTES ===');
 
-    const routes = [
-        { path: '/achievements/public', method: 'GET', auth: null },
-        { path: '/achievements', method: 'GET', auth: userToken },
-        { path: '/achievements/leaderboard', method: 'GET', auth: userToken }
-    ];
 
-    for (const route of routes) {
-        try {
-            const headers = route.auth ? { Authorization: `Bearer ${route.auth}` } : {};
-            await axios.get(`${BASE_URL}${route.path}`, { headers });
-            logTest(route.path, route.method, 'PASS', 'Request successful');
-        } catch (error) {
-            logTest(route.path, route.method, 'FAIL', `Failed: ${error.response?.data?.message || error.message}`);
-        }
-    }
 
-    // Test create achievement (Admin only)
-    try {
-        await axios.post(`${BASE_URL}/achievements/create`, {
-            name: `Test Achievement ${Date.now()}`,
-            description: 'Test achievement description',
-            category: 'progress',
-            condition_value: 1,
-            points: 100,
-            coin_reward: 50
-        }, {
-            headers: { Authorization: `Bearer ${adminToken}` }
-        });
-        logTest('/achievements/create', 'POST', 'PASS', 'Achievement creation successful');
-    } catch (error) {
-        logTest('/achievements/create', 'POST', 'FAIL', `Achievement creation failed: ${error.response?.data?.message || error.message}`);
-    }
-}
-
-async function testLeaderboardRoutes() {
-    console.log('\n🏆 === LEADERBOARD ROUTES ===');
-
-    const routes = [
-        { path: '/leaderboard/types', method: 'GET', auth: userToken },
-        { path: '/leaderboard?type=overall_score&period=weekly', method: 'GET', auth: userToken }
-    ];
-
-    for (const route of routes) {
-        try {
-            const headers = route.auth ? { Authorization: `Bearer ${route.auth}` } : {};
-            await axios.get(`${BASE_URL}${route.path}`, { headers });
-            logTest(route.path, route.method, 'PASS', 'Request successful');
-        } catch (error) {
-            logTest(route.path, route.method, 'FAIL', `Failed: ${error.response?.data?.message || error.message}`);
-        }
-    }
-}
 
 async function testSocialRoutes() {
     console.log('\n👥 === SOCIAL ROUTES ===');
@@ -274,18 +222,7 @@ async function testAdminRoutes() {
     }
 }
 
-async function testNotificationRoutes() {
-    console.log('\n🔔 === NOTIFICATION ROUTES ===');
 
-    try {
-        await axios.get(`${BASE_URL}/notifications`, {
-            headers: { Authorization: `Bearer ${userToken}` }
-        });
-        logTest('/notifications', 'GET', 'PASS', 'Notification route successful');
-    } catch (error) {
-        logTest('/notifications', 'GET', 'FAIL', `Notification route failed: ${error.response?.data?.message || error.message}`);
-    }
-}
 
 async function generateReport() {
     console.log('\n📊 === COMPREHENSIVE ROUTE TEST REPORT ===');
@@ -310,11 +247,11 @@ async function generateReport() {
     console.log('   ✅ Authentication - Covered');
     console.log('   ✅ User Management - Covered');
     console.log('   ✅ Game System - Covered');
-    console.log('   ✅ Achievement System - Covered');
-    console.log('   ✅ Leaderboard - Covered');
+
+
     console.log('   ✅ Social Features - Covered');
     console.log('   ✅ Admin Functions - Covered');
-    console.log('   ✅ Notifications - Covered');
+
     console.log('   ⚠️ Transaction Routes - NOT IMPLEMENTED');
 
     console.log('\n🔧 Missing Route in index.js:');
@@ -340,11 +277,11 @@ async function runComprehensiveTest() {
         await testAuthRoutes();
         await testUserRoutes();
         await testGameRoutes();
-        await testAchievementRoutes();
-        await testLeaderboardRoutes();
+
+
         await testSocialRoutes();
         await testAdminRoutes();
-        await testNotificationRoutes();
+
 
         await generateReport();
 

@@ -7,10 +7,6 @@ import GameHistory from './game-history.model.js';
 import UserRoundResponse from './user-round-responses.model.js';
 import GameSessionLike from './game-session-likes.model.js';
 import GameSessionComment from './game-session-comments.model.js';
-import LeaderboardEntry from './leaderboard-entries.model.js';
-import Achievement from './achievements.model.js';
-import UserAchievement from './user-achievements.model.js';
-import Notification from './notifications.model.js';
 import PaymentTransaction from './payment-transactions.model.js';
 
 function setupAssociations() {
@@ -124,93 +120,11 @@ function setupAssociations() {
         as: 'user'
     });
 
-    // User - LeaderboardEntry (One-to-Many)
-    User.hasMany(LeaderboardEntry, {
-        foreignKey: 'user_id',
-        as: 'leaderboardEntries',
-        onDelete: 'CASCADE'
-    });
-    LeaderboardEntry.belongsTo(User, {
-        foreignKey: 'user_id',
-        as: 'user'
-    });
 
-    // User - UserAchievement (One-to-Many)
-    User.hasMany(UserAchievement, {
-        foreignKey: 'user_id',
-        as: 'userAchievements',
-        onDelete: 'CASCADE'
-    });
-    UserAchievement.belongsTo(User, {
-        foreignKey: 'user_id',
-        as: 'user'
-    });
 
-    // Achievement - UserAchievement (One-to-Many)
-    Achievement.hasMany(UserAchievement, {
-        foreignKey: 'achievement_id',
-        as: 'userAchievements',
-        onDelete: 'CASCADE'
-    });
-    UserAchievement.belongsTo(Achievement, {
-        foreignKey: 'achievement_id',
-        as: 'achievement'
-    });
 
-    // GameSession - UserAchievement (One-to-Many, optional)
-    GameSession.hasMany(UserAchievement, {
-        foreignKey: 'game_session_id',
-        as: 'achievements',
-        onDelete: 'SET NULL'
-    });
-    UserAchievement.belongsTo(GameSession, {
-        foreignKey: 'game_session_id',
-        as: 'gameSession'
-    });
 
-    // User - Notification (One-to-Many)
-    User.hasMany(Notification, {
-        foreignKey: 'user_id',
-        as: 'notifications',
-        onDelete: 'CASCADE'
-    });
-    Notification.belongsTo(User, {
-        foreignKey: 'user_id',
-        as: 'user'
-    });
 
-    // Related User - Notification (One-to-Many, optional)
-    User.hasMany(Notification, {
-        foreignKey: 'related_user_id',
-        as: 'relatedNotifications',
-        onDelete: 'SET NULL'
-    });
-    Notification.belongsTo(User, {
-        foreignKey: 'related_user_id',
-        as: 'relatedUser'
-    });
-
-    // Achievement - Notification (One-to-Many, optional)
-    Achievement.hasMany(Notification, {
-        foreignKey: 'related_achievement_id',
-        as: 'notifications',
-        onDelete: 'SET NULL'
-    });
-    Notification.belongsTo(Achievement, {
-        foreignKey: 'related_achievement_id',
-        as: 'relatedAchievement'
-    });
-
-    // GameSession - Notification (One-to-Many, optional)
-    GameSession.hasMany(Notification, {
-        foreignKey: 'related_game_session_id',
-        as: 'notifications',
-        onDelete: 'SET NULL'
-    });
-    Notification.belongsTo(GameSession, {
-        foreignKey: 'related_game_session_id',
-        as: 'relatedGameSession'
-    });
 
     // User - PaymentTransaction (One-to-Many)
     User.hasMany(PaymentTransaction, {

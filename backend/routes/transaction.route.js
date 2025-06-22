@@ -16,7 +16,7 @@ const router = express.Router();
  *           type: integer
  *         type:
  *           type: string
- *           enum: [coin_purchase, reward_claim, achievement_bonus]
+ *           enum: [coin_purchase, reward_claim]
  *         amount:
  *           type: integer
  *         description:
@@ -61,7 +61,7 @@ router.get('/history', verifyToken, getUserTransactionHistory);
  *             properties:
  *               type:
  *                 type: string
- *                 enum: [coin_purchase, reward_claim, achievement_bonus]
+ *                 enum: [coin_purchase, reward_claim]
  *               amount:
  *                 type: integer
  *               description:

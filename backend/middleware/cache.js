@@ -91,9 +91,9 @@ export {
 
 // Specific cache middleware for different endpoints
 export const gameHistoryCache = cacheMiddleware(180); // 3 minutes - game history changes frequently
-export const leaderboardCache = cacheMiddleware(60); // 1 minute - leaderboard changes frequently
+
 export const userStatsCache = cacheMiddleware(300); // 5 minutes
-export const achievementCache = cacheMiddleware(600); // 10 minutes - achievements don't change often
+
 export const gameListCache = cacheMiddleware(120); // 2 minutes
 
 // Cache invalidation helpers
@@ -101,7 +101,7 @@ export const invalidateUserCache = async (userId) => {
     const patterns = [
         `user_stats:${userId}`,
         `game_history:${userId}:*`,
-        `achievements:${userId}`,
+
         `available_games:${userId}:*`
     ];
 
@@ -110,6 +110,3 @@ export const invalidateUserCache = async (userId) => {
     }
 };
 
-export const invalidateLeaderboardCache = async () => {
-    invalidateCache('leaderboard:*');
-}; 
