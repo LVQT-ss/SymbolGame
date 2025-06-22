@@ -207,6 +207,102 @@ export const userAPI = {
 };
 
 // =============================================================================
+// ⚔️ BATTLE APIs
+// =============================================================================
+
+export const battleAPI = {
+    // Create a new battle session
+    createBattle: async (battleData) => {
+        try {
+            const response = await api.post("/battle/create", battleData);
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to create battle");
+        }
+    },
+
+    // Join a battle using battle code
+    joinBattle: async (battleCode) => {
+        try {
+            const response = await api.post("/battle/join", { battle_code: battleCode });
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to join battle");
+        }
+    },
+
+    // Submit answer for a battle round
+    submitBattleRound: async (roundData) => {
+        try {
+            const response = await api.post("/battle/submit-round", roundData);
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to submit battle round");
+        }
+    },
+
+    // Complete a battle session
+    completeBattle: async (battleSessionId, totalTime) => {
+        try {
+            const response = await api.post("/battle/complete", {
+                battle_session_id: battleSessionId,
+                total_time: totalTime
+            });
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to complete battle");
+        }
+    },
+
+    // Get battle session details
+    getBattleSession: async (battleId) => {
+        try {
+            const response = await api.get(`/battle/${battleId}`);
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to get battle session");
+        }
+    },
+
+    // Get user's battle history
+    getMyBattles: async (page = 1, limit = 20, status = null) => {
+        try {
+            const params = { page, limit };
+            if (status) params.status = status;
+
+            const response = await api.get("/battle/my-battles", { params });
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to get battle history");
+        }
+    },
+
+    // Get all public battles
+    getAllBattles: async (page = 1, limit = 30) => {
+        try {
+            const response = await api.get("/battle/all", {
+                params: { page, limit }
+            });
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to get all battles");
+        }
+    },
+
+    // Get available battles for joining
+    getAvailableBattles: async (page = 1, limit = 30) => {
+        try {
+            const response = await api.get("/battle/available", {
+                params: { page, limit }
+            });
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to get available battles");
+        }
+    }
+};
+
+// =============================================================================
 // 👥 SOCIAL APIs
 // =============================================================================
 
@@ -1043,6 +1139,7 @@ export const apiUtils = {
 export default {
     auth: authAPI,
     user: userAPI,
+    battle: battleAPI,
     social: socialAPI,
     game: gameAPI,
     leaderboard: leaderboardAPI,

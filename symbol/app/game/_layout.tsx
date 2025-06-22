@@ -39,6 +39,41 @@ export default function GameLayout() {
           title: "Play",
         }}
       />
+      <Stack.Screen
+        name="duoBattle/battleMenu"
+        options={{
+          headerShown: false,
+          title: "Battle Arena",
+        }}
+      />
+      <Stack.Screen
+        name="duoBattle/createBattle"
+        options={{
+          headerShown: false,
+          title: "Create Battle",
+        }}
+      />
+      <Stack.Screen
+        name="duoBattle/joinBattle"
+        options={{
+          headerShown: false,
+          title: "Join Battle",
+        }}
+      />
+      <Stack.Screen
+        name="duoBattle/battleGame"
+        options={{
+          headerShown: false,
+          title: "Battle Game",
+        }}
+      />
+      <Stack.Screen
+        name="duoBattle/round-by-round-battle"
+        options={{
+          headerShown: false,
+          title: "Battle Analysis",
+        }}
+      />
     </Stack>
   );
 }

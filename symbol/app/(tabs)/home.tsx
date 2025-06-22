@@ -14,7 +14,13 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { apiUtils, authAPI, userAPI, gameAPI } from "../../services/api";
+import {
+  apiUtils,
+  authAPI,
+  userAPI,
+  gameAPI,
+  battleAPI,
+} from "../../services/api";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -284,6 +290,13 @@ export default function HomeScreen() {
       description: "Match symbols to score points",
     },
     {
+      id: "battle-mode",
+      title: "Battle Mode",
+      icon: "flash",
+      color: "#E91E63", // Vibrant pink/magenta
+      description: "Challenge other players in real-time",
+    },
+    {
       id: "practice-mode",
       title: "Practice Mode",
       icon: "school",
@@ -318,7 +331,7 @@ export default function HomeScreen() {
       id: "memory-master",
       title: "Memory Master",
       description: "Complete memory games",
-      icon: "brain",
+      icon: "library",
       earned: false,
       progress: 7,
       maxProgress: 10,
@@ -361,6 +374,8 @@ export default function HomeScreen() {
     } else if (game.id === "symbol-match") {
       // Navigate to game menu for Symbol Match
       router.push("/game/menu");
+    } else if (game.id === "battle-mode") {
+      handleBattleMode();
     } else if (game.id === "practice-mode") {
       handlePracticeMode();
     } else if (game.id === "instant-game") {
@@ -415,6 +430,26 @@ export default function HomeScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleBattleMode = () => {
+    console.log(`⚔️ Opening battle mode from home`);
+
+    // Check if user is authenticated
+    if (!isAuthenticated) {
+      Alert.alert(
+        "Login Required",
+        "You need to be logged in to play battle mode.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Login", onPress: () => router.push("/(auth)/Auth") },
+        ]
+      );
+      return;
+    }
+
+    // Navigate to battle menu
+    router.push("/game/duoBattle/battleMenu");
   };
 
   const handleProfilePress = () => {
@@ -841,7 +876,7 @@ export default function HomeScreen() {
           {/* Practice Mode */}
           <TouchableOpacity
             style={styles.practiceButton}
-            onPress={() => handleGamePress(gameCategories[1])}
+            onPress={() => handleGamePress(gameCategories[2])}
             activeOpacity={0.8}
           >
             <Ionicons name="school" size={24} color="#fff" />
@@ -854,7 +889,7 @@ export default function HomeScreen() {
           {/* Instant Game */}
           <TouchableOpacity
             style={styles.instantGameButton}
-            onPress={() => handleGamePress(gameCategories[2])}
+            onPress={() => handleGamePress(gameCategories[3])}
             activeOpacity={0.8}
             disabled={loading}
           >
@@ -862,6 +897,19 @@ export default function HomeScreen() {
             <Text style={styles.instantGameButtonText}>⚡ Instant Game</Text>
             <Text style={styles.instantGameButtonSubtext}>
               Quick setup • Full tracking
+            </Text>
+          </TouchableOpacity>
+
+          {/* Battle Mode */}
+          <TouchableOpacity
+            style={styles.battleModeButton}
+            onPress={() => handleGamePress(gameCategories[1])}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="flash" size={24} color="#fff" />
+            <Text style={styles.battleModeButtonText}>⚔️ Battle Mode</Text>
+            <Text style={styles.battleModeButtonSubtext}>
+              Challenge other players
             </Text>
           </TouchableOpacity>
         </View>
@@ -1150,6 +1198,33 @@ const getResponsiveStyles = (dimensions: any) =>
     },
     instantGameButtonSubtext: {
       color: "#FFF3E0",
+      fontSize: getResponsiveFontSize(12),
+      marginTop: 5,
+      textAlign: "center",
+      fontStyle: "italic",
+    },
+    battleModeButton: {
+      flexDirection: "column",
+      alignItems: "center",
+      backgroundColor: "#E91E63",
+      padding: 20,
+      borderRadius: 15,
+      marginBottom: 16,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+      elevation: 6,
+    },
+    battleModeButtonText: {
+      color: "#fff",
+      fontSize: getResponsiveFontSize(18),
+      fontWeight: "bold",
+      marginLeft: 8,
+      textAlign: "center",
+    },
+    battleModeButtonSubtext: {
+      color: "#FCE4EC",
       fontSize: getResponsiveFontSize(12),
       marginTop: 5,
       textAlign: "center",
