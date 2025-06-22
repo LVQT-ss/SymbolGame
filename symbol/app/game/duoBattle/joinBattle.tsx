@@ -85,13 +85,18 @@ export default function JoinBattleScreen() {
           response.battle_session.id
         );
 
+        // Determine source based on whether user is creator or opponent
+        const source = response.is_creator ? "create" : "join";
+
+        console.log("👤 User role in battle:", source);
+
         // Automatically navigate to battle game without requiring user to press button
         router.replace({
           pathname: "/game/duoBattle/battleGame",
           params: {
             battleId: response.battle_session.id.toString(),
             battleCode: response.battle_session.battle_code,
-            source: "join",
+            source: source,
           },
         });
       } else {
@@ -114,6 +119,12 @@ export default function JoinBattleScreen() {
       } else if (error.message?.includes("cannot join your own")) {
         errorMessage =
           "You cannot join your own battle. Share the code with someone else.";
+      } else if (error.message?.includes("already part of this battle")) {
+        errorMessage = "Resuming your existing battle...";
+        // This is actually not an error, but a successful rejoin
+      } else if (error.message?.includes("This is your battle")) {
+        errorMessage = "Redirecting to your battle...";
+        // This is also not an error, but a redirect
       } else if (error.message?.includes("expired")) {
         errorMessage = "This battle has expired.";
       } else if (error.message?.includes("network")) {

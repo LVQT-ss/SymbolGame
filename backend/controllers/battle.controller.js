@@ -152,6 +152,8 @@ export const joinBattle = async (req, res) => {
     const { battle_code } = req.body;
 
     try {
+        console.log(`🎮 Join battle request - User: ${opponentId}, Code: ${battle_code}`);
+
         if (!battle_code) {
             return res.status(400).json({
                 message: 'Battle code is required.'
@@ -168,6 +170,11 @@ export const joinBattle = async (req, res) => {
                     attributes: ['id', 'username', 'full_name', 'current_level', 'avatar']
                 },
                 {
+                    model: User,
+                    as: 'opponent',
+                    attributes: ['id', 'username', 'full_name', 'current_level', 'avatar']
+                },
+                {
                     model: BattleRoundDetail,
                     as: 'battleRounds',
                     attributes: ['round_number', 'first_number', 'second_number']
@@ -176,10 +183,15 @@ export const joinBattle = async (req, res) => {
         });
 
         if (!battleSession) {
+            console.log(`❌ Battle not found for code: ${battle_code}`);
             return res.status(404).json({
                 message: 'Battle not found. Please check the battle code.'
             });
         }
+
+        console.log(`📊 Battle found - ID: ${battleSession.id}, Creator: ${battleSession.creator.username}, Opponent: ${battleSession.opponent?.username || 'None'}, User joining: ${opponentId}`);
+        console.log(`📊 Battle state - Creator ID: ${battleSession.creator_id}, Opponent ID: ${battleSession.opponent_id}, Completed: ${battleSession.completed}`);
+
 
         // Check if battle is available to join (no opponent and not completed)
         if (battleSession.completed) {
@@ -188,17 +200,71 @@ export const joinBattle = async (req, res) => {
             });
         }
 
-        // Check if opponent slot is already taken
-        if (battleSession.opponent_id) {
-            return res.status(409).json({
-                message: 'This battle already has an opponent.'
+        // Check if user is trying to join their own battle
+        if (battleSession.creator_id === opponentId) {
+            // Creator is trying to "join" their own battle, redirect them to battle screen
+            console.log(`Creator ${opponentId} is trying to join their own battle ${battleSession.id}, redirecting`);
+
+            return res.status(200).json({
+                message: 'This is your battle. Redirecting to battle screen...',
+                battle_session: {
+                    id: battleSession.id,
+                    battle_code: battleSession.battle_code,
+                    number_of_rounds: battleSession.number_of_rounds,
+                    time_limit: battleSession.time_limit,
+                    started_at: battleSession.started_at
+                },
+                creator: battleSession.creator,
+                opponent: battleSession.opponent ? {
+                    id: battleSession.opponent.id,
+                    username: battleSession.opponent.username,
+                    full_name: battleSession.opponent.full_name,
+                    current_level: battleSession.opponent.current_level,
+                    avatar: battleSession.opponent.avatar
+                } : null,
+                rounds: battleSession.battleRounds?.map(round => ({
+                    round_number: round.round_number,
+                    first_number: round.first_number,
+                    second_number: round.second_number
+                })) || [],
+                is_creator: true  // Flag to indicate this user is the creator
             });
         }
 
-        // Check if user is trying to join their own battle
-        if (battleSession.creator_id === opponentId) {
-            return res.status(400).json({
-                message: 'You cannot join your own battle.'
+        // Check if user is already the opponent of this battle
+        if (battleSession.opponent_id === opponentId) {
+            // User is already the opponent, allow them to "rejoin" (return battle data)
+            console.log(`User ${opponentId} is already opponent of battle ${battleSession.id}, allowing rejoin`);
+
+            return res.status(200).json({
+                message: 'You are already part of this battle. Resuming...',
+                battle_session: {
+                    id: battleSession.id,
+                    battle_code: battleSession.battle_code,
+                    number_of_rounds: battleSession.number_of_rounds,
+                    time_limit: battleSession.time_limit,
+                    started_at: battleSession.started_at
+                },
+                creator: battleSession.creator,
+                opponent: {
+                    id: opponentId,
+                    username: opponent?.username || 'Unknown',
+                    full_name: opponent?.full_name || 'Unknown',
+                    current_level: opponent?.current_level || 1,
+                    avatar: opponent?.avatar || null
+                },
+                rounds: battleSession.battleRounds?.map(round => ({
+                    round_number: round.round_number,
+                    first_number: round.first_number,
+                    second_number: round.second_number
+                })) || []
+            });
+        }
+
+        // Check if opponent slot is already taken by someone else
+        if (battleSession.opponent_id && battleSession.opponent_id !== opponentId) {
+            return res.status(409).json({
+                message: 'This battle already has an opponent.'
             });
         }
 
