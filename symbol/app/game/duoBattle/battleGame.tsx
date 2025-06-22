@@ -121,8 +121,15 @@ export default function BattleGameScreen() {
 
   const setupSocketConnection = async () => {
     try {
+      console.log("🔧 Setting up Socket.IO connection for battle:", battleId);
+
       // Connect to Socket.IO server
       await socketService.connect();
+
+      // Test connection after attempting to connect
+      setTimeout(() => {
+        socketService.testConnection();
+      }, 2000);
 
       // Set up event listeners
       socketService.addEventListener("opponent-joined", handleOpponentJoined);
@@ -130,10 +137,15 @@ export default function BattleGameScreen() {
       socketService.addEventListener("player-completed", handlePlayerCompleted);
       socketService.addEventListener("battle-completed", handleBattleCompleted);
 
-      // Join the battle room if connected
-      if (socketService.isSocketConnected()) {
-        socketService.joinBattle(battleId);
-      }
+      // Join the battle room if connected (with delay to allow connection)
+      setTimeout(() => {
+        if (socketService.isSocketConnected()) {
+          console.log("✅ Socket connected, joining battle room");
+          socketService.joinBattle(battleId);
+        } else {
+          console.log("❌ Socket not connected, falling back to polling");
+        }
+      }, 3000);
     } catch (error) {
       console.error("Error setting up socket connection:", error);
     }

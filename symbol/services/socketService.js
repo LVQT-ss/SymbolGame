@@ -1,5 +1,6 @@
 import { io } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSocketConfig } from '../config/socketConfig';
 
 class SocketService {
     constructor() {
@@ -25,16 +26,16 @@ class SocketService {
                 return;
             }
 
-            console.log('🚀 Connecting to Socket.IO server...');
+            const socketConfig = getSocketConfig();
+            console.log('🚀 Connecting to Socket.IO server:', socketConfig.url);
 
             // Create socket connection
-            this.socket = io('http://localhost:3000', {
+            this.socket = io(socketConfig.url, {
                 auth: {
                     token: token
                 },
-                transports: ['websocket'],
                 autoConnect: true,
-                timeout: 10000
+                ...socketConfig.options
             });
 
             // Connection event handlers
@@ -59,8 +60,28 @@ class SocketService {
 
             this.socket.on('connect_error', (error) => {
                 console.error('❌ Socket connection error:', error);
+                console.error('❌ Connection details:', {
+                    message: error.message,
+                    type: error.type,
+                    description: error.description
+                });
                 this.isConnected = false;
                 this.attemptReconnect();
+            });
+
+            this.socket.on('reconnect', (attemptNumber) => {
+                console.log('🔄 Reconnected successfully after', attemptNumber, 'attempts');
+                this.isConnected = true;
+                this.reconnectAttempts = 0;
+            });
+
+            this.socket.on('reconnect_error', (error) => {
+                console.error('❌ Reconnection error:', error);
+            });
+
+            this.socket.on('reconnect_failed', () => {
+                console.error('❌ Failed to reconnect after maximum attempts');
+                this.isConnected = false;
             });
 
             // Battle-specific event handlers
@@ -73,7 +94,9 @@ class SocketService {
 
     async attemptReconnect() {
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            console.log('❌ Max reconnection attempts reached');
+            console.log('❌ Max reconnection attempts reached - Socket.IO unavailable');
+            console.log('🔄 Falling back to polling mode for battle updates');
+            this.isConnected = false;
             return;
         }
 
@@ -250,6 +273,21 @@ class SocketService {
     // Check if connected
     isSocketConnected() {
         return this.isConnected && this.socket && this.socket.connected;
+    }
+
+    // Test connection
+    testConnection() {
+        console.log('🧪 Testing Socket.IO connection...');
+        console.log('- Socket exists:', !!this.socket);
+        console.log('- Is connected flag:', this.isConnected);
+        console.log('- Socket connected:', this.socket?.connected);
+        console.log('- Socket ID:', this.socket?.id);
+        console.log('- Reconnect attempts:', this.reconnectAttempts);
+
+        if (this.socket) {
+            console.log('- Socket transport:', this.socket.io?.engine?.transport?.name);
+            console.log('- Socket readyState:', this.socket.io?.engine?.readyState);
+        }
     }
 }
 
