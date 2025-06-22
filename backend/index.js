@@ -3,6 +3,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import compression from 'compression';
 import helmet from 'helmet';
+import { createServer } from 'http';
 import initDB, { checkDatabaseHealth, closeDatabaseConnection } from './database/init.js';
 import swaggerDocs from './utils/swagger.js';
 import userRoutes from './routes/user.route.js';
@@ -14,6 +15,7 @@ import commentRoutes from './routes/comment.route.js';
 import transactionRoutes from './routes/transaction.route.js';
 import battleRoutes from './routes/battle.route.js';
 import { getCacheStats } from './middleware/cache.js';
+import socketService from './services/socketService.js';
 import dotenv from 'dotenv';
 import process from 'process';
 import setupAssociations from './model/associations.js';
@@ -22,6 +24,7 @@ import setupAssociations from './model/associations.js';
 setupAssociations();
 dotenv.config();
 const app = express();
+const server = createServer(app);
 const port = process.env.PORT || 3000;
 
 // Security and performance middleware
@@ -69,9 +72,13 @@ app.get('/api/health', async (req, res) => {
 
 // Initialize and synchronize the database
 initDB().then(() => {
-    app.listen(port, () => {
+    // Initialize Socket.IO
+    socketService.initialize(server);
+
+    server.listen(port, () => {
         console.log(`Server running at http://localhost:${port}`);
         console.log(`Swagger documentation available at http://localhost:${port}/api-docs`);
+        console.log(`Socket.IO server ready for real-time battle communication`);
         // Initialize Swagger docs
         swaggerDocs(app, port);
     });

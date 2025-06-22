@@ -3,6 +3,7 @@ import BattleRoundDetail from '../model/battle-round-details.model.js';
 import User from '../model/user.model.js';
 import sequelize from '../database/db.js';
 import { Op } from 'sequelize';
+import socketService from '../services/socketService.js';
 
 // Helper function to generate unique battle code
 function generateBattleCode() {
@@ -218,6 +219,19 @@ export const joinBattle = async (req, res) => {
             started_at: new Date()
         });
 
+        // Emit Socket.IO event to notify creator that opponent joined
+        socketService.emitToBattle(battleSession.id, 'opponent-joined', {
+            battleId: battleSession.id,
+            opponent: {
+                id: opponent.id,
+                username: opponent.username,
+                full_name: opponent.full_name,
+                current_level: opponent.current_level,
+                avatar: opponent.avatar
+            },
+            started_at: battleSession.started_at
+        });
+
         res.status(200).json({
             message: 'Successfully joined battle! The battle has started.',
             battle_session: {
@@ -351,6 +365,18 @@ export const submitBattleRound = async (req, res) => {
 
             await battleRound.update({ round_winner: roundWinner });
         }
+
+        // Emit Socket.IO event for round submission
+        socketService.emitToBattle(battle_session_id, 'round-submitted', {
+            battleId: battle_session_id,
+            roundNumber: round_number,
+            userId: userId,
+            userSymbol: user_symbol,
+            responseTime: response_time || 0,
+            isCorrect: isCorrect,
+            bothAnswered: creatorAnswered && opponentAnswered,
+            roundWinner: battleRound.round_winner
+        });
 
         res.status(200).json({
             message: 'Round answer submitted successfully',
@@ -512,6 +538,37 @@ export const completeBattle = async (req, res) => {
                 }
             ]
         });
+
+        // Emit Socket.IO events
+        if (bothCompleted) {
+            // Battle is fully completed, emit final results
+            socketService.emitToBattle(battle_session_id, 'battle-completed', {
+                battleId: battle_session_id,
+                winner: updatedBattle.winner,
+                results: {
+                    creator: {
+                        ...updatedBattle.creator.toJSON(),
+                        score: updatedBattle.creator_score,
+                        correct_answers: updatedBattle.creator_correct_answers,
+                        total_time: updatedBattle.creator_total_time
+                    },
+                    opponent: {
+                        ...updatedBattle.opponent.toJSON(),
+                        score: updatedBattle.opponent_score,
+                        correct_answers: updatedBattle.opponent_correct_answers,
+                        total_time: updatedBattle.opponent_total_time
+                    }
+                },
+                completed_at: updatedBattle.completed_at
+            });
+        } else {
+            // One player completed, notify opponent
+            socketService.emitToBattle(battle_session_id, 'player-completed', {
+                battleId: battle_session_id,
+                userId: userId,
+                message: `Player has completed all rounds`
+            });
+        }
 
         res.status(200).json({
             message: bothCompleted ? 'Battle completed successfully!' : 'Your part of the battle completed. Waiting for opponent.',

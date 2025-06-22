@@ -12,6 +12,7 @@ import {
   Animated,
 } from "react-native";
 import { battleAPI, userAPI } from "../../../services/api";
+import socketService from "../../../services/socketService";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -90,9 +91,11 @@ export default function BattleGameScreen() {
   useEffect(() => {
     if (battleId) {
       initializeUser();
+      setupSocketConnection();
     }
 
     return () => {
+      cleanupSocketListeners();
       if (pollingInterval.current) {
         clearInterval(pollingInterval.current);
       }
@@ -113,6 +116,83 @@ export default function BattleGameScreen() {
     } catch (error) {
       console.error("Error initializing user:", error);
       await loadBattleSession();
+    }
+  };
+
+  const setupSocketConnection = async () => {
+    try {
+      // Connect to Socket.IO server
+      await socketService.connect();
+
+      // Set up event listeners
+      socketService.addEventListener("opponent-joined", handleOpponentJoined);
+      socketService.addEventListener("round-submitted", handleRoundSubmitted);
+      socketService.addEventListener("player-completed", handlePlayerCompleted);
+      socketService.addEventListener("battle-completed", handleBattleCompleted);
+
+      // Join the battle room if connected
+      if (socketService.isSocketConnected()) {
+        socketService.joinBattle(battleId);
+      }
+    } catch (error) {
+      console.error("Error setting up socket connection:", error);
+    }
+  };
+
+  const cleanupSocketListeners = () => {
+    socketService.removeEventListener("opponent-joined", handleOpponentJoined);
+    socketService.removeEventListener("round-submitted", handleRoundSubmitted);
+    socketService.removeEventListener(
+      "player-completed",
+      handlePlayerCompleted
+    );
+    socketService.removeEventListener(
+      "battle-completed",
+      handleBattleCompleted
+    );
+    socketService.leaveBattle(battleId);
+  };
+
+  // Socket event handlers
+  const handleOpponentJoined = (data: any) => {
+    console.log("🎮 Opponent joined via socket:", data);
+    if (data.battleId === battleId) {
+      setOpponent(data.opponent);
+      setGamePhase("playing");
+      setCurrentRoundIndex(0);
+
+      // Stop polling if active
+      if (pollingInterval.current) {
+        clearInterval(pollingInterval.current);
+      }
+    }
+  };
+
+  const handleRoundSubmitted = (data: any) => {
+    console.log("🎯 Round submitted via socket:", data);
+    if (data.battleId === battleId && data.userId !== currentUserId) {
+      // Opponent submitted, immediately move to next round
+      moveToNextRound();
+    }
+  };
+
+  const handlePlayerCompleted = (data: any) => {
+    console.log("🏁 Player completed via socket:", data);
+    if (data.battleId === battleId && data.userId !== currentUserId) {
+      // Opponent completed all rounds
+      setWaitingForOpponent(false);
+      completeBattle();
+    }
+  };
+
+  const handleBattleCompleted = (data: any) => {
+    console.log("🎉 Battle completed via socket:", data);
+    if (data.battleId === battleId) {
+      // Battle is fully completed, load final results
+      setWaitingForOpponent(false);
+      loadBattleSession().then(() => {
+        setGamePhase("completed");
+      });
     }
   };
 
@@ -275,24 +355,27 @@ export default function BattleGameScreen() {
 
   const startPollingForOpponent = () => {
     startPulseAnimation();
-
+    // Socket.IO will handle opponent joining notifications
+    // Keeping this as fallback for cases where socket connection fails
     pollingInterval.current = setInterval(async () => {
-      try {
-        const response = await battleAPI.getBattleSession(battleId);
-        if (response && response.opponent) {
-          setOpponent(response.opponent);
-          setRounds(response.rounds || []);
-          setGamePhase("playing");
-          setCurrentRoundIndex(0);
+      if (!socketService.isSocketConnected()) {
+        try {
+          const response = await battleAPI.getBattleSession(battleId);
+          if (response && response.opponent) {
+            setOpponent(response.opponent);
+            setRounds(response.rounds || []);
+            setGamePhase("playing");
+            setCurrentRoundIndex(0);
 
-          if (pollingInterval.current) {
-            clearInterval(pollingInterval.current);
+            if (pollingInterval.current) {
+              clearInterval(pollingInterval.current);
+            }
           }
+        } catch (error) {
+          console.error("Error polling for opponent:", error);
         }
-      } catch (error) {
-        console.error("Error polling for opponent:", error);
       }
-    }, 2000);
+    }, 5000); // Reduced frequency since Socket.IO is primary method
   };
 
   const startWaitingForOpponent = () => {
@@ -409,6 +492,16 @@ export default function BattleGameScreen() {
       }
       setRounds(updatedRounds);
 
+      // Emit Socket.IO event for instant notification
+      if (socketService.isSocketConnected()) {
+        socketService.submitRound(
+          battleSession.id,
+          currentRound.round_number,
+          answer,
+          responseTime
+        );
+      }
+
       // Submit to backend
       const response = await battleAPI.submitBattleRound({
         battle_session_id: battleSession.id,
@@ -483,6 +576,11 @@ export default function BattleGameScreen() {
       const totalTime = Math.floor((Date.now() - gameStartTime) / 1000);
       setTotalGameTime(totalTime);
 
+      // Emit Socket.IO event for instant notification
+      if (socketService.isSocketConnected()) {
+        socketService.completeBattle(battleSession!.id);
+      }
+
       const response = await battleAPI.completeBattle(
         battleSession!.id,
         totalTime
@@ -496,7 +594,7 @@ export default function BattleGameScreen() {
         } else {
           // Current player finished, but waiting for opponent to complete
           setWaitingForOpponent(true);
-          startWaitingForOpponentToFinish();
+          // No need for polling anymore - Socket.IO will handle notifications
         }
       }
     } catch (error) {
