@@ -8,6 +8,8 @@ import UserRoundResponse from './user-round-responses.model.js';
 import GameSessionLike from './game-session-likes.model.js';
 import GameSessionComment from './game-session-comments.model.js';
 import PaymentTransaction from './payment-transactions.model.js';
+import BattleSession from './battle-sessions.model.js';
+import BattleRoundDetail from './battle-round-details.model.js';
 
 function setupAssociations() {
     // User - UserStatistics (One-to-One)
@@ -190,6 +192,52 @@ function setupAssociations() {
     UserRoundResponse.belongsTo(User, {
         foreignKey: 'user_id',
         as: 'user'
+    });
+
+    // Battle-related associations
+
+    // User - BattleSession (Creator relationship)
+    User.hasMany(BattleSession, {
+        foreignKey: 'creator_id',
+        as: 'createdBattles',
+        onDelete: 'CASCADE'
+    });
+    BattleSession.belongsTo(User, {
+        foreignKey: 'creator_id',
+        as: 'creator'
+    });
+
+    // User - BattleSession (Opponent relationship)
+    User.hasMany(BattleSession, {
+        foreignKey: 'opponent_id',
+        as: 'joinedBattles',
+        onDelete: 'SET NULL'
+    });
+    BattleSession.belongsTo(User, {
+        foreignKey: 'opponent_id',
+        as: 'opponent'
+    });
+
+    // User - BattleSession (Winner relationship)
+    User.hasMany(BattleSession, {
+        foreignKey: 'winner_id',
+        as: 'wonBattles',
+        onDelete: 'SET NULL'
+    });
+    BattleSession.belongsTo(User, {
+        foreignKey: 'winner_id',
+        as: 'winner'
+    });
+
+    // BattleSession - BattleRoundDetail (One-to-Many)
+    BattleSession.hasMany(BattleRoundDetail, {
+        foreignKey: 'battle_session_id',
+        as: 'battleRounds',
+        onDelete: 'CASCADE'
+    });
+    BattleRoundDetail.belongsTo(BattleSession, {
+        foreignKey: 'battle_session_id',
+        as: 'battleSession'
     });
 }
 

@@ -12,6 +12,7 @@ import gameRoutes from './routes/game.route.js';
 import adminRoutes from './routes/admin.route.js';
 import commentRoutes from './routes/comment.route.js';
 import transactionRoutes from './routes/transaction.route.js';
+import battleRoutes from './routes/battle.route.js';
 import { getCacheStats } from './middleware/cache.js';
 import dotenv from 'dotenv';
 import process from 'process';
@@ -37,6 +38,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/users', socialRoutes);
 app.use('/api/game', gameRoutes);
+app.use('/api/battle', battleRoutes);
 app.use('/api/comments', commentRoutes);
 app.use('/api/transactions', transactionRoutes);
 
