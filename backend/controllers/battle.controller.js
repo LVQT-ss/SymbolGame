@@ -581,7 +581,7 @@ export const completeBattle = async (req, res) => {
                 completed_at: new Date()
             });
 
-            console.log(`Battle ${battleSession.id} completed. Winner: ${winnerId} (${winReason})`);
+            console.log(`🏆 Battle ${battleSession.id} completed. Winner: ${winnerId} (${winReason})`);
         }
 
         // Fetch updated battle session for response
@@ -608,6 +608,7 @@ export const completeBattle = async (req, res) => {
         // Emit Socket.IO events
         if (bothCompleted) {
             // Battle is fully completed, emit final results
+            console.log(`🎉 Emitting battle-completed event for battle ${battle_session_id}`);
             socketService.emitToBattle(battle_session_id, 'battle-completed', {
                 battleId: battle_session_id,
                 winner: updatedBattle.winner,
@@ -629,9 +630,11 @@ export const completeBattle = async (req, res) => {
             });
         } else {
             // One player completed, notify opponent
+            console.log(`⏳ Emitting player-completed event for battle ${battle_session_id}, user ${userId}`);
             socketService.emitToBattle(battle_session_id, 'player-completed', {
                 battleId: battle_session_id,
                 userId: userId,
+                username: isCreator ? updatedBattle.creator.username : updatedBattle.opponent.username,
                 message: `Player has completed all rounds`
             });
         }

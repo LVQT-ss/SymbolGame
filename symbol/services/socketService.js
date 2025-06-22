@@ -19,6 +19,14 @@ class SocketService {
                 return;
             }
 
+            // Disconnect existing socket if any
+            if (this.socket) {
+                console.log('🔄 Disconnecting existing socket before reconnecting');
+                this.socket.disconnect();
+                this.socket = null;
+                this.isConnected = false;
+            }
+
             // Get auth token
             const token = await AsyncStorage.getItem('token');
             if (!token) {
@@ -35,6 +43,7 @@ class SocketService {
                     token: token
                 },
                 autoConnect: true,
+                forceNew: true, // Force new connection to prevent duplicate connections
                 ...socketConfig.options
             });
 
@@ -105,8 +114,8 @@ class SocketService {
 
         console.log(`🔄 Attempting to reconnect... (${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${delay}ms`);
 
-        setTimeout(() => {
-            this.connect();
+        setTimeout(async () => {
+            await this.connect();
         }, delay);
     }
 
@@ -288,6 +297,18 @@ class SocketService {
             console.log('- Socket transport:', this.socket.io?.engine?.transport?.name);
             console.log('- Socket readyState:', this.socket.io?.engine?.readyState);
         }
+
+        if (!this.isConnected) {
+            console.log('❌ Socket not connected, falling back to polling');
+        }
+    }
+
+    // Force reconnect with clean slate
+    async forceReconnect() {
+        console.log('🔄 Force reconnecting Socket.IO...');
+        this.disconnect();
+        this.reconnectAttempts = 0;
+        await this.connect();
     }
 }
 

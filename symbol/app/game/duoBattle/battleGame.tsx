@@ -123,29 +123,38 @@ export default function BattleGameScreen() {
     try {
       console.log("🔧 Setting up Socket.IO connection for battle:", battleId);
 
-      // Connect to Socket.IO server
-      await socketService.connect();
-
-      // Test connection after attempting to connect
-      setTimeout(() => {
-        socketService.testConnection();
-      }, 2000);
-
-      // Set up event listeners
+      // Set up event listeners first
       socketService.addEventListener("opponent-joined", handleOpponentJoined);
       socketService.addEventListener("round-submitted", handleRoundSubmitted);
       socketService.addEventListener("player-completed", handlePlayerCompleted);
       socketService.addEventListener("battle-completed", handleBattleCompleted);
 
-      // Join the battle room if connected (with delay to allow connection)
-      setTimeout(() => {
+      // Connect to Socket.IO server
+      await socketService.connect();
+
+      // Wait for connection and join battle room
+      let connectionAttempts = 0;
+      const maxConnectionAttempts = 10;
+
+      const checkConnectionAndJoin = () => {
+        connectionAttempts++;
+
         if (socketService.isSocketConnected()) {
           console.log("✅ Socket connected, joining battle room");
           socketService.joinBattle(battleId);
+        } else if (connectionAttempts < maxConnectionAttempts) {
+          console.log(
+            `🔄 Waiting for socket connection... (${connectionAttempts}/${maxConnectionAttempts})`
+          );
+          setTimeout(checkConnectionAndJoin, 1000);
         } else {
-          console.log("❌ Socket not connected, falling back to polling");
+          console.log("❌ Socket connection timeout, falling back to polling");
+          socketService.testConnection();
         }
-      }, 3000);
+      };
+
+      // Start checking connection after a short delay
+      setTimeout(checkConnectionAndJoin, 1000);
     } catch (error) {
       console.error("Error setting up socket connection:", error);
     }
@@ -191,16 +200,19 @@ export default function BattleGameScreen() {
   const handlePlayerCompleted = (data: any) => {
     console.log("🏁 Player completed via socket:", data);
     if (data.battleId === battleId && data.userId !== currentUserId) {
-      // Opponent completed all rounds
-      setWaitingForOpponent(false);
-      completeBattle();
+      // Opponent completed all rounds, but battle isn't fully completed yet
+      console.log(
+        "⏳ Opponent finished, but still waiting for battle completion..."
+      );
+      // Don't call completeBattle() here - wait for battle-completed event
     }
   };
 
   const handleBattleCompleted = (data: any) => {
     console.log("🎉 Battle completed via socket:", data);
     if (data.battleId === battleId) {
-      // Battle is fully completed, load final results
+      // Battle is fully completed by both players, show final results
+      console.log("✅ Both players completed! Loading final results...");
       setWaitingForOpponent(false);
       loadBattleSession().then(() => {
         setGamePhase("completed");
@@ -433,39 +445,31 @@ export default function BattleGameScreen() {
   };
 
   const startWaitingForOpponentToFinish = () => {
-    console.log("🔄 Waiting for opponent to finish all rounds...");
+    console.log("🔄 Polling: Waiting for opponent to finish all rounds...");
 
     roundPollingInterval.current = setInterval(async () => {
       try {
         const response = await battleAPI.getBattleSession(battleId);
-        if (response && response.rounds) {
-          const allRoundsCompleted = response.rounds.every(
-            (round: BattleRound) => {
-              return (
-                round.creator_symbol !== null &&
-                round.creator_symbol !== undefined &&
-                round.opponent_symbol !== null &&
-                round.opponent_symbol !== undefined
-              );
-            }
-          );
+        if (response && response.battle_session) {
+          // Check if battle is fully completed (both players finished)
+          const battleCompleted = response.battle_session.completed;
 
-          if (allRoundsCompleted) {
+          if (battleCompleted) {
             console.log(
-              "✅ Both players finished all rounds! Completing battle"
+              "✅ Polling detected battle completion! Loading final results..."
             );
-            setRounds(response.rounds);
-            setWaitingForOpponent(false);
 
             if (roundPollingInterval.current) {
               clearInterval(roundPollingInterval.current);
             }
 
-            completeBattle();
+            setWaitingForOpponent(false);
+            await loadBattleSession();
+            setGamePhase("completed");
           }
         }
       } catch (error) {
-        console.error("Error polling for opponent completion:", error);
+        console.error("Error polling for battle completion:", error);
       }
     }, 2000);
   };
@@ -588,10 +592,7 @@ export default function BattleGameScreen() {
       const totalTime = Math.floor((Date.now() - gameStartTime) / 1000);
       setTotalGameTime(totalTime);
 
-      // Emit Socket.IO event for instant notification
-      if (socketService.isSocketConnected()) {
-        socketService.completeBattle(battleSession!.id);
-      }
+      console.log("🏁 Completing battle for current player...");
 
       const response = await battleAPI.completeBattle(
         battleSession!.id,
@@ -600,13 +601,23 @@ export default function BattleGameScreen() {
 
       if (response) {
         if (response.battle_completed) {
-          // Battle is fully completed, show final results
+          // Both players completed - battle is fully finished
+          console.log("🎉 Battle fully completed! Loading final results...");
           await loadBattleSession();
           setGamePhase("completed");
         } else {
-          // Current player finished, but waiting for opponent to complete
+          // Only current player finished, waiting for opponent
+          console.log(
+            "⏳ Current player finished, waiting for opponent to complete..."
+          );
           setWaitingForOpponent(true);
-          // No need for polling anymore - Socket.IO will handle notifications
+
+          // Emit Socket.IO event to notify opponent
+          if (socketService.isSocketConnected()) {
+            socketService.completeBattle(battleSession!.id);
+          }
+
+          // Socket.IO will handle the battle-completed event when opponent finishes
         }
       }
     } catch (error) {
@@ -661,6 +672,12 @@ export default function BattleGameScreen() {
 
     // If waiting for opponent to finish all rounds
     if (waitingForOpponent) {
+      // Start polling if not already started and Socket.IO isn't connected
+      if (!roundPollingInterval.current && !socketService.isSocketConnected()) {
+        console.log("🔄 Starting fallback polling for battle completion...");
+        startWaitingForOpponentToFinish();
+      }
+
       return (
         <View style={styles.gameplayContainer}>
           <View style={styles.waitingForOpponentContainer}>
@@ -668,6 +685,11 @@ export default function BattleGameScreen() {
             <Text style={styles.waitingTitle}>All rounds completed!</Text>
             <Text style={styles.waitingText}>
               Waiting for opponent to finish...
+            </Text>
+            <Text style={styles.waitingText}>
+              {socketService.isSocketConnected()
+                ? "Connected via Socket.IO"
+                : "Using polling for updates"}
             </Text>
           </View>
         </View>

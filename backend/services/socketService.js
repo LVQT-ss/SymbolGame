@@ -34,9 +34,16 @@ class SocketService {
                 }
 
                 const decoded = jwt.verify(token, process.env.JWT_SECRET);
-                const user = await User.findByPk(decoded.id);
+                // Fix: Use userId instead of id for consistency with JWT token structure
+                const userId = decoded.userId || decoded.id;
+                const user = await User.findByPk(userId);
 
                 if (!user) {
+                    console.error(`User not found for ID: ${userId}`, {
+                        decodedToken: decoded,
+                        hasUserId: !!decoded.userId,
+                        hasId: !!decoded.id
+                    });
                     return next(new Error('User not found'));
                 }
 
@@ -44,6 +51,7 @@ class SocketService {
                 socket.username = user.username;
                 next();
             } catch (error) {
+                console.error('Socket authentication error:', error);
                 next(new Error('Authentication error'));
             }
         });
