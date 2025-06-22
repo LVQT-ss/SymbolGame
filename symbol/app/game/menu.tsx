@@ -299,19 +299,6 @@ export default function GameMenuScreen() {
 
   const handleJoinGame = async (session: GameSession) => {
     try {
-      if (session.isJoined) {
-        Alert.alert(
-          "Already Joined",
-          "You have already joined this game session."
-        );
-        return;
-      }
-
-      if (session.currentPlayers >= session.maxPlayers) {
-        Alert.alert("Game Full", "This game session is already full.");
-        return;
-      }
-
       // Join game directly without confirmation dialog
       setLoading(true);
       console.log(`🎮 Joining game session: ${session.id}`);
@@ -579,23 +566,12 @@ export default function GameMenuScreen() {
       </View>
 
       <View style={styles.gameActions}>
-        {item.isJoined ? (
-          <TouchableOpacity
-            style={styles.startButton}
-            onPress={() => handleStartGame(item)}
-          >
-            <Text style={styles.startButtonText}>Start Game</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={styles.joinButton}
-            onPress={() => handleJoinGame(item)}
-          >
-            <Text style={styles.joinButtonText}>
-              {item.currentPlayers > 0 ? "Join Game (Take Over)" : "Join Game"}
-            </Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          style={styles.joinButton}
+          onPress={() => handleJoinGame(item)}
+        >
+          <Text style={styles.joinButtonText}>Join Game</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
