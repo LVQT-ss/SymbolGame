@@ -219,6 +219,16 @@ router.post('/join', verifyToken, joinBattle);
  */
 router.post('/start', verifyToken, startBattle);
 
+// Test endpoint for debugging (no auth required)
+router.get('/test', (req, res) => {
+    console.log("🧪 Battle test endpoint called");
+    res.json({
+        message: "Battle routes are working!",
+        timestamp: new Date().toISOString(),
+        authHeader: req.headers.authorization ? "Present" : "Missing"
+    });
+});
+
 /**
  * @swagger
  * /api/battle/submit-round:

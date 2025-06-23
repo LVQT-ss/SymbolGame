@@ -126,6 +126,7 @@ export default function BattleGameScreen() {
       console.log("🔧 Setting up Socket.IO connection for battle:", battleId);
 
       // Set up event listeners first
+      console.log("🔗 Setting up Socket.IO event listeners...");
       socketService.addEventListener("opponent-joined", handleOpponentJoined);
       socketService.addEventListener(
         "creator-started-battle",
@@ -135,6 +136,14 @@ export default function BattleGameScreen() {
       socketService.addEventListener("round-submitted", handleRoundSubmitted);
       socketService.addEventListener("player-completed", handlePlayerCompleted);
       socketService.addEventListener("battle-completed", handleBattleCompleted);
+      console.log("✅ Socket.IO event listeners registered:", [
+        "opponent-joined",
+        "creator-started-battle",
+        "countdown-start",
+        "round-submitted",
+        "player-completed",
+        "battle-completed",
+      ]);
 
       // Connect to Socket.IO server
       await socketService.connect();
@@ -244,6 +253,13 @@ export default function BattleGameScreen() {
 
     if (eventBattleId === currentBattleId) {
       console.log("🕐 Creator started battle! Beginning countdown...");
+
+      // Clear the timeout fallback if Socket.IO event arrived
+      if ((window as any).battleStartTimeout) {
+        clearTimeout((window as any).battleStartTimeout);
+        console.log("✅ Cleared fallback timeout - Socket.IO event received");
+      }
+
       startCountdown();
     }
   };
@@ -291,16 +307,43 @@ export default function BattleGameScreen() {
   const startBattle = async () => {
     try {
       console.log("🚀 Creator starting battle...");
+      console.log("📊 Battle details:", {
+        battleId,
+        currentUserId,
+        isCreator: currentUserId === creator?.id,
+        creatorId: creator?.id,
+        opponentId: opponent?.id,
+        socketConnected: socketService.isSocketConnected(),
+      });
+
       setGameLoading(true);
 
       // Call API to notify backend that creator is starting the battle
+      console.log("📡 Making API call to start battle...");
       const response = await battleAPI.startBattle(battleId);
 
-      console.log("✅ Battle start request sent successfully");
-      // The countdown will start when we receive the socket event
+      console.log("✅ Battle start API response:", response);
+      console.log("⏰ Waiting for Socket.IO event to start countdown...");
+
+      // Add timeout fallback in case Socket.IO event doesn't arrive
+      const timeoutId = setTimeout(() => {
+        console.log(
+          "⚠️ Timeout: Socket.IO event not received, starting countdown anyway"
+        );
+        startCountdown();
+      }, 5000); // Increased timeout to 5 seconds
+
+      // Store timeout ID to clear it if Socket.IO event arrives
+      (window as any).battleStartTimeout = timeoutId;
     } catch (error) {
-      console.error("Error starting battle:", error);
+      console.error("❌ Error starting battle:", error);
+      console.error("Error details:", {
+        message: error instanceof Error ? error.message : String(error),
+        response: (error as any)?.response?.data,
+        status: (error as any)?.response?.status,
+      });
       // Fallback: start countdown locally
+      console.log("🔄 Fallback: Starting countdown locally due to error");
       startCountdown();
     } finally {
       setGameLoading(false);
@@ -981,7 +1024,16 @@ export default function BattleGameScreen() {
                 styles.startBattleButton,
                 { opacity: playersInRoom === totalPlayers ? 1 : 0.6 },
               ]}
-              onPress={startBattle}
+              onPress={() => {
+                console.log("🔘 START BATTLE BUTTON PRESSED!");
+                console.log("Button state:", {
+                  gameLoading,
+                  playersInRoom,
+                  totalPlayers,
+                  disabled: gameLoading || playersInRoom !== totalPlayers,
+                });
+                startBattle();
+              }}
               disabled={gameLoading || playersInRoom !== totalPlayers}
             >
               {gameLoading ? (
@@ -999,6 +1051,65 @@ export default function BattleGameScreen() {
                 Waiting for all players to join before starting
               </Text>
             )}
+
+            {/* Debug: Direct countdown button */}
+            <TouchableOpacity
+              style={[
+                styles.startBattleButton,
+                {
+                  backgroundColor: "#FF9800",
+                  marginTop: 15,
+                },
+              ]}
+              onPress={() => {
+                console.log("🔧 DEBUG: Direct countdown test button pressed");
+                startCountdown();
+              }}
+            >
+              <Ionicons name="bug" size={24} color="#fff" />
+              <Text style={styles.startBattleButtonText}>
+                DEBUG: Test Countdown
+              </Text>
+            </TouchableOpacity>
+
+            {/* Debug: Test API call */}
+            <TouchableOpacity
+              style={[
+                styles.startBattleButton,
+                {
+                  backgroundColor: "#9C27B0",
+                  marginTop: 10,
+                },
+              ]}
+              onPress={async () => {
+                try {
+                  console.log("🔧 DEBUG: Testing API connection...");
+                  const response = await fetch(
+                    "https://symbolgame.onrender.com/api/battle/test",
+                    {
+                      method: "GET",
+                      headers: {
+                        "Content-Type": "application/json",
+                      },
+                    }
+                  );
+                  const data = await response.json();
+                  console.log("✅ API Test Response:", data);
+                  Alert.alert("API Test", `Success: ${data.message}`);
+                } catch (error) {
+                  console.error("❌ API Test Error:", error);
+                  Alert.alert(
+                    "API Test",
+                    `Error: ${
+                      error instanceof Error ? error.message : String(error)
+                    }`
+                  );
+                }
+              }}
+            >
+              <Ionicons name="cloud" size={24} color="#fff" />
+              <Text style={styles.startBattleButtonText}>DEBUG: Test API</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <View style={styles.readyToStartOpponentSection}>

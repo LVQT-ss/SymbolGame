@@ -336,6 +336,20 @@ export const startBattle = async (req, res) => {
     const { battle_id } = req.body;
 
     try {
+        console.log("=".repeat(50));
+        console.log("🚀 START BATTLE REQUEST RECEIVED");
+        console.log("=".repeat(50));
+        console.log(`📊 Request details:`, {
+            creatorId,
+            battle_id,
+            method: req.method,
+            url: req.url,
+            headers: {
+                authorization: req.headers.authorization ? "Present" : "Missing",
+                contentType: req.headers['content-type']
+            },
+            body: req.body
+        });
         console.log(`🚀 Start battle request - Creator: ${creatorId}, Battle ID: ${battle_id}`);
 
         if (!battle_id) {
@@ -391,20 +405,23 @@ export const startBattle = async (req, res) => {
         console.log(`✅ Battle ${battle_id} is ready to start - Creator: ${battleSession.creator.username}, Opponent: ${battleSession.opponent.username}`);
 
         // Emit creator-started-battle event to both players for synchronized countdown
-        socketService.emitToBattle(battle_id, 'creator-started-battle', {
-            battleId: battle_id,
-            message: 'Creator started the battle! Get ready...',
-            creator: {
-                id: battleSession.creator.id,
-                username: battleSession.creator.username
-            },
-            opponent: {
-                id: battleSession.opponent.id,
-                username: battleSession.opponent.username
-            }
-        });
-
-        console.log(`🚀 Emitted creator-started-battle event for battle ${battle_id}`);
+        // Add a small delay to ensure clients are ready to receive the event
+        setTimeout(() => {
+            console.log(`🚀 Emitting creator-started-battle event for battle ${battle_id}`);
+            socketService.emitToBattle(battle_id, 'creator-started-battle', {
+                battleId: battle_id,
+                message: 'Creator started the battle! Get ready...',
+                creator: {
+                    id: battleSession.creator.id,
+                    username: battleSession.creator.username
+                },
+                opponent: {
+                    id: battleSession.opponent.id,
+                    username: battleSession.opponent.username
+                }
+            });
+            console.log(`✅ creator-started-battle event emitted for battle ${battle_id}`);
+        }, 500);
 
         res.status(200).json({
             message: 'Battle started successfully! Countdown beginning...',
