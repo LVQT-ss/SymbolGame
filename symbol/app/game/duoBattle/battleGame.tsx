@@ -82,7 +82,7 @@ export default function BattleGameScreen() {
   const [gameStartTime, setGameStartTime] = useState<number>(Date.now());
   const [totalGameTime, setTotalGameTime] = useState<number>(0);
   const [gamePhase, setGamePhase] = useState<
-    "waiting" | "ready-to-start" | "countdown" | "playing" | "completed"
+    "waiting" | "ready-to-start" | "countdown" | "playing" | "waiting-for-both"
   >("waiting");
   const [countdownValue, setCountdownValue] = useState(3);
   const [isMyTurn, setIsMyTurn] = useState(true);
@@ -262,11 +262,14 @@ export default function BattleGameScreen() {
 
   const handlePlayerCompleted = (data: any) => {
     console.log("🏁 Player completed via socket:", data);
-    if (data.battleId === battleId && data.userId !== currentUserId) {
-      // Opponent completed all rounds, but battle isn't fully completed yet
+    if (data.battleId === battleId) {
+      // A player completed, transition to waiting for both
       console.log(
-        "⏳ Opponent finished, but still waiting for battle completion..."
+        "⏳ Player finished, transitioning to waiting-for-both phase"
       );
+      setGamePhase("waiting-for-both");
+      setWaitingForOpponent(true);
+      startPulseAnimation();
       // Don't call completeBattle() here - wait for battle-completed event
     }
   };
@@ -385,7 +388,14 @@ export default function BattleGameScreen() {
       // Transition to results immediately with updated data
       setWaitingForOpponent(false);
       setGameLoading(false);
-      setGamePhase("completed");
+      // Navigate to results page
+      router.replace({
+        pathname: "/game/duoBattle/battleResult",
+        params: {
+          battleId: battleId,
+          currentUserId: currentUserId?.toString() || "",
+        },
+      });
     }
   };
 
@@ -425,18 +435,16 @@ export default function BattleGameScreen() {
   };
 
   const transitionToResults = () => {
-    setWaitingForOpponent(false);
-    setGameLoading(true);
+    console.log("🎯 Transitioning to results page");
 
-    loadBattleSession()
-      .then(() => {
-        setGamePhase("completed");
-        setGameLoading(false);
-      })
-      .catch((error) => {
-        setGamePhase("completed");
-        setGameLoading(false);
-      });
+    // Navigate to results page with battle data
+    router.replace({
+      pathname: "/game/duoBattle/battleResult",
+      params: {
+        battleId: battleId,
+        currentUserId: currentUserId?.toString() || "",
+      },
+    });
   };
 
   useEffect(() => {
@@ -554,8 +562,15 @@ export default function BattleGameScreen() {
 
         // Determine game phase
         if (response.battle_session.completed_at) {
-          console.log("🏁 Battle completed, setting phase to completed");
-          setGamePhase("completed");
+          console.log("🏁 Battle completed, navigating to results");
+          router.replace({
+            pathname: "/game/duoBattle/battleResult",
+            params: {
+              battleId: battleId,
+              currentUserId: currentUserId?.toString() || "",
+            },
+          });
+          return;
         } else if (
           response.opponent &&
           response.rounds &&
@@ -835,7 +850,10 @@ export default function BattleGameScreen() {
       );
 
       if (response) {
+        // Current player completed, transition to waiting for both
+        setGamePhase("waiting-for-both");
         setWaitingForOpponent(true);
+        startPulseAnimation();
 
         if (socketService.isSocketConnected()) {
           socketService.completeBattle(battleSession!.id);
@@ -862,10 +880,39 @@ export default function BattleGameScreen() {
   };
 
   const formatTime = (seconds: number): string => {
+    // For response times, show decimal seconds (e.g., 0.531s)
+    if (seconds < 60) {
+      return `${seconds.toFixed(3)}s`;
+    }
+    // For longer times, show minutes:seconds with decimals
     const mins = Math.floor(seconds / 60);
-    const secs = Math.round(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
+    const remainingSecs = (seconds % 60).toFixed(3);
+    return `${mins}:${remainingSecs.padStart(6, "0")}`;
   };
+
+  const renderWaitingForBothScreen = () => (
+    <View style={styles.waitingContainer}>
+      <Animated.View
+        style={[styles.waitingIcon, { transform: [{ scale: pulseAnim }] }]}
+      >
+        <Ionicons name="hourglass" size={80} color="#E91E63" />
+      </Animated.View>
+
+      <Text style={styles.waitingTitle}>Waiting for Results</Text>
+      <Text style={styles.waitingSubtitle}>
+        Both players have completed their rounds.{"\n"}
+        Calculating final results...
+      </Text>
+
+      <View style={styles.battleCodeContainer}>
+        <Text style={styles.waitingInfo}>
+          🔄 Processing battle results{"\n"}
+          📊 Comparing scores and performance{"\n"}
+          🏆 Determining the winner
+        </Text>
+      </View>
+    </View>
+  );
 
   const renderWaitingScreen = () => (
     <View style={styles.waitingContainer}>
@@ -1201,211 +1248,6 @@ export default function BattleGameScreen() {
     );
   };
 
-  const renderCompletedScreen = () => {
-    const isCreator = currentUserId === creator?.id;
-    const userWon = winner?.id === currentUserId;
-    const isTie = !winner;
-
-    // Debug: Log the total times being used in the result screen
-    console.log(
-      "🏁 RESULT SCREEN - Creator total time:",
-      battleSession?.creator_total_time
-    );
-    console.log(
-      "🏁 RESULT SCREEN - Opponent total time:",
-      battleSession?.opponent_total_time
-    );
-
-    return (
-      <View style={styles.completedContainer}>
-        <View style={styles.resultIcon}>
-          <Ionicons
-            name={userWon ? "trophy" : isTie ? "ribbon" : "medal"}
-            size={80}
-            color={userWon ? "#FFD700" : isTie ? "#C0C0C0" : "#CD7F32"}
-          />
-        </View>
-
-        <Text style={styles.resultTitle}>
-          {userWon ? "Victory!" : isTie ? "It's a Tie!" : "Defeat"}
-        </Text>
-
-        <Text style={styles.resultSubtitle}>
-          {userWon
-            ? "Congratulations! You won the battle!"
-            : isTie
-            ? "Great game! You both performed equally well."
-            : "Good effort! Better luck next time."}
-        </Text>
-
-        {/* Final Scores */}
-        <View style={styles.finalScoresContainer}>
-          <View style={styles.finalPlayerScore}>
-            <Text style={styles.finalPlayerName}>{creator?.username}</Text>
-            <Text style={styles.finalPlayerPoints}>
-              {battleSession?.creator_score || 0}
-            </Text>
-            <Text style={styles.finalPlayerDetails}>
-              ✅ {battleSession?.creator_correct_answers || 0}/{rounds.length}{" "}
-              correct
-            </Text>
-            <Text style={styles.finalPlayerDetails}>
-              ❌{" "}
-              {battleSession?.creator_error_count ||
-                rounds.length -
-                  (battleSession?.creator_correct_answers || 0)}{" "}
-              errors
-            </Text>
-            <Text style={styles.finalPlayerDetails}>
-              🎯 {battleSession?.creator_accuracy || "0"}% accuracy
-            </Text>
-            <Text style={styles.finalPlayerTime}>
-              ⏱️ {formatTime(battleSession?.creator_total_time || 0)}
-            </Text>
-          </View>
-
-          <View style={styles.finalPlayerScore}>
-            <Text style={styles.finalPlayerName}>{opponent?.username}</Text>
-            <Text style={styles.finalPlayerPoints}>
-              {battleSession?.opponent_score || 0}
-            </Text>
-            <Text style={styles.finalPlayerDetails}>
-              ✅ {battleSession?.opponent_correct_answers || 0}/{rounds.length}{" "}
-              correct
-            </Text>
-            <Text style={styles.finalPlayerDetails}>
-              ❌{" "}
-              {battleSession?.opponent_error_count ||
-                rounds.length -
-                  (battleSession?.opponent_correct_answers || 0)}{" "}
-              errors
-            </Text>
-            <Text style={styles.finalPlayerDetails}>
-              🎯 {battleSession?.opponent_accuracy || "0"}% accuracy
-            </Text>
-            <Text style={styles.finalPlayerTime}>
-              ⏱️ {formatTime(battleSession?.opponent_total_time || 0)}
-            </Text>
-          </View>
-        </View>
-
-        {/* Time Comparison */}
-        <View style={styles.timeComparisonContainer}>
-          <Text style={styles.timeComparisonTitle}>⏱️ Speed Analysis</Text>
-          <View style={styles.timeComparisonStats}>
-            <View style={styles.timeStatItem}>
-              <Text style={styles.timeStatLabel}>Fastest Completion</Text>
-              <Text style={styles.timeStatValue}>
-                {(battleSession?.creator_total_time || 0) <
-                (battleSession?.opponent_total_time || 0)
-                  ? creator?.username
-                  : opponent?.username}{" "}
-                -{" "}
-                {formatTime(
-                  Math.min(
-                    battleSession?.creator_total_time || 0,
-                    battleSession?.opponent_total_time || 0
-                  )
-                )}
-              </Text>
-            </View>
-            <View style={styles.timeStatItem}>
-              <Text style={styles.timeStatLabel}>Time Difference</Text>
-              <Text style={styles.timeStatValue}>
-                {formatTime(
-                  Math.abs(
-                    (battleSession?.creator_total_time || 0) -
-                      (battleSession?.opponent_total_time || 0)
-                  )
-                )}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Action Buttons */}
-        <View style={styles.actionButtonsContainer}>
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={() => router.push("/game/duoBattle/battleMenu")}
-          >
-            <Ionicons name="refresh" size={24} color="#fff" />
-            <Text style={styles.primaryButtonText}>New Battle</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={() => router.push("/game/duoBattle/battleMenu")}
-          >
-            <Text style={styles.secondaryButtonText}>Back to Menu</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Round Result Overlay */}
-        {showRoundResult && lastRoundResult && (
-          <View style={styles.roundResultOverlay}>
-            <View style={styles.roundResultContent}>
-              <Text style={styles.roundResultTitle}>
-                Round {lastRoundResult.roundNumber} Results
-              </Text>
-
-              <View style={styles.roundResultAnswers}>
-                <View style={styles.roundResultPlayer}>
-                  <Text style={styles.roundResultPlayerName}>
-                    {creator?.username}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.roundResultAnswer,
-                      {
-                        color: lastRoundResult.creatorCorrect
-                          ? "#4CAF50"
-                          : "#F44336",
-                      },
-                    ]}
-                  >
-                    {lastRoundResult.creatorAnswer}
-                  </Text>
-                  <Text style={styles.roundResultTime}>
-                    {lastRoundResult.creatorTime?.toFixed(1)}s
-                  </Text>
-                </View>
-
-                <View style={styles.roundResultCorrect}>
-                  <Text style={styles.roundResultCorrectLabel}>Correct:</Text>
-                  <Text style={styles.roundResultCorrectAnswer}>
-                    {lastRoundResult.correctAnswer}
-                  </Text>
-                </View>
-
-                <View style={styles.roundResultPlayer}>
-                  <Text style={styles.roundResultPlayerName}>
-                    {opponent?.username}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.roundResultAnswer,
-                      {
-                        color: lastRoundResult.opponentCorrect
-                          ? "#4CAF50"
-                          : "#F44336",
-                      },
-                    ]}
-                  >
-                    {lastRoundResult.opponentAnswer}
-                  </Text>
-                  <Text style={styles.roundResultTime}>
-                    {lastRoundResult.opponentTime?.toFixed(1)}s
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </View>
-        )}
-      </View>
-    );
-  };
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -1432,7 +1274,7 @@ export default function BattleGameScreen() {
       {gamePhase === "ready-to-start" && renderReadyToStartScreen()}
       {gamePhase === "countdown" && renderCountdownScreen()}
       {gamePhase === "playing" && renderGameplayScreen()}
-      {gamePhase === "completed" && renderCompletedScreen()}
+      {gamePhase === "waiting-for-both" && renderWaitingForBothScreen()}
     </View>
   );
 }
@@ -1650,129 +1492,6 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
 
-  // Completed Screen Styles
-  completedContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  resultIcon: {
-    marginBottom: 24,
-  },
-  resultTitle: {
-    fontSize: 32,
-    fontWeight: "bold",
-    color: "#fff",
-    marginBottom: 16,
-    textAlign: "center",
-  },
-  resultSubtitle: {
-    fontSize: 16,
-    color: "#888",
-    textAlign: "center",
-    marginBottom: 40,
-    lineHeight: 24,
-  },
-  finalScoresContainer: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    width: "100%",
-    marginBottom: 40,
-  },
-  finalPlayerScore: {
-    alignItems: "center",
-  },
-  finalPlayerName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#fff",
-    marginBottom: 8,
-  },
-  finalPlayerPoints: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#E91E63",
-    marginBottom: 4,
-  },
-  finalPlayerDetails: {
-    fontSize: 12,
-    color: "#666",
-  },
-  finalPlayerTime: {
-    fontSize: 12,
-    color: "#4CAF50",
-    marginTop: 4,
-    fontWeight: "500",
-  },
-  // Time Comparison Styles
-  timeComparisonContainer: {
-    backgroundColor: "#1a1a1a",
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 30,
-    width: "100%",
-  },
-  timeComparisonTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#fff",
-    textAlign: "center",
-    marginBottom: 16,
-  },
-  timeComparisonStats: {
-    gap: 12,
-  },
-  timeStatItem: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#333",
-  },
-  timeStatLabel: {
-    fontSize: 14,
-    color: "#888",
-    fontWeight: "500",
-  },
-  timeStatValue: {
-    fontSize: 14,
-    color: "#4CAF50",
-    fontWeight: "600",
-  },
-  actionButtonsContainer: {
-    width: "100%",
-    gap: 16,
-  },
-  primaryButton: {
-    backgroundColor: "#E91E63",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 16,
-    borderRadius: 12,
-    gap: 8,
-  },
-  primaryButtonText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-  secondaryButton: {
-    backgroundColor: "transparent",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: "#333",
-    borderRadius: 12,
-  },
-  secondaryButtonText: {
-    color: "#888",
-    fontSize: 16,
-    fontWeight: "500",
-  },
   // Round Result Styles
   roundResultContainer: {
     alignItems: "center",
@@ -2087,12 +1806,7 @@ const styles = StyleSheet.create({
     width: "80%",
     maxHeight: "80%",
   },
-  roundResultTitle: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#fff",
-    marginBottom: 20,
-  },
+
   roundResultAnswers: {
     flexDirection: "row",
     justifyContent: "space-between",
