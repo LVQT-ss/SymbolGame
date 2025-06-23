@@ -274,7 +274,46 @@ export default function BattleGameScreen() {
     const eventBattleId = parseInt(data.battleId);
 
     if (eventBattleId === currentBattleId) {
-      transitionToResults();
+      console.log("🏁 Battle completed event received:", data);
+      console.log("🏁 Creator total time:", data.results?.creator?.total_time);
+      console.log(
+        "🏁 Opponent total time:",
+        data.results?.opponent?.total_time
+      );
+
+      // Update battle session with the results data from socket event
+      if (data.results) {
+        setBattleSession((prev) =>
+          prev
+            ? {
+                ...prev,
+                creator_total_time: data.results.creator.total_time,
+                opponent_total_time: data.results.opponent.total_time,
+                creator_score: data.results.creator.score,
+                opponent_score: data.results.opponent.score,
+                // Handle both formats: correct_answers and correctAnswers
+                creator_correct_answers:
+                  data.results.creator.correct_answers ||
+                  data.results.creator.correctAnswers,
+                opponent_correct_answers:
+                  data.results.opponent.correct_answers ||
+                  data.results.opponent.correctAnswers,
+                completed_at: data.completed_at,
+                completed: true,
+              }
+            : null
+        );
+
+        // Update winner
+        if (data.winner) {
+          setWinner(data.winner);
+        }
+      }
+
+      // Transition to results immediately with updated data
+      setWaitingForOpponent(false);
+      setGameLoading(false);
+      setGamePhase("completed");
     }
   };
 
@@ -654,7 +693,7 @@ export default function BattleGameScreen() {
     setSelectedAnswer(answer);
 
     const currentRound = rounds[currentRoundIndex];
-    const responseTime = Math.floor((Date.now() - roundStartTime) / 1000);
+    const responseTime = (Date.now() - roundStartTime) / 1000; // Convert to seconds with decimal precision
     const isCreator = currentUserId === creator?.id;
 
     // Immediately update UI with user's answer
@@ -715,7 +754,7 @@ export default function BattleGameScreen() {
   const completeBattle = async () => {
     try {
       setGameLoading(true);
-      const totalTime = Math.floor((Date.now() - gameStartTime) / 1000);
+      const totalTime = (Date.now() - gameStartTime) / 1000; // Convert to seconds with decimal precision
       setTotalGameTime(totalTime);
 
       const response = await battleAPI.completeBattle(
@@ -1094,6 +1133,16 @@ export default function BattleGameScreen() {
     const isCreator = currentUserId === creator?.id;
     const userWon = winner?.id === currentUserId;
     const isTie = !winner;
+
+    // Debug: Log the total times being used in the result screen
+    console.log(
+      "🏁 RESULT SCREEN - Creator total time:",
+      battleSession?.creator_total_time
+    );
+    console.log(
+      "🏁 RESULT SCREEN - Opponent total time:",
+      battleSession?.opponent_total_time
+    );
 
     return (
       <View style={styles.completedContainer}>

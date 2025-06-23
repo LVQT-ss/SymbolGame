@@ -301,12 +301,14 @@ class SocketService {
             creator: {
                 user: battle.creator,
                 score: creatorScore,
-                correctAnswers: creatorRounds.filter(r => r.is_correct).length
+                correctAnswers: creatorRounds.filter(r => r.is_correct).length,
+                total_time: battle.creator_total_time
             },
             opponent: {
                 user: battle.opponent,
                 score: opponentScore,
-                correctAnswers: opponentRounds.filter(r => r.is_correct).length
+                correctAnswers: opponentRounds.filter(r => r.is_correct).length,
+                total_time: battle.opponent_total_time
             },
             winner,
             totalRounds: Math.max(creatorRounds.length, opponentRounds.length)

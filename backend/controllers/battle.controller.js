@@ -812,6 +812,8 @@ export const getBattleSession = async (req, res) => {
                 opponent_score: battleSession.opponent_score,
                 creator_correct_answers: battleSession.creator_correct_answers,
                 opponent_correct_answers: battleSession.opponent_correct_answers,
+                creator_total_time: battleSession.creator_total_time,
+                opponent_total_time: battleSession.opponent_total_time,
                 creator_completed: battleSession.creator_completed,
                 opponent_completed: battleSession.opponent_completed,
                 started_at: battleSession.started_at,
