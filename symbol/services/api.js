@@ -292,6 +292,21 @@ export const battleAPI = {
         }
     },
 
+    // Start a battle (creator initiates the countdown)
+    startBattle: async (battleId) => {
+        try {
+            console.log("🚀 Starting battle with ID:", battleId);
+            const response = await api.post("/battle/start", {
+                battle_id: battleId
+            });
+            console.log("✅ Start battle API response:", response.data);
+            return response.data;
+        } catch (error) {
+            console.error("❌ Start battle API error:", error.response?.data || error.message);
+            throw new Error(error.response?.data?.message || "Failed to start battle");
+        }
+    },
+
     // Get battle session details
     getBattleSession: async (battleId) => {
         try {

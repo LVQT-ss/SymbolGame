@@ -2,6 +2,7 @@ import express from 'express';
 import {
     createBattle,
     joinBattle,
+    startBattle,
     submitBattleRound,
     completeBattle,
     getBattleSession,
@@ -167,6 +168,56 @@ router.post('/create', verifyToken, createBattle);
  *         description: Server error
  */
 router.post('/join', verifyToken, joinBattle);
+
+/**
+ * @swagger
+ * /api/battle/start:
+ *   post:
+ *     tags:
+ *     - Battle Controller
+ *     summary: Start a battle (creator initiates countdown)
+ *     description: Allow the battle creator to start the countdown for the battle
+ *     security:
+ *       - Authorization: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - battle_id
+ *             properties:
+ *               battle_id:
+ *                 type: integer
+ *                 example: 123
+ *                 description: ID of the battle session to start
+ *     responses:
+ *       200:
+ *         description: Battle started successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Battle started successfully! Countdown beginning...
+ *                 battle_id:
+ *                   type: integer
+ *                 status:
+ *                   type: string
+ *                   example: countdown_started
+ *       400:
+ *         description: Battle ID required, no opponent, or invalid state
+ *       403:
+ *         description: Only the creator can start the battle
+ *       404:
+ *         description: Battle not found
+ *       500:
+ *         description: Server error
+ */
+router.post('/start', verifyToken, startBattle);
 
 /**
  * @swagger

@@ -75,8 +75,9 @@ export default function BattleGameScreen() {
   const [gameStartTime, setGameStartTime] = useState<number>(Date.now());
   const [totalGameTime, setTotalGameTime] = useState<number>(0);
   const [gamePhase, setGamePhase] = useState<
-    "waiting" | "playing" | "completed"
+    "waiting" | "ready-to-start" | "countdown" | "playing" | "completed"
   >("waiting");
+  const [countdownValue, setCountdownValue] = useState(3);
   const [isMyTurn, setIsMyTurn] = useState(true);
   const [submittingAnswer, setSubmittingAnswer] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
@@ -126,6 +127,11 @@ export default function BattleGameScreen() {
 
       // Set up event listeners first
       socketService.addEventListener("opponent-joined", handleOpponentJoined);
+      socketService.addEventListener(
+        "creator-started-battle",
+        handleCreatorStartedBattle
+      );
+      socketService.addEventListener("countdown-start", handleCountdownStart);
       socketService.addEventListener("round-submitted", handleRoundSubmitted);
       socketService.addEventListener("player-completed", handlePlayerCompleted);
       socketService.addEventListener("battle-completed", handleBattleCompleted);
@@ -163,6 +169,11 @@ export default function BattleGameScreen() {
 
   const cleanupSocketListeners = () => {
     socketService.removeEventListener("opponent-joined", handleOpponentJoined);
+    socketService.removeEventListener(
+      "creator-started-battle",
+      handleCreatorStartedBattle
+    );
+    socketService.removeEventListener("countdown-start", handleCountdownStart);
     socketService.removeEventListener("round-submitted", handleRoundSubmitted);
     socketService.removeEventListener(
       "player-completed",
@@ -179,7 +190,7 @@ export default function BattleGameScreen() {
   const handleOpponentJoined = async (data: any) => {
     console.log("🎮 Opponent joined via socket:", data);
     if (data.battleId === battleId) {
-      console.log("✅ Opponent joined! Reloading battle session...");
+      console.log("✅ Opponent joined! Moving to ready-to-start phase...");
 
       // Stop polling if active
       if (pollingInterval.current) {
@@ -190,8 +201,11 @@ export default function BattleGameScreen() {
       try {
         await loadBattleSession();
         console.log(
-          "🎮 Battle session reloaded, should now be in playing phase"
+          "🎮 Battle session reloaded, moving to ready-to-start phase"
         );
+
+        // Move to ready-to-start phase (wait for creator to click start)
+        setGamePhase("ready-to-start");
       } catch (error) {
         console.error(
           "Error reloading battle session after opponent joined:",
@@ -199,8 +213,7 @@ export default function BattleGameScreen() {
         );
         // Fallback to manual state update
         setOpponent(data.opponent);
-        setGamePhase("playing");
-        setCurrentRoundIndex(0);
+        setGamePhase("ready-to-start");
       }
     }
   };
@@ -221,6 +234,28 @@ export default function BattleGameScreen() {
         "⏳ Opponent finished, but still waiting for battle completion..."
       );
       // Don't call completeBattle() here - wait for battle-completed event
+    }
+  };
+
+  const handleCreatorStartedBattle = (data: any) => {
+    console.log("🚀 RECEIVED creator-started-battle event via socket:", data);
+    const currentBattleId = parseInt(battleId);
+    const eventBattleId = parseInt(data.battleId);
+
+    if (eventBattleId === currentBattleId) {
+      console.log("🕐 Creator started battle! Beginning countdown...");
+      startCountdown();
+    }
+  };
+
+  const handleCountdownStart = (data: any) => {
+    console.log("⏰ RECEIVED countdown-start event via socket:", data);
+    const currentBattleId = parseInt(battleId);
+    const eventBattleId = parseInt(data.battleId);
+
+    if (eventBattleId === currentBattleId) {
+      console.log("🕐 Starting synchronized countdown...");
+      startCountdown();
     }
   };
 
@@ -251,6 +286,45 @@ export default function BattleGameScreen() {
         event: eventBattleId,
       });
     }
+  };
+
+  const startBattle = async () => {
+    try {
+      console.log("🚀 Creator starting battle...");
+      setGameLoading(true);
+
+      // Call API to notify backend that creator is starting the battle
+      const response = await battleAPI.startBattle(battleId);
+
+      console.log("✅ Battle start request sent successfully");
+      // The countdown will start when we receive the socket event
+    } catch (error) {
+      console.error("Error starting battle:", error);
+      // Fallback: start countdown locally
+      startCountdown();
+    } finally {
+      setGameLoading(false);
+    }
+  };
+
+  const startCountdown = () => {
+    console.log("⏰ Starting 3-second countdown...");
+    setGamePhase("countdown");
+    setCountdownValue(3);
+
+    const countdownInterval = setInterval(() => {
+      setCountdownValue((prev) => {
+        if (prev <= 1) {
+          clearInterval(countdownInterval);
+          console.log("🚀 Countdown finished! Starting game...");
+          setGamePhase("playing");
+          setCurrentRoundIndex(0);
+          setGameStartTime(Date.now());
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
   };
 
   const transitionToResults = () => {
@@ -396,19 +470,34 @@ export default function BattleGameScreen() {
           response.rounds.length > 0
         ) {
           console.log(
-            "🎮 Battle has opponent and rounds, setting phase to playing"
+            "🎮 Battle has opponent and rounds, determining current state..."
           );
           console.log("Opponent:", response.opponent.username);
           console.log("Rounds count:", response.rounds.length);
-          setGamePhase("playing");
-          // Find current round
-          const currentRound = findCurrentRound(
-            response.rounds,
-            currentUserId || response.creator.id
+
+          // Check if any rounds have been played (battle is in progress)
+          const hasPlayedRounds = response.rounds.some(
+            (round: BattleRound) =>
+              round.creator_symbol || round.opponent_symbol
           );
-          console.log("Current round index:", currentRound);
-          setCurrentRoundIndex(currentRound);
-          setGameStartTime(Date.now());
+
+          if (hasPlayedRounds) {
+            console.log("🎮 Battle is in progress, setting phase to playing");
+            setGamePhase("playing");
+            // Find current round
+            const currentRound = findCurrentRound(
+              response.rounds,
+              currentUserId || response.creator.id
+            );
+            console.log("Current round index:", currentRound);
+            setCurrentRoundIndex(currentRound);
+            setGameStartTime(Date.now());
+          } else {
+            console.log(
+              "⏳ Battle has opponent but hasn't started, setting phase to ready-to-start"
+            );
+            setGamePhase("ready-to-start");
+          }
         } else {
           console.log("⏳ No opponent or rounds yet, setting phase to waiting");
           setGamePhase("waiting");
@@ -461,20 +550,20 @@ export default function BattleGameScreen() {
           response.rounds.length > 0
         ) {
           console.log(
-            "🎮 Polling detected opponent joined! Transitioning to playing..."
+            "🎮 Polling detected opponent joined! Moving to ready-to-start..."
           );
 
           // Update state
           setOpponent(response.opponent);
           setRounds(response.rounds);
-          setGamePhase("playing");
-          setCurrentRoundIndex(0);
-          setGameStartTime(Date.now());
 
           // Clear polling
           if (pollingInterval.current) {
             clearInterval(pollingInterval.current);
           }
+
+          // Move to ready-to-start phase (wait for creator to click start)
+          setGamePhase("ready-to-start");
         }
       } catch (error) {
         console.error("Error polling for opponent:", error);
@@ -770,6 +859,205 @@ export default function BattleGameScreen() {
     </View>
   );
 
+  const renderReadyToStartScreen = () => {
+    const isCreator = currentUserId === creator?.id;
+    const playersInRoom = [creator, opponent].filter((player) => player).length;
+    const totalPlayers = 2;
+
+    return (
+      <View style={styles.readyToStartContainer}>
+        <Text style={styles.readyToStartTitle}>Ready to Battle!</Text>
+
+        {isCreator && (
+          <View style={styles.roomStatusContainer}>
+            <View style={styles.roomStatusHeader}>
+              <Ionicons name="people" size={24} color="#E91E63" />
+              <Text style={styles.roomStatusTitle}>Battle Room</Text>
+            </View>
+
+            <View style={styles.roomStatusInfo}>
+              <View style={styles.playerCountContainer}>
+                <Text style={styles.playerCountText}>
+                  {playersInRoom}/{totalPlayers}
+                </Text>
+                <Text style={styles.playerCountLabel}>Players</Text>
+              </View>
+
+              <View style={styles.roomStatusIndicator}>
+                <View
+                  style={[
+                    styles.statusDot,
+                    {
+                      backgroundColor:
+                        playersInRoom === totalPlayers ? "#4CAF50" : "#FF9800",
+                    },
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.statusText,
+                    {
+                      color:
+                        playersInRoom === totalPlayers ? "#4CAF50" : "#FF9800",
+                    },
+                  ]}
+                >
+                  {playersInRoom === totalPlayers
+                    ? "Ready to Start"
+                    : "Waiting for Players"}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.playersListContainer}>
+              <View style={styles.playerListItem}>
+                <Ionicons name="star" size={20} color="#E91E63" />
+                <Text style={styles.playerListName}>{creator?.username}</Text>
+                <View style={styles.playerListStatus}>
+                  <View
+                    style={[
+                      styles.playerStatusDot,
+                      { backgroundColor: "#4CAF50" },
+                    ]}
+                  />
+                  <Text style={styles.playerStatusText}>Connected</Text>
+                </View>
+              </View>
+
+              <View style={styles.playerListItem}>
+                <Ionicons name="person" size={20} color="#888" />
+                <Text style={styles.playerListName}>
+                  {opponent?.username || "Waiting for opponent..."}
+                </Text>
+                <View style={styles.playerListStatus}>
+                  <View
+                    style={[
+                      styles.playerStatusDot,
+                      { backgroundColor: opponent ? "#4CAF50" : "#666" },
+                    ]}
+                  />
+                  <Text style={styles.playerStatusText}>
+                    {opponent ? "Connected" : "Waiting"}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        )}
+
+        <View style={styles.readyToStartPlayers}>
+          <View style={styles.readyToStartPlayer}>
+            <Ionicons name="shield" size={40} color="#E91E63" />
+            <Text style={styles.readyToStartPlayerName}>
+              {creator?.username}
+            </Text>
+            <Text style={styles.readyToStartPlayerLevel}>
+              Level {creator?.current_level}
+            </Text>
+          </View>
+
+          <Text style={styles.readyToStartVS}>VS</Text>
+
+          <View style={styles.readyToStartPlayer}>
+            <Ionicons name="flash" size={40} color="#E91E63" />
+            <Text style={styles.readyToStartPlayerName}>
+              {opponent?.username}
+            </Text>
+            <Text style={styles.readyToStartPlayerLevel}>
+              Level {opponent?.current_level}
+            </Text>
+          </View>
+        </View>
+
+        {isCreator ? (
+          <View style={styles.readyToStartCreatorSection}>
+            <Text style={styles.readyToStartInstruction}>
+              When both players are ready, tap the button below to start the
+              battle!
+            </Text>
+
+            <TouchableOpacity
+              style={[
+                styles.startBattleButton,
+                { opacity: playersInRoom === totalPlayers ? 1 : 0.6 },
+              ]}
+              onPress={startBattle}
+              disabled={gameLoading || playersInRoom !== totalPlayers}
+            >
+              {gameLoading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Ionicons name="play" size={24} color="#fff" />
+                  <Text style={styles.startBattleButtonText}>Start Battle</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            {playersInRoom !== totalPlayers && (
+              <Text style={styles.startBattleDisabledText}>
+                Waiting for all players to join before starting
+              </Text>
+            )}
+          </View>
+        ) : (
+          <View style={styles.readyToStartOpponentSection}>
+            <Animated.View
+              style={[
+                styles.waitingIcon,
+                { transform: [{ scale: pulseAnim }] },
+              ]}
+            >
+              <Ionicons name="hourglass-outline" size={60} color="#E91E63" />
+            </Animated.View>
+            <Text style={styles.readyToStartWaitingText}>
+              Waiting for {creator?.username} to start the battle...
+            </Text>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const renderCountdownScreen = () => (
+    <View style={styles.countdownContainer}>
+      <Text style={styles.countdownTitle}>Get Ready!</Text>
+
+      <Animated.View
+        style={[styles.countdownCircle, { transform: [{ scale: pulseAnim }] }]}
+      >
+        {countdownValue > 0 ? (
+          <Text style={styles.countdownNumber}>{countdownValue}</Text>
+        ) : (
+          <Text style={styles.countdownGo}>GO!</Text>
+        )}
+      </Animated.View>
+
+      <Text style={styles.countdownSubtitle}>
+        Battle starts in {countdownValue > 0 ? countdownValue : "now"}...
+      </Text>
+
+      {/* Players Info */}
+      <View style={styles.countdownPlayers}>
+        <View style={styles.countdownPlayer}>
+          <Text style={styles.countdownPlayerName}>{creator?.username}</Text>
+          <Text style={styles.countdownPlayerLevel}>
+            Level {creator?.current_level}
+          </Text>
+        </View>
+
+        <Text style={styles.countdownVS}>VS</Text>
+
+        <View style={styles.countdownPlayer}>
+          <Text style={styles.countdownPlayerName}>{opponent?.username}</Text>
+          <Text style={styles.countdownPlayerLevel}>
+            Level {opponent?.current_level}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+
   const renderGameplayScreen = () => {
     const currentRound = getCurrentRound();
 
@@ -1003,6 +1291,8 @@ export default function BattleGameScreen() {
       </View>
 
       {gamePhase === "waiting" && renderWaitingScreen()}
+      {gamePhase === "ready-to-start" && renderReadyToStartScreen()}
+      {gamePhase === "countdown" && renderCountdownScreen()}
       {gamePhase === "playing" && renderGameplayScreen()}
       {gamePhase === "completed" && renderCompletedScreen()}
     </View>
@@ -1360,5 +1650,257 @@ const styles = StyleSheet.create({
   answeredSubtext: {
     fontSize: 14,
     color: "#4CAF50",
+  },
+  // Countdown Screen Styles
+  countdownContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  countdownTitle: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 40,
+    textAlign: "center",
+  },
+  countdownCircle: {
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: "#1a1a1a",
+    borderWidth: 4,
+    borderColor: "#E91E63",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 40,
+  },
+  countdownNumber: {
+    fontSize: 80,
+    fontWeight: "bold",
+    color: "#E91E63",
+  },
+  countdownGo: {
+    fontSize: 60,
+    fontWeight: "bold",
+    color: "#4CAF50",
+  },
+  countdownSubtitle: {
+    fontSize: 18,
+    color: "#888",
+    textAlign: "center",
+    marginBottom: 60,
+  },
+  countdownPlayers: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    width: "100%",
+    paddingHorizontal: 20,
+  },
+  countdownPlayer: {
+    alignItems: "center",
+    flex: 1,
+  },
+  countdownPlayerName: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 4,
+    textAlign: "center",
+  },
+  countdownPlayerLevel: {
+    fontSize: 14,
+    color: "#888",
+    textAlign: "center",
+  },
+  countdownVS: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#E91E63",
+    marginHorizontal: 20,
+  },
+  // Ready to Start Screen Styles
+  readyToStartContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  readyToStartTitle: {
+    fontSize: 32,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 50,
+    textAlign: "center",
+  },
+  readyToStartPlayers: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    width: "100%",
+    marginBottom: 60,
+    paddingHorizontal: 20,
+  },
+  readyToStartPlayer: {
+    alignItems: "center",
+    flex: 1,
+  },
+  readyToStartPlayerName: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#fff",
+    marginTop: 12,
+    marginBottom: 4,
+    textAlign: "center",
+  },
+  readyToStartPlayerLevel: {
+    fontSize: 14,
+    color: "#888",
+    textAlign: "center",
+  },
+  readyToStartVS: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#E91E63",
+    marginHorizontal: 30,
+  },
+  readyToStartCreatorSection: {
+    alignItems: "center",
+    width: "100%",
+  },
+  readyToStartInstruction: {
+    fontSize: 16,
+    color: "#888",
+    textAlign: "center",
+    marginBottom: 30,
+    paddingHorizontal: 20,
+    lineHeight: 24,
+  },
+  startBattleButton: {
+    backgroundColor: "#E91E63",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 18,
+    paddingHorizontal: 40,
+    borderRadius: 16,
+    gap: 12,
+    shadowColor: "#E91E63",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  startBattleButtonText: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "bold",
+  },
+  readyToStartOpponentSection: {
+    alignItems: "center",
+  },
+  readyToStartWaitingText: {
+    fontSize: 16,
+    color: "#888",
+    textAlign: "center",
+    marginTop: 20,
+    paddingHorizontal: 20,
+  },
+  startBattleDisabledText: {
+    fontSize: 14,
+    color: "#888",
+    textAlign: "center",
+    marginTop: 15,
+    fontStyle: "italic",
+  },
+  // Room Status Styles
+  roomStatusContainer: {
+    backgroundColor: "#1a1a1a",
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 30,
+    width: "100%",
+    borderWidth: 1,
+    borderColor: "#333",
+  },
+  roomStatusHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+    gap: 8,
+  },
+  roomStatusTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  roomStatusInfo: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  playerCountContainer: {
+    alignItems: "center",
+  },
+  playerCountText: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#E91E63",
+  },
+  playerCountLabel: {
+    fontSize: 12,
+    color: "#888",
+    marginTop: 2,
+  },
+  roomStatusIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  playersListContainer: {
+    gap: 12,
+  },
+  playerListItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: "#0a0a0a",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#222",
+  },
+  playerListName: {
+    fontSize: 16,
+    color: "#fff",
+    fontWeight: "500",
+    flex: 1,
+    marginLeft: 8,
+  },
+  playerListStatus: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  playerStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  playerStatusText: {
+    fontSize: 12,
+    color: "#888",
   },
 });

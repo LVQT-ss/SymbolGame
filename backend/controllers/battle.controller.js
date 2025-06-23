@@ -298,6 +298,8 @@ export const joinBattle = async (req, res) => {
             started_at: battleSession.started_at
         });
 
+        // Don't auto-start countdown anymore - wait for creator to click start button
+
         res.status(200).json({
             message: 'Successfully joined battle! The battle has started.',
             battle_session: {
@@ -324,6 +326,94 @@ export const joinBattle = async (req, res) => {
 
     } catch (err) {
         console.error('Error joining battle:', err);
+        res.status(500).json({ message: 'Server error', error: err.message });
+    }
+};
+
+// POST /api/battle/start - Creator starts the battle (triggers countdown)
+export const startBattle = async (req, res) => {
+    const creatorId = req.userId;
+    const { battle_id } = req.body;
+
+    try {
+        console.log(`🚀 Start battle request - Creator: ${creatorId}, Battle ID: ${battle_id}`);
+
+        if (!battle_id) {
+            return res.status(400).json({
+                message: 'Battle ID is required.'
+            });
+        }
+
+        // Find and validate battle session
+        const battleSession = await BattleSession.findByPk(battle_id, {
+            include: [
+                {
+                    model: User,
+                    as: 'creator',
+                    attributes: ['id', 'username', 'full_name', 'current_level', 'avatar']
+                },
+                {
+                    model: User,
+                    as: 'opponent',
+                    attributes: ['id', 'username', 'full_name', 'current_level', 'avatar']
+                }
+            ]
+        });
+
+        if (!battleSession) {
+            console.log(`❌ Battle not found for ID: ${battle_id}`);
+            return res.status(404).json({
+                message: 'Battle not found.'
+            });
+        }
+
+        // Verify the requester is the creator
+        if (battleSession.creator_id !== creatorId) {
+            console.log(`❌ Unauthorized start attempt - User ${creatorId} is not creator of battle ${battle_id}`);
+            return res.status(403).json({
+                message: 'Only the battle creator can start the battle.'
+            });
+        }
+
+        // Check if battle is ready to start (has opponent, not completed)
+        if (!battleSession.opponent_id) {
+            return res.status(400).json({
+                message: 'Cannot start battle: no opponent has joined yet.'
+            });
+        }
+
+        if (battleSession.completed_at) {
+            return res.status(400).json({
+                message: 'Battle has already been completed.'
+            });
+        }
+
+        console.log(`✅ Battle ${battle_id} is ready to start - Creator: ${battleSession.creator.username}, Opponent: ${battleSession.opponent.username}`);
+
+        // Emit creator-started-battle event to both players for synchronized countdown
+        socketService.emitToBattle(battle_id, 'creator-started-battle', {
+            battleId: battle_id,
+            message: 'Creator started the battle! Get ready...',
+            creator: {
+                id: battleSession.creator.id,
+                username: battleSession.creator.username
+            },
+            opponent: {
+                id: battleSession.opponent.id,
+                username: battleSession.opponent.username
+            }
+        });
+
+        console.log(`🚀 Emitted creator-started-battle event for battle ${battle_id}`);
+
+        res.status(200).json({
+            message: 'Battle started successfully! Countdown beginning...',
+            battle_id: battle_id,
+            status: 'countdown_started'
+        });
+
+    } catch (err) {
+        console.error('Error starting battle:', err);
         res.status(500).json({ message: 'Server error', error: err.message });
     }
 };
