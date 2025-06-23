@@ -336,29 +336,12 @@ export const startBattle = async (req, res) => {
     const { battle_id } = req.body;
 
     try {
-        console.log("=".repeat(50));
-        console.log("🚀 START BATTLE REQUEST RECEIVED");
-        console.log("=".repeat(50));
-        console.log(`📊 Request details:`, {
-            creatorId,
-            battle_id,
-            method: req.method,
-            url: req.url,
-            headers: {
-                authorization: req.headers.authorization ? "Present" : "Missing",
-                contentType: req.headers['content-type']
-            },
-            body: req.body
-        });
-        console.log(`🚀 Start battle request - Creator: ${creatorId}, Battle ID: ${battle_id}`);
-
         if (!battle_id) {
             return res.status(400).json({
                 message: 'Battle ID is required.'
             });
         }
 
-        // Find and validate battle session
         const battleSession = await BattleSession.findByPk(battle_id, {
             include: [
                 {
@@ -375,21 +358,17 @@ export const startBattle = async (req, res) => {
         });
 
         if (!battleSession) {
-            console.log(`❌ Battle not found for ID: ${battle_id}`);
             return res.status(404).json({
                 message: 'Battle not found.'
             });
         }
 
-        // Verify the requester is the creator
         if (battleSession.creator_id !== creatorId) {
-            console.log(`❌ Unauthorized start attempt - User ${creatorId} is not creator of battle ${battle_id}`);
             return res.status(403).json({
                 message: 'Only the battle creator can start the battle.'
             });
         }
 
-        // Check if battle is ready to start (has opponent, not completed)
         if (!battleSession.opponent_id) {
             return res.status(400).json({
                 message: 'Cannot start battle: no opponent has joined yet.'
@@ -402,26 +381,18 @@ export const startBattle = async (req, res) => {
             });
         }
 
-        console.log(`✅ Battle ${battle_id} is ready to start - Creator: ${battleSession.creator.username}, Opponent: ${battleSession.opponent.username}`);
-
-        // Emit creator-started-battle event to both players for synchronized countdown
-        // Add a small delay to ensure clients are ready to receive the event
-        setTimeout(() => {
-            console.log(`🚀 Emitting creator-started-battle event for battle ${battle_id}`);
-            socketService.emitToBattle(battle_id, 'creator-started-battle', {
-                battleId: battle_id,
-                message: 'Creator started the battle! Get ready...',
-                creator: {
-                    id: battleSession.creator.id,
-                    username: battleSession.creator.username
-                },
-                opponent: {
-                    id: battleSession.opponent.id,
-                    username: battleSession.opponent.username
-                }
-            });
-            console.log(`✅ creator-started-battle event emitted for battle ${battle_id}`);
-        }, 500);
+        socketService.emitToBattle(battle_id, 'creator-started-battle', {
+            battleId: battle_id,
+            message: 'Creator started the battle! Get ready...',
+            creator: {
+                id: battleSession.creator.id,
+                username: battleSession.creator.username
+            },
+            opponent: {
+                id: battleSession.opponent.id,
+                username: battleSession.opponent.username
+            }
+        });
 
         res.status(200).json({
             message: 'Battle started successfully! Countdown beginning...',

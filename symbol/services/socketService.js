@@ -160,13 +160,11 @@ class SocketService {
 
         // Creator started battle (for start button functionality)
         this.socket.on('creator-started-battle', (data) => {
-            console.log('🚀 Creator started battle:', data);
             this.emitToListeners('creator-started-battle', data);
         });
 
         // Countdown start (for synchronized countdown)
         this.socket.on('countdown-start', (data) => {
-            console.log('⏰ Countdown start:', data);
             this.emitToListeners('countdown-start', data);
         });
 

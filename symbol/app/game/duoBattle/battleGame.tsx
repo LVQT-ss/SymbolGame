@@ -26,6 +26,8 @@ interface BattleSession {
   opponent_score: number;
   creator_correct_answers: number;
   opponent_correct_answers: number;
+  creator_total_time: number;
+  opponent_total_time: number;
   creator_completed: boolean;
   opponent_completed: boolean;
   started_at: string;
@@ -79,7 +81,7 @@ export default function BattleGameScreen() {
   >("waiting");
   const [countdownValue, setCountdownValue] = useState(3);
   const [isMyTurn, setIsMyTurn] = useState(true);
-  const [submittingAnswer, setSubmittingAnswer] = useState(false);
+
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [waitingForOpponent, setWaitingForOpponent] = useState(false);
   const [showRoundResult, setShowRoundResult] = useState(false);
@@ -247,103 +249,46 @@ export default function BattleGameScreen() {
   };
 
   const handleCreatorStartedBattle = (data: any) => {
-    console.log("🚀 RECEIVED creator-started-battle event via socket:", data);
     const currentBattleId = parseInt(battleId);
     const eventBattleId = parseInt(data.battleId);
 
     if (eventBattleId === currentBattleId) {
-      console.log("🕐 Creator started battle! Beginning countdown...");
-
-      // Clear the timeout fallback if Socket.IO event arrived
       if ((window as any).battleStartTimeout) {
         clearTimeout((window as any).battleStartTimeout);
-        console.log("✅ Cleared fallback timeout - Socket.IO event received");
       }
-
       startCountdown();
     }
   };
 
   const handleCountdownStart = (data: any) => {
-    console.log("⏰ RECEIVED countdown-start event via socket:", data);
     const currentBattleId = parseInt(battleId);
     const eventBattleId = parseInt(data.battleId);
 
     if (eventBattleId === currentBattleId) {
-      console.log("🕐 Starting synchronized countdown...");
       startCountdown();
     }
   };
 
   const handleBattleCompleted = (data: any) => {
-    console.log("🎉 RECEIVED battle-completed event via socket:", data);
-    console.log(
-      "🔍 Current battleId:",
-      battleId,
-      "(type:",
-      typeof battleId,
-      ") Event battleId:",
-      data.battleId,
-      "(type:",
-      typeof data.battleId,
-      ")"
-    );
-
-    // Convert both to numbers for comparison to handle string/number mismatch
     const currentBattleId = parseInt(battleId);
     const eventBattleId = parseInt(data.battleId);
 
     if (eventBattleId === currentBattleId) {
-      console.log("✅ Battle IDs match! Transitioning to results screen...");
       transitionToResults();
-    } else {
-      console.warn("❌ Battle ID mismatch, ignoring event", {
-        current: currentBattleId,
-        event: eventBattleId,
-      });
     }
   };
 
   const startBattle = async () => {
     try {
-      console.log("🚀 Creator starting battle...");
-      console.log("📊 Battle details:", {
-        battleId,
-        currentUserId,
-        isCreator: currentUserId === creator?.id,
-        creatorId: creator?.id,
-        opponentId: opponent?.id,
-        socketConnected: socketService.isSocketConnected(),
-      });
-
       setGameLoading(true);
+      await battleAPI.startBattle(battleId);
 
-      // Call API to notify backend that creator is starting the battle
-      console.log("📡 Making API call to start battle...");
-      const response = await battleAPI.startBattle(battleId);
-
-      console.log("✅ Battle start API response:", response);
-      console.log("⏰ Waiting for Socket.IO event to start countdown...");
-
-      // Add timeout fallback in case Socket.IO event doesn't arrive
       const timeoutId = setTimeout(() => {
-        console.log(
-          "⚠️ Timeout: Socket.IO event not received, starting countdown anyway"
-        );
         startCountdown();
-      }, 5000); // Increased timeout to 5 seconds
+      }, 3000);
 
-      // Store timeout ID to clear it if Socket.IO event arrives
       (window as any).battleStartTimeout = timeoutId;
     } catch (error) {
-      console.error("❌ Error starting battle:", error);
-      console.error("Error details:", {
-        message: error instanceof Error ? error.message : String(error),
-        response: (error as any)?.response?.data,
-        status: (error as any)?.response?.status,
-      });
-      // Fallback: start countdown locally
-      console.log("🔄 Fallback: Starting countdown locally due to error");
       startCountdown();
     } finally {
       setGameLoading(false);
@@ -351,7 +296,6 @@ export default function BattleGameScreen() {
   };
 
   const startCountdown = () => {
-    console.log("⏰ Starting 3-second countdown...");
     setGamePhase("countdown");
     setCountdownValue(3);
 
@@ -359,7 +303,6 @@ export default function BattleGameScreen() {
       setCountdownValue((prev) => {
         if (prev <= 1) {
           clearInterval(countdownInterval);
-          console.log("🚀 Countdown finished! Starting game...");
           setGamePhase("playing");
           setCurrentRoundIndex(0);
           setGameStartTime(Date.now());
@@ -371,20 +314,15 @@ export default function BattleGameScreen() {
   };
 
   const transitionToResults = () => {
-    console.log("🎯 Transitioning to results screen...");
     setWaitingForOpponent(false);
     setGameLoading(true);
 
     loadBattleSession()
       .then(() => {
-        console.log("📊 Battle session loaded, showing results screen");
         setGamePhase("completed");
         setGameLoading(false);
       })
       .catch((error) => {
-        console.error("Error loading final battle session:", error);
-        // Fallback: transition to completed anyway
-        console.log("🔄 Using fallback: transitioning to completed anyway");
         setGamePhase("completed");
         setGameLoading(false);
       });
@@ -706,39 +644,41 @@ export default function BattleGameScreen() {
 
   const submitAnswer = async (answer: string) => {
     if (
-      submittingAnswer ||
       !battleSession ||
-      currentRoundIndex >= rounds.length
+      currentRoundIndex >= rounds.length ||
+      selectedAnswer
     ) {
-      return;
+      return; // Prevent multiple submissions for same round
     }
 
+    setSelectedAnswer(answer);
+
+    const currentRound = rounds[currentRoundIndex];
+    const responseTime = Math.floor((Date.now() - roundStartTime) / 1000);
+    const isCreator = currentUserId === creator?.id;
+
+    // Immediately update UI with user's answer
+    const updatedRounds = [...rounds];
+    if (isCreator) {
+      updatedRounds[currentRoundIndex] = {
+        ...updatedRounds[currentRoundIndex],
+        creator_symbol: answer,
+        creator_response_time: responseTime,
+      };
+    } else {
+      updatedRounds[currentRoundIndex] = {
+        ...updatedRounds[currentRoundIndex],
+        opponent_symbol: answer,
+        opponent_response_time: responseTime,
+      };
+    }
+    setRounds(updatedRounds);
+
+    // Immediately move to next round - no waiting
+    moveToNextRound();
+
+    // Submit to backend in background (no UI blocking)
     try {
-      setSubmittingAnswer(true);
-      setSelectedAnswer(answer);
-
-      const currentRound = rounds[currentRoundIndex];
-      const responseTime = Math.floor((Date.now() - roundStartTime) / 1000);
-      const isCreator = currentUserId === creator?.id;
-
-      // Immediately update UI with user's answer for instant feedback
-      const updatedRounds = [...rounds];
-      if (isCreator) {
-        updatedRounds[currentRoundIndex] = {
-          ...updatedRounds[currentRoundIndex],
-          creator_symbol: answer,
-          creator_response_time: responseTime,
-        };
-      } else {
-        updatedRounds[currentRoundIndex] = {
-          ...updatedRounds[currentRoundIndex],
-          opponent_symbol: answer,
-          opponent_response_time: responseTime,
-        };
-      }
-      setRounds(updatedRounds);
-
-      // Emit Socket.IO event for instant notification
       if (socketService.isSocketConnected()) {
         socketService.submitRound(
           battleSession.id,
@@ -748,58 +688,14 @@ export default function BattleGameScreen() {
         );
       }
 
-      // Submit to backend
-      const response = await battleAPI.submitBattleRound({
+      await battleAPI.submitBattleRound({
         battle_session_id: battleSession.id,
         round_number: currentRound.round_number,
         user_symbol: answer,
         response_time: responseTime,
       });
-
-      if (response && response.round_result) {
-        // Update with server response
-        const serverUpdatedRounds = [...updatedRounds];
-        if (isCreator) {
-          serverUpdatedRounds[currentRoundIndex] = {
-            ...serverUpdatedRounds[currentRoundIndex],
-            creator_is_correct: response.round_result.is_correct,
-          };
-        } else {
-          serverUpdatedRounds[currentRoundIndex] = {
-            ...serverUpdatedRounds[currentRoundIndex],
-            opponent_is_correct: response.round_result.is_correct,
-          };
-        }
-        setRounds(serverUpdatedRounds);
-        setLastRoundResult(response.round_result);
-
-        // Immediately move to next round - no delays or round results
-        moveToNextRound();
-      }
     } catch (error) {
-      console.error("Error submitting answer:", error);
-      Alert.alert("Error", "Failed to submit answer. Please try again.");
-
-      // Revert UI changes on error
-      setSelectedAnswer("");
-      const revertedRounds = [...rounds];
-      const isCreator = currentUserId === creator?.id;
-      if (isCreator) {
-        revertedRounds[currentRoundIndex] = {
-          ...revertedRounds[currentRoundIndex],
-          creator_symbol: undefined,
-          creator_response_time: undefined,
-        };
-      } else {
-        revertedRounds[currentRoundIndex] = {
-          ...revertedRounds[currentRoundIndex],
-          opponent_symbol: undefined,
-          opponent_response_time: undefined,
-        };
-      }
-      setRounds(revertedRounds);
-    } finally {
-      setSubmittingAnswer(false);
+      // Silent background submission - don't interrupt gameplay
     }
   };
 
@@ -822,41 +718,19 @@ export default function BattleGameScreen() {
       const totalTime = Math.floor((Date.now() - gameStartTime) / 1000);
       setTotalGameTime(totalTime);
 
-      console.log("🏁 Completing battle for current player...");
-
       const response = await battleAPI.completeBattle(
         battleSession!.id,
         totalTime
       );
 
       if (response) {
-        console.log("📊 completeBattle API response:", {
-          battle_completed: response.battle_completed,
-          message: response.message,
-          your_results: response.your_results,
-        });
-
-        // ALWAYS wait for opponent regardless of API response
-        // This ensures both players transition to results simultaneously
-        console.log(
-          "⏳ Current player finished, waiting for opponent to complete..."
-        );
         setWaitingForOpponent(true);
 
-        // Emit Socket.IO event to notify opponent
         if (socketService.isSocketConnected()) {
           socketService.completeBattle(battleSession!.id);
-          console.log("📡 Emitted complete-battle event via Socket.IO");
-        } else {
-          console.log("❌ Socket.IO not connected, relying only on polling");
         }
-
-        // Only transition to results when Socket.IO battle-completed event is received
-        // This ensures both players see results at the same time
-        console.log("🔄 Waiting for battle-completed event from Socket.IO...");
       }
     } catch (error) {
-      console.error("Error completing battle:", error);
       Alert.alert("Error", "Failed to complete battle. Please try again.");
     } finally {
       setGameLoading(false);
@@ -874,6 +748,12 @@ export default function BattleGameScreen() {
       return [baseStyle, styles.selectedAnswer];
     }
     return baseStyle;
+  };
+
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.round(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
   const renderWaitingScreen = () => (
@@ -1024,16 +904,7 @@ export default function BattleGameScreen() {
                 styles.startBattleButton,
                 { opacity: playersInRoom === totalPlayers ? 1 : 0.6 },
               ]}
-              onPress={() => {
-                console.log("🔘 START BATTLE BUTTON PRESSED!");
-                console.log("Button state:", {
-                  gameLoading,
-                  playersInRoom,
-                  totalPlayers,
-                  disabled: gameLoading || playersInRoom !== totalPlayers,
-                });
-                startBattle();
-              }}
+              onPress={startBattle}
               disabled={gameLoading || playersInRoom !== totalPlayers}
             >
               {gameLoading ? (
@@ -1051,65 +922,6 @@ export default function BattleGameScreen() {
                 Waiting for all players to join before starting
               </Text>
             )}
-
-            {/* Debug: Direct countdown button */}
-            <TouchableOpacity
-              style={[
-                styles.startBattleButton,
-                {
-                  backgroundColor: "#FF9800",
-                  marginTop: 15,
-                },
-              ]}
-              onPress={() => {
-                console.log("🔧 DEBUG: Direct countdown test button pressed");
-                startCountdown();
-              }}
-            >
-              <Ionicons name="bug" size={24} color="#fff" />
-              <Text style={styles.startBattleButtonText}>
-                DEBUG: Test Countdown
-              </Text>
-            </TouchableOpacity>
-
-            {/* Debug: Test API call */}
-            <TouchableOpacity
-              style={[
-                styles.startBattleButton,
-                {
-                  backgroundColor: "#9C27B0",
-                  marginTop: 10,
-                },
-              ]}
-              onPress={async () => {
-                try {
-                  console.log("🔧 DEBUG: Testing API connection...");
-                  const response = await fetch(
-                    "https://symbolgame.onrender.com/api/battle/test",
-                    {
-                      method: "GET",
-                      headers: {
-                        "Content-Type": "application/json",
-                      },
-                    }
-                  );
-                  const data = await response.json();
-                  console.log("✅ API Test Response:", data);
-                  Alert.alert("API Test", `Success: ${data.message}`);
-                } catch (error) {
-                  console.error("❌ API Test Error:", error);
-                  Alert.alert(
-                    "API Test",
-                    `Error: ${
-                      error instanceof Error ? error.message : String(error)
-                    }`
-                  );
-                }
-              }}
-            >
-              <Ionicons name="cloud" size={24} color="#fff" />
-              <Text style={styles.startBattleButtonText}>DEBUG: Test API</Text>
-            </TouchableOpacity>
           </View>
         ) : (
           <View style={styles.readyToStartOpponentSection}>
@@ -1193,24 +1005,6 @@ export default function BattleGameScreen() {
                 ? "Connected via Socket.IO"
                 : "Using polling for updates"}
             </Text>
-
-            {/* Debug: Manual results trigger */}
-            <TouchableOpacity
-              style={{
-                backgroundColor: "#E91E63",
-                padding: 10,
-                borderRadius: 5,
-                marginTop: 20,
-              }}
-              onPress={() => {
-                console.log("🔧 DEBUG: Manual transition to results triggered");
-                transitionToResults();
-              }}
-            >
-              <Text style={{ color: "white", textAlign: "center" }}>
-                DEBUG: Show Results
-              </Text>
-            </TouchableOpacity>
           </View>
         </View>
       );
@@ -1276,32 +1070,22 @@ export default function BattleGameScreen() {
           <TouchableOpacity
             style={getAnswerStyle("<")}
             onPress={() => submitAnswer("<")}
-            disabled={submittingAnswer}
           >
             <Text style={styles.answerText}>{"<"}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={getAnswerStyle("=")}
             onPress={() => submitAnswer("=")}
-            disabled={submittingAnswer}
           >
             <Text style={styles.answerText}>{"="}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={getAnswerStyle(">")}
             onPress={() => submitAnswer(">")}
-            disabled={submittingAnswer}
           >
             <Text style={styles.answerText}>{">"}</Text>
           </TouchableOpacity>
         </View>
-
-        {submittingAnswer && (
-          <View style={styles.submittingOverlay}>
-            <ActivityIndicator size="large" color="#E91E63" />
-            <Text style={styles.submittingText}>Submitting answer...</Text>
-          </View>
-        )}
       </View>
     );
   };
@@ -1344,6 +1128,9 @@ export default function BattleGameScreen() {
               {battleSession?.creator_correct_answers || 0}/{rounds.length}{" "}
               correct
             </Text>
+            <Text style={styles.finalPlayerTime}>
+              ⏱️ {formatTime(battleSession?.creator_total_time || 0)}
+            </Text>
           </View>
 
           <View style={styles.finalPlayerScore}>
@@ -1355,6 +1142,43 @@ export default function BattleGameScreen() {
               {battleSession?.opponent_correct_answers || 0}/{rounds.length}{" "}
               correct
             </Text>
+            <Text style={styles.finalPlayerTime}>
+              ⏱️ {formatTime(battleSession?.opponent_total_time || 0)}
+            </Text>
+          </View>
+        </View>
+
+        {/* Time Comparison */}
+        <View style={styles.timeComparisonContainer}>
+          <Text style={styles.timeComparisonTitle}>⏱️ Speed Analysis</Text>
+          <View style={styles.timeComparisonStats}>
+            <View style={styles.timeStatItem}>
+              <Text style={styles.timeStatLabel}>Fastest Completion</Text>
+              <Text style={styles.timeStatValue}>
+                {(battleSession?.creator_total_time || 0) <
+                (battleSession?.opponent_total_time || 0)
+                  ? creator?.username
+                  : opponent?.username}{" "}
+                -{" "}
+                {formatTime(
+                  Math.min(
+                    battleSession?.creator_total_time || 0,
+                    battleSession?.opponent_total_time || 0
+                  )
+                )}
+              </Text>
+            </View>
+            <View style={styles.timeStatItem}>
+              <Text style={styles.timeStatLabel}>Time Difference</Text>
+              <Text style={styles.timeStatValue}>
+                {formatTime(
+                  Math.abs(
+                    (battleSession?.creator_total_time || 0) -
+                      (battleSession?.opponent_total_time || 0)
+                  )
+                )}
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -1622,21 +1446,7 @@ const styles = StyleSheet.create({
     color: "#888",
     marginTop: 16,
   },
-  submittingOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.8)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  submittingText: {
-    fontSize: 16,
-    color: "#fff",
-    marginTop: 16,
-  },
+
   // Completed Screen Styles
   completedContainer: {
     flex: 1,
@@ -1685,6 +1495,48 @@ const styles = StyleSheet.create({
   finalPlayerDetails: {
     fontSize: 12,
     color: "#666",
+  },
+  finalPlayerTime: {
+    fontSize: 12,
+    color: "#4CAF50",
+    marginTop: 4,
+    fontWeight: "500",
+  },
+  // Time Comparison Styles
+  timeComparisonContainer: {
+    backgroundColor: "#1a1a1a",
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 30,
+    width: "100%",
+  },
+  timeComparisonTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#fff",
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  timeComparisonStats: {
+    gap: 12,
+  },
+  timeStatItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
+  },
+  timeStatLabel: {
+    fontSize: 14,
+    color: "#888",
+    fontWeight: "500",
+  },
+  timeStatValue: {
+    fontSize: 14,
+    color: "#4CAF50",
+    fontWeight: "600",
   },
   actionButtonsContainer: {
     width: "100%",
