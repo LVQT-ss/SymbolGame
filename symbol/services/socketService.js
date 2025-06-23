@@ -165,7 +165,26 @@ class SocketService {
 
         // Countdown start (for synchronized countdown)
         this.socket.on('countdown-start', (data) => {
+            console.log('⏰ Countdown started:', data);
             this.emitToListeners('countdown-start', data);
+        });
+
+        // Countdown updates (for synchronized countdown)
+        this.socket.on('countdown-update', (data) => {
+            console.log('⏰ Countdown update:', data);
+            this.emitToListeners('countdown-update', data);
+        });
+
+        // Countdown finished (battle starts)
+        this.socket.on('countdown-finished', (data) => {
+            console.log('⏰ Countdown finished:', data);
+            this.emitToListeners('countdown-finished', data);
+        });
+
+        // Round result (immediate feedback)
+        this.socket.on('round-result', (data) => {
+            console.log('🎯 Round result:', data);
+            this.emitToListeners('round-result', data);
         });
 
         // Error handling

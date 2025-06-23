@@ -26,12 +26,17 @@ interface BattleSession {
   opponent_score: number;
   creator_correct_answers: number;
   opponent_correct_answers: number;
+  creator_error_count?: number;
+  opponent_error_count?: number;
+  creator_accuracy?: string;
+  opponent_accuracy?: string;
   creator_total_time: number;
   opponent_total_time: number;
   creator_completed: boolean;
   opponent_completed: boolean;
   started_at: string;
   completed_at: string;
+  completed?: boolean;
 }
 
 interface Player {
@@ -135,14 +140,23 @@ export default function BattleGameScreen() {
         handleCreatorStartedBattle
       );
       socketService.addEventListener("countdown-start", handleCountdownStart);
+      socketService.addEventListener("countdown-update", handleCountdownUpdate);
+      socketService.addEventListener(
+        "countdown-finished",
+        handleCountdownFinished
+      );
       socketService.addEventListener("round-submitted", handleRoundSubmitted);
+      socketService.addEventListener("round-result", handleRoundResult);
       socketService.addEventListener("player-completed", handlePlayerCompleted);
       socketService.addEventListener("battle-completed", handleBattleCompleted);
       console.log("✅ Socket.IO event listeners registered:", [
         "opponent-joined",
         "creator-started-battle",
         "countdown-start",
+        "countdown-update",
+        "countdown-finished",
         "round-submitted",
+        "round-result",
         "player-completed",
         "battle-completed",
       ]);
@@ -185,7 +199,16 @@ export default function BattleGameScreen() {
       handleCreatorStartedBattle
     );
     socketService.removeEventListener("countdown-start", handleCountdownStart);
+    socketService.removeEventListener(
+      "countdown-update",
+      handleCountdownUpdate
+    );
+    socketService.removeEventListener(
+      "countdown-finished",
+      handleCountdownFinished
+    );
     socketService.removeEventListener("round-submitted", handleRoundSubmitted);
+    socketService.removeEventListener("round-result", handleRoundResult);
     socketService.removeEventListener(
       "player-completed",
       handlePlayerCompleted
@@ -265,7 +288,60 @@ export default function BattleGameScreen() {
     const eventBattleId = parseInt(data.battleId);
 
     if (eventBattleId === currentBattleId) {
-      startCountdown();
+      console.log("⏰ Starting synchronized countdown");
+      setGamePhase("countdown");
+      setCountdownValue(data.countdown || 3);
+    }
+  };
+
+  const handleCountdownUpdate = (data: any) => {
+    const currentBattleId = parseInt(battleId);
+    const eventBattleId = parseInt(data.battleId);
+
+    if (eventBattleId === currentBattleId) {
+      console.log("⏰ Countdown update:", data.countdown);
+      setCountdownValue(data.countdown);
+    }
+  };
+
+  const handleCountdownFinished = (data: any) => {
+    const currentBattleId = parseInt(battleId);
+    const eventBattleId = parseInt(data.battleId);
+
+    if (eventBattleId === currentBattleId) {
+      console.log("⏰ Countdown finished, starting battle");
+      setCountdownValue(0);
+      setGamePhase("playing");
+      setCurrentRoundIndex(0);
+      setGameStartTime(Date.now());
+    }
+  };
+
+  const handleRoundResult = (data: any) => {
+    const currentBattleId = parseInt(battleId);
+    const eventBattleId = parseInt(data.battleId);
+
+    if (eventBattleId === currentBattleId) {
+      console.log("🎯 Round result received:", data);
+
+      // Show round result feedback
+      setLastRoundResult({
+        roundNumber: data.roundNumber,
+        creatorAnswer: data.creatorAnswer,
+        opponentAnswer: data.opponentAnswer,
+        correctAnswer: data.correctAnswer,
+        creatorCorrect: data.creatorCorrect,
+        opponentCorrect: data.opponentCorrect,
+        creatorTime: data.creatorTime,
+        opponentTime: data.opponentTime,
+      });
+      setShowRoundResult(true);
+
+      // Hide result after 2 seconds
+      setTimeout(() => {
+        setShowRoundResult(false);
+        setLastRoundResult(null);
+      }, 2000);
     }
   };
 
@@ -275,13 +351,10 @@ export default function BattleGameScreen() {
 
     if (eventBattleId === currentBattleId) {
       console.log("🏁 Battle completed event received:", data);
-      console.log("🏁 Creator total time:", data.results?.creator?.total_time);
-      console.log(
-        "🏁 Opponent total time:",
-        data.results?.opponent?.total_time
-      );
+      console.log("🏁 Creator details:", data.results?.creator);
+      console.log("🏁 Opponent details:", data.results?.opponent);
 
-      // Update battle session with the results data from socket event
+      // Update battle session with the detailed results data from socket event
       if (data.results) {
         setBattleSession((prev) =>
           prev
@@ -291,13 +364,12 @@ export default function BattleGameScreen() {
                 opponent_total_time: data.results.opponent.total_time,
                 creator_score: data.results.creator.score,
                 opponent_score: data.results.opponent.score,
-                // Handle both formats: correct_answers and correctAnswers
-                creator_correct_answers:
-                  data.results.creator.correct_answers ||
-                  data.results.creator.correctAnswers,
-                opponent_correct_answers:
-                  data.results.opponent.correct_answers ||
-                  data.results.opponent.correctAnswers,
+                creator_correct_answers: data.results.creator.correctAnswers,
+                opponent_correct_answers: data.results.opponent.correctAnswers,
+                creator_error_count: data.results.creator.errorCount,
+                opponent_error_count: data.results.opponent.errorCount,
+                creator_accuracy: data.results.creator.accuracy,
+                opponent_accuracy: data.results.opponent.accuracy,
                 completed_at: data.completed_at,
                 completed: true,
               }
@@ -305,8 +377,8 @@ export default function BattleGameScreen() {
         );
 
         // Update winner
-        if (data.winner) {
-          setWinner(data.winner);
+        if (data.results.winner) {
+          setWinner(data.results.winner);
         }
       }
 
@@ -1174,8 +1246,18 @@ export default function BattleGameScreen() {
               {battleSession?.creator_score || 0}
             </Text>
             <Text style={styles.finalPlayerDetails}>
-              {battleSession?.creator_correct_answers || 0}/{rounds.length}{" "}
+              ✅ {battleSession?.creator_correct_answers || 0}/{rounds.length}{" "}
               correct
+            </Text>
+            <Text style={styles.finalPlayerDetails}>
+              ❌{" "}
+              {battleSession?.creator_error_count ||
+                rounds.length -
+                  (battleSession?.creator_correct_answers || 0)}{" "}
+              errors
+            </Text>
+            <Text style={styles.finalPlayerDetails}>
+              🎯 {battleSession?.creator_accuracy || "0"}% accuracy
             </Text>
             <Text style={styles.finalPlayerTime}>
               ⏱️ {formatTime(battleSession?.creator_total_time || 0)}
@@ -1188,8 +1270,18 @@ export default function BattleGameScreen() {
               {battleSession?.opponent_score || 0}
             </Text>
             <Text style={styles.finalPlayerDetails}>
-              {battleSession?.opponent_correct_answers || 0}/{rounds.length}{" "}
+              ✅ {battleSession?.opponent_correct_answers || 0}/{rounds.length}{" "}
               correct
+            </Text>
+            <Text style={styles.finalPlayerDetails}>
+              ❌{" "}
+              {battleSession?.opponent_error_count ||
+                rounds.length -
+                  (battleSession?.opponent_correct_answers || 0)}{" "}
+              errors
+            </Text>
+            <Text style={styles.finalPlayerDetails}>
+              🎯 {battleSession?.opponent_accuracy || "0"}% accuracy
             </Text>
             <Text style={styles.finalPlayerTime}>
               ⏱️ {formatTime(battleSession?.opponent_total_time || 0)}
@@ -1248,6 +1340,68 @@ export default function BattleGameScreen() {
             <Text style={styles.secondaryButtonText}>Back to Menu</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Round Result Overlay */}
+        {showRoundResult && lastRoundResult && (
+          <View style={styles.roundResultOverlay}>
+            <View style={styles.roundResultContent}>
+              <Text style={styles.roundResultTitle}>
+                Round {lastRoundResult.roundNumber} Results
+              </Text>
+
+              <View style={styles.roundResultAnswers}>
+                <View style={styles.roundResultPlayer}>
+                  <Text style={styles.roundResultPlayerName}>
+                    {creator?.username}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.roundResultAnswer,
+                      {
+                        color: lastRoundResult.creatorCorrect
+                          ? "#4CAF50"
+                          : "#F44336",
+                      },
+                    ]}
+                  >
+                    {lastRoundResult.creatorAnswer}
+                  </Text>
+                  <Text style={styles.roundResultTime}>
+                    {lastRoundResult.creatorTime?.toFixed(1)}s
+                  </Text>
+                </View>
+
+                <View style={styles.roundResultCorrect}>
+                  <Text style={styles.roundResultCorrectLabel}>Correct:</Text>
+                  <Text style={styles.roundResultCorrectAnswer}>
+                    {lastRoundResult.correctAnswer}
+                  </Text>
+                </View>
+
+                <View style={styles.roundResultPlayer}>
+                  <Text style={styles.roundResultPlayerName}>
+                    {opponent?.username}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.roundResultAnswer,
+                      {
+                        color: lastRoundResult.opponentCorrect
+                          ? "#4CAF50"
+                          : "#F44336",
+                      },
+                    ]}
+                  >
+                    {lastRoundResult.opponentAnswer}
+                  </Text>
+                  <Text style={styles.roundResultTime}>
+                    {lastRoundResult.opponentTime?.toFixed(1)}s
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        )}
       </View>
     );
   };
@@ -1914,5 +2068,68 @@ const styles = StyleSheet.create({
   playerStatusText: {
     fontSize: 12,
     color: "#888",
+  },
+  // Round Result Overlay Styles
+  roundResultOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  roundResultContent: {
+    backgroundColor: "#1a1a1a",
+    padding: 20,
+    borderRadius: 16,
+    width: "80%",
+    maxHeight: "80%",
+  },
+  roundResultTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 20,
+  },
+  roundResultAnswers: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  roundResultPlayer: {
+    alignItems: "center",
+  },
+  roundResultPlayerName: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 4,
+  },
+  roundResultAnswer: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  roundResultTime: {
+    fontSize: 12,
+    color: "#888",
+    marginTop: 4,
+  },
+  roundResultCorrect: {
+    alignItems: "center",
+  },
+  roundResultCorrectLabel: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 4,
+  },
+  roundResultCorrectAnswer: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#4CAF50",
   },
 });

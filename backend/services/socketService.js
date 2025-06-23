@@ -160,7 +160,7 @@ class SocketService {
                     }
                 });
 
-                // If both players submitted, emit round complete
+                // If both players submitted, emit round complete with results
                 if (roundDetails.length === 2) {
                     const roundResults = this.calculateRoundResults(roundDetails, battle);
 
@@ -168,6 +168,20 @@ class SocketService {
                         battleId,
                         roundNumber,
                         results: roundResults,
+                        timestamp: Date.now()
+                    });
+
+                    // Emit individual round result to each player for immediate feedback
+                    this.io.to(battleRoom).emit('round-result', {
+                        battleId,
+                        roundNumber,
+                        creatorAnswer: roundResults.creator.symbol,
+                        opponentAnswer: roundResults.opponent.symbol,
+                        correctAnswer: roundResults.correctAnswer,
+                        creatorCorrect: roundResults.creator.isCorrect,
+                        opponentCorrect: roundResults.opponent.isCorrect,
+                        creatorTime: roundResults.creator.responseTime,
+                        opponentTime: roundResults.opponent.responseTime,
                         timestamp: Date.now()
                     });
                 }
@@ -194,13 +208,14 @@ class SocketService {
             });
 
             if (battle && battle.creator_completed && battle.opponent_completed) {
-                // Battle is fully completed, emit final results
+                // Battle is fully completed, emit final results with detailed statistics
                 const finalResults = await this.calculateFinalResults(battle);
 
                 this.io.to(battleRoom).emit('battle-completed', {
                     battleId,
                     results: finalResults,
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    completed_at: new Date().toISOString()
                 });
 
                 // Clean up battle room
@@ -278,7 +293,12 @@ class SocketService {
     }
 
     async calculateFinalResults(battle) {
-        // Calculate final battle results
+        // Use the new detailed results calculation for consistency
+        return await this.calculateDetailedResults(battle);
+    }
+
+    async calculateDetailedResults(battle) {
+        // Calculate comprehensive battle results with error counts
         const roundDetails = await BattleRoundDetail.findAll({
             where: { battle_session_id: battle.id },
             order: [['round_number', 'ASC']]
@@ -289,6 +309,12 @@ class SocketService {
 
         const creatorScore = creatorRounds.reduce((sum, r) => sum + (r.score_earned || 0), 0);
         const opponentScore = opponentRounds.reduce((sum, r) => sum + (r.score_earned || 0), 0);
+
+        const creatorCorrect = creatorRounds.filter(r => r.is_correct).length;
+        const opponentCorrect = opponentRounds.filter(r => r.is_correct).length;
+
+        const creatorErrors = creatorRounds.length - creatorCorrect;
+        const opponentErrors = opponentRounds.length - opponentCorrect;
 
         let winner = null;
         if (creatorScore > opponentScore) {
@@ -301,17 +327,24 @@ class SocketService {
             creator: {
                 user: battle.creator,
                 score: creatorScore,
-                correctAnswers: creatorRounds.filter(r => r.is_correct).length,
+                correctAnswers: creatorCorrect,
+                errorCount: creatorErrors,
+                totalAnswers: creatorRounds.length,
+                accuracy: creatorRounds.length > 0 ? (creatorCorrect / creatorRounds.length * 100).toFixed(1) : 0,
                 total_time: battle.creator_total_time
             },
             opponent: {
                 user: battle.opponent,
                 score: opponentScore,
-                correctAnswers: opponentRounds.filter(r => r.is_correct).length,
+                correctAnswers: opponentCorrect,
+                errorCount: opponentErrors,
+                totalAnswers: opponentRounds.length,
+                accuracy: opponentRounds.length > 0 ? (opponentCorrect / opponentRounds.length * 100).toFixed(1) : 0,
                 total_time: battle.opponent_total_time
             },
             winner,
-            totalRounds: Math.max(creatorRounds.length, opponentRounds.length)
+            totalRounds: Math.max(creatorRounds.length, opponentRounds.length),
+            roundDetails: roundDetails
         };
     }
 
@@ -328,12 +361,50 @@ class SocketService {
         }
     }
 
+    // Start synchronized countdown for battle
+    startSynchronizedCountdown(battleId) {
+        this.startBattleCountdown(battleId);
+    }
+
     isUserConnected(userId) {
         return this.connectedUsers.has(userId);
     }
 
     getBattleRoomSize(battleId) {
         return this.battleRooms.get(battleId)?.size || 0;
+    }
+
+    // Add countdown synchronization methods
+    startBattleCountdown(battleId) {
+        const battleRoom = `battle_${battleId}`;
+
+        console.log(`⏰ Starting countdown for battle ${battleId}`);
+        this.io.to(battleRoom).emit('countdown-start', {
+            battleId,
+            countdown: 3,
+            timestamp: Date.now()
+        });
+
+        // Send countdown updates
+        let countdownValue = 3;
+        const countdownInterval = setInterval(() => {
+            countdownValue--;
+
+            if (countdownValue > 0) {
+                this.io.to(battleRoom).emit('countdown-update', {
+                    battleId,
+                    countdown: countdownValue,
+                    timestamp: Date.now()
+                });
+            } else {
+                clearInterval(countdownInterval);
+                this.io.to(battleRoom).emit('countdown-finished', {
+                    battleId,
+                    message: 'Battle started!',
+                    timestamp: Date.now()
+                });
+            }
+        }, 1000);
     }
 }
 

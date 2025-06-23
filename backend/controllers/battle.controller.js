@@ -394,6 +394,9 @@ export const startBattle = async (req, res) => {
             }
         });
 
+        // Start synchronized countdown
+        socketService.startSynchronizedCountdown(battle_id);
+
         res.status(200).json({
             message: 'Battle started successfully! Countdown beginning...',
             battle_id: battle_id,
