@@ -94,18 +94,15 @@ export default function BattleResultScreen() {
         setOpponent(response.opponent);
         setRounds(response.rounds || []);
 
-        // Determine winner - use both winner object from API and winner_id from session
-        if (response.winner) {
-          setWinner(response.winner);
-        } else if (session.winner_id) {
-          // Fallback to winner_id if winner object not provided
+        // Determine winner
+        if (session.winner_id) {
           if (session.winner_id === response.creator?.id) {
             setWinner(response.creator);
           } else if (session.winner_id === response.opponent?.id) {
             setWinner(response.opponent);
           }
         } else {
-          // Final fallback: determine winner based on scores
+          // Fallback: determine winner based on scores
           const creatorScore = session.creator_score || 0;
           const opponentScore = session.opponent_score || 0;
 
