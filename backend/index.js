@@ -14,6 +14,7 @@ import adminRoutes from './routes/admin.route.js';
 import commentRoutes from './routes/comment.route.js';
 import transactionRoutes from './routes/transaction.route.js';
 import battleRoutes from './routes/battle.route.js';
+import leaderboardRoutes from './routes/leaderboard.route.js';
 import { getCacheStats } from './middleware/cache.js';
 import socketService from './services/socketService.js';
 import dotenv from 'dotenv';
@@ -44,6 +45,7 @@ app.use('/api/game', gameRoutes);
 app.use('/api/battle', battleRoutes);
 app.use('/api/comments', commentRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/leaderboard', leaderboardRoutes);
 
 // Health check endpoint with system stats
 app.get('/api/health', async (req, res) => {

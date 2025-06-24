@@ -10,6 +10,7 @@ import GameSessionComment from './game-session-comments.model.js';
 import PaymentTransaction from './payment-transactions.model.js';
 import BattleSession from './battle-sessions.model.js';
 import BattleRoundDetail from './battle-round-details.model.js';
+import LeaderboardCache from './leaderboard-cache.model.js';
 
 function setupAssociations() {
     // User - UserStatistics (One-to-One)
@@ -238,6 +239,17 @@ function setupAssociations() {
     BattleRoundDetail.belongsTo(BattleSession, {
         foreignKey: 'battle_session_id',
         as: 'battleSession'
+    });
+
+    // User - LeaderboardCache (One-to-Many)
+    User.hasMany(LeaderboardCache, {
+        foreignKey: 'user_id',
+        as: 'leaderboardEntries',
+        onDelete: 'CASCADE'
+    });
+    LeaderboardCache.belongsTo(User, {
+        foreignKey: 'user_id',
+        as: 'user'
     });
 }
 
