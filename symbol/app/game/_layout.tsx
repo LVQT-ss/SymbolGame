@@ -74,6 +74,13 @@ export default function GameLayout() {
           title: "Battle Analysis",
         }}
       />
+      <Stack.Screen
+        name="duoBattle/battleResult"
+        options={{
+          headerShown: false,
+          title: "Battle Results",
+        }}
+      />
     </Stack>
   );
 }

@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  StatusBar,
 } from "react-native";
 import { battleAPI } from "../../../services/api";
 
@@ -25,8 +26,6 @@ interface BattleSession {
   opponent_correct_answers: number;
   creator_error_count?: number;
   opponent_error_count?: number;
-  creator_accuracy?: string;
-  opponent_accuracy?: string;
   creator_total_time: number;
   opponent_total_time: number;
   creator_completed: boolean;
@@ -62,7 +61,7 @@ interface BattleRound {
 export default function BattleResultScreen() {
   const params = useLocalSearchParams();
   const battleId = params.battleId as string;
-  const currentUserId = parseInt(params.currentUserId as string);
+  const currentUserId = parseInt(params.currentUserId as string) || 0;
 
   const [battleSession, setBattleSession] = useState<BattleSession | null>(
     null
@@ -72,17 +71,59 @@ export default function BattleResultScreen() {
   const [winner, setWinner] = useState<Player | null>(null);
   const [rounds, setRounds] = useState<BattleRound[]>([]);
   const [loading, setLoading] = useState(true);
+  const [actualCurrentUserId, setActualCurrentUserId] = useState<number | null>(
+    null
+  );
+  const [userIdInitialized, setUserIdInitialized] = useState(false);
 
   useEffect(() => {
     if (battleId) {
-      loadBattleResults();
+      initializeUserAndLoadResults();
     }
   }, [battleId]);
+
+  const initializeUserAndLoadResults = async () => {
+    try {
+      // First, ensure we have a valid user ID
+      let validUserId = currentUserId;
+
+      if (!validUserId || validUserId === 0) {
+        console.log(
+          "⚠️ Invalid currentUserId from params, fetching from storage"
+        );
+        try {
+          const { userAPI } = await import("../../../services/api");
+          const userData = await userAPI.getStoredUserData();
+          if (userData && userData.id) {
+            validUserId = userData.id;
+            console.log("✅ Retrieved user ID from storage:", validUserId);
+          }
+        } catch (error) {
+          console.log("❌ Could not determine current user ID:", error);
+        }
+      }
+
+      setActualCurrentUserId(validUserId);
+      setUserIdInitialized(true);
+
+      // Now load battle results
+      await loadBattleResults();
+    } catch (error) {
+      console.error("❌ Error initializing user and loading results:", error);
+      setLoading(false);
+      setUserIdInitialized(true);
+    }
+  };
 
   const loadBattleResults = async () => {
     try {
       setLoading(true);
       console.log("🔄 Loading battle results for battle ID:", battleId);
+      console.log(
+        "🎯 Current User ID (from params):",
+        currentUserId,
+        typeof currentUserId
+      );
 
       const response = await battleAPI.getBattleSession(battleId);
       console.log("✅ Battle results loaded:", response);
@@ -94,24 +135,66 @@ export default function BattleResultScreen() {
         setOpponent(response.opponent);
         setRounds(response.rounds || []);
 
-        // Determine winner
-        if (session.winner_id) {
+        console.log(
+          "🏆 Winner determination - session.winner_id:",
+          session.winner_id,
+          typeof session.winner_id
+        );
+        console.log(
+          "👑 Creator ID:",
+          response.creator?.id,
+          typeof response.creator?.id
+        );
+        console.log(
+          "⚔️ Opponent ID:",
+          response.opponent?.id,
+          typeof response.opponent?.id
+        );
+
+        // First try to use the winner from response if it exists
+        if (response.winner) {
+          console.log("🎖️ Using winner from response:", response.winner);
+          setWinner(response.winner);
+        }
+        // Then check winner_id from session
+        else if (session.winner_id) {
+          console.log(
+            "🔍 Determining winner from session.winner_id:",
+            session.winner_id
+          );
           if (session.winner_id === response.creator?.id) {
+            console.log("✅ Winner is creator:", response.creator);
             setWinner(response.creator);
           } else if (session.winner_id === response.opponent?.id) {
+            console.log("✅ Winner is opponent:", response.opponent);
             setWinner(response.opponent);
+          } else {
+            console.log("❌ Winner ID doesn't match any player");
+            setWinner(null);
           }
         } else {
+          console.log("🤔 No winner_id, using score-based determination");
           // Fallback: determine winner based on scores
           const creatorScore = session.creator_score || 0;
           const opponentScore = session.opponent_score || 0;
 
+          console.log(
+            "📊 Scores - Creator:",
+            creatorScore,
+            "Opponent:",
+            opponentScore
+          );
+
           if (creatorScore > opponentScore) {
+            console.log("🏆 Creator wins by score");
             setWinner(response.creator);
           } else if (opponentScore > creatorScore) {
+            console.log("🏆 Opponent wins by score");
             setWinner(response.opponent);
+          } else {
+            console.log("🤝 It's a tie");
+            setWinner(null);
           }
-          // If scores are equal, winner remains null (tie)
         }
       }
     } catch (error) {
@@ -132,16 +215,41 @@ export default function BattleResultScreen() {
     return `${mins}:${remainingSecs.padStart(6, "0")}`;
   };
 
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#E91E63" />
+        <Text style={styles.loadingText}>
+          {!userIdInitialized
+            ? "Initializing user..."
+            : "Loading battle results..."}
+        </Text>
+      </View>
+    );
+  }
+
   const renderResultScreen = () => {
-    const userWon = winner?.id === currentUserId;
+    const effectiveUserId = actualCurrentUserId || currentUserId;
+    const userWon = winner?.id === effectiveUserId;
     const isTie = !winner;
 
-    // Debug logging
+    // Enhanced Debug logging
     console.log("🏆 Battle Result Debug:", {
       currentUserId,
-      winner: winner ? { id: winner.id, username: winner.username } : null,
+      actualCurrentUserId,
+      effectiveUserId,
+      currentUserIdType: typeof currentUserId,
+      actualUserIdType: typeof actualCurrentUserId,
+      winner: winner
+        ? { id: winner.id, username: winner.username, idType: typeof winner.id }
+        : null,
       userWon,
       isTie,
+      comparison: winner
+        ? `${winner.id} === ${effectiveUserId} = ${
+            winner.id === effectiveUserId
+          }`
+        : "No winner",
       battleSession: battleSession
         ? {
             creator_score: battleSession.creator_score,
@@ -149,7 +257,32 @@ export default function BattleResultScreen() {
             winner_id: battleSession.winner_id,
           }
         : null,
+      creator: creator ? { id: creator.id, username: creator.username } : null,
+      opponent: opponent
+        ? { id: opponent.id, username: opponent.username }
+        : null,
     });
+
+    // Additional validation check
+    if (!effectiveUserId || effectiveUserId === 0) {
+      console.error(
+        "❌ No valid user ID available - this will cause comparison issues"
+      );
+      return (
+        <View style={styles.completedContainer}>
+          <Text style={styles.resultTitle}>Error loading results</Text>
+          <Text style={styles.resultSubtitle}>
+            Unable to determine current user. Please log in again.
+          </Text>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.replace("/(auth)/Auth")}
+          >
+            <Text style={styles.backButtonText}>Back to Login</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
 
     return (
       <View style={styles.completedContainer}>
@@ -191,9 +324,6 @@ export default function BattleResultScreen() {
                   (battleSession?.creator_correct_answers || 0)}{" "}
               errors
             </Text>
-            <Text style={styles.finalPlayerDetails}>
-              🎯 {battleSession?.creator_accuracy || "0"}% accuracy
-            </Text>
             <Text style={styles.finalPlayerTime}>
               ⏱️ {formatTime(battleSession?.creator_total_time || 0)}
             </Text>
@@ -214,9 +344,6 @@ export default function BattleResultScreen() {
                 rounds.length -
                   (battleSession?.opponent_correct_answers || 0)}{" "}
               errors
-            </Text>
-            <Text style={styles.finalPlayerDetails}>
-              🎯 {battleSession?.opponent_accuracy || "0"}% accuracy
             </Text>
             <Text style={styles.finalPlayerTime}>
               ⏱️ {formatTime(battleSession?.opponent_total_time || 0)}
@@ -279,16 +406,12 @@ export default function BattleResultScreen() {
     );
   };
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#E91E63" />
-        <Text style={styles.loadingText}>Loading results...</Text>
-      </View>
-    );
-  }
-
-  return <View style={styles.container}>{renderResultScreen()}</View>;
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#0a0a0a" />
+      {renderResultScreen()}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -430,5 +553,16 @@ const styles = StyleSheet.create({
     color: "#888",
     fontSize: 16,
     fontWeight: "500",
+  },
+  backButton: {
+    backgroundColor: "#E91E63",
+    padding: 16,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  backButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
   },
 });

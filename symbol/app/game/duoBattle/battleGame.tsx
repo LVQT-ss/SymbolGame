@@ -28,8 +28,6 @@ interface BattleSession {
   opponent_correct_answers: number;
   creator_error_count?: number;
   opponent_error_count?: number;
-  creator_accuracy?: string;
-  opponent_accuracy?: string;
   creator_total_time: number;
   opponent_total_time: number;
   creator_completed: boolean;
@@ -95,6 +93,8 @@ export default function BattleGameScreen() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const pollingInterval = useRef<any>(null);
   const roundPollingInterval = useRef<any>(null);
+  const countdownInterval = useRef<any>(null);
+  const battleStartTimeout = useRef<any>(null);
 
   useEffect(() => {
     if (battleId) {
@@ -105,25 +105,24 @@ export default function BattleGameScreen() {
 
     return () => {
       cleanupSocketListeners();
-      if (pollingInterval.current) {
-        clearInterval(pollingInterval.current);
-      }
-      if (roundPollingInterval.current) {
-        clearInterval(roundPollingInterval.current);
-      }
+      clearAllTimers();
     };
   }, [battleId]);
 
   const initializeUser = async () => {
     try {
-      // Try to get current user data
+      // Always try to get current user data to ensure we have it
       const userData = await userAPI.getStoredUserData();
       if (userData && userData.id) {
         setCurrentUserId(userData.id);
+        console.log("✅ User ID initialized from storage:", userData.id);
+      } else {
+        console.warn("⚠️ No stored user data found - user may need to log in");
       }
       await loadBattleSession();
     } catch (error) {
       console.error("Error initializing user:", error);
+      // Still try to load battle session even if user initialization fails
       await loadBattleSession();
     }
   };
@@ -279,10 +278,12 @@ export default function BattleGameScreen() {
     const eventBattleId = parseInt(data.battleId);
 
     if (eventBattleId === currentBattleId) {
-      if ((window as any).battleStartTimeout) {
-        clearTimeout((window as any).battleStartTimeout);
+      console.log("🚀 Creator started battle, using socket-driven countdown");
+      if (battleStartTimeout.current) {
+        clearTimeout(battleStartTimeout.current);
       }
-      startCountdown();
+      // Don't start local countdown, wait for socket countdown events
+      console.log("⏰ Waiting for synchronized countdown from server");
     }
   };
 
@@ -291,9 +292,30 @@ export default function BattleGameScreen() {
     const eventBattleId = parseInt(data.battleId);
 
     if (eventBattleId === currentBattleId) {
-      console.log("⏰ Starting synchronized countdown");
+      console.log("⏰ Starting synchronized countdown from server");
+
+      // Clear any existing countdown and fallback timers
+      if (countdownInterval.current) {
+        clearInterval(countdownInterval.current);
+        countdownInterval.current = null;
+      }
+      if (battleStartTimeout.current) {
+        clearTimeout(battleStartTimeout.current);
+        battleStartTimeout.current = null;
+      }
+
       setGamePhase("countdown");
       setCountdownValue(data.countdown || 3);
+
+      // Start local countdown as fallback only if socket updates fail
+      countdownInterval.current = setTimeout(() => {
+        console.log(
+          "⚠️ Fallback countdown timeout - no socket updates received"
+        );
+        setGamePhase("playing");
+        setCurrentRoundIndex(0);
+        setGameStartTime(Date.now());
+      }, (data.countdown || 3) * 1000 + 1000); // Extra 1000ms buffer
     }
   };
 
@@ -304,6 +326,12 @@ export default function BattleGameScreen() {
     if (eventBattleId === currentBattleId) {
       console.log("⏰ Countdown update:", data.countdown);
       setCountdownValue(data.countdown);
+
+      // Clear any fallback timeout since we're getting socket updates
+      if (countdownInterval.current) {
+        clearTimeout(countdownInterval.current);
+        countdownInterval.current = null;
+      }
     }
   };
 
@@ -312,11 +340,24 @@ export default function BattleGameScreen() {
     const eventBattleId = parseInt(data.battleId);
 
     if (eventBattleId === currentBattleId) {
-      console.log("⏰ Countdown finished, starting battle");
+      console.log("🎮 Countdown finished, starting battle gameplay");
+
+      // Clear all countdown timers
+      if (countdownInterval.current) {
+        clearTimeout(countdownInterval.current);
+        countdownInterval.current = null;
+      }
+      if (battleStartTimeout.current) {
+        clearTimeout(battleStartTimeout.current);
+        battleStartTimeout.current = null;
+      }
+
+      // Force transition to playing phase
       setCountdownValue(0);
       setGamePhase("playing");
       setCurrentRoundIndex(0);
       setGameStartTime(Date.now());
+      console.log("✅ Transitioned to playing phase via socket event");
     }
   };
 
@@ -371,8 +412,6 @@ export default function BattleGameScreen() {
                 opponent_correct_answers: data.results.opponent.correctAnswers,
                 creator_error_count: data.results.creator.errorCount,
                 opponent_error_count: data.results.opponent.errorCount,
-                creator_accuracy: data.results.creator.accuracy,
-                opponent_accuracy: data.results.opponent.accuracy,
                 completed_at: data.completed_at,
                 completed: true,
               }
@@ -388,63 +427,151 @@ export default function BattleGameScreen() {
       // Transition to results immediately with updated data
       setWaitingForOpponent(false);
       setGameLoading(false);
-      // Navigate to results page
-      router.replace({
-        pathname: "/game/duoBattle/battleResult",
-        params: {
-          battleId: battleId,
-          currentUserId: currentUserId?.toString() || "",
-        },
-      });
+      // Navigate to results page with proper user ID
+      navigateToResults();
     }
   };
 
   const startBattle = async () => {
     try {
       setGameLoading(true);
+      console.log("🚀 Starting battle, waiting for server countdown...");
       await battleAPI.startBattle(battleId);
 
-      const timeoutId = setTimeout(() => {
-        startCountdown();
-      }, 3000);
-
-      (window as any).battleStartTimeout = timeoutId;
+      // Only set fallback timeout, don't start countdown directly
+      battleStartTimeout.current = setTimeout(() => {
+        console.log(
+          "⚠️ Fallback: No server countdown received, starting local countdown"
+        );
+        startLocalCountdown();
+      }, 5000); // 5 second fallback timeout
     } catch (error) {
-      startCountdown();
+      console.error(
+        "❌ Error starting battle, using fallback countdown:",
+        error
+      );
+      startLocalCountdown();
     } finally {
       setGameLoading(false);
     }
   };
 
-  const startCountdown = () => {
+  const startLocalCountdown = () => {
+    console.log("⚠️ Starting local fallback countdown");
+
+    // Prevent multiple countdowns - check current phase more strictly
+    if (gamePhase === "countdown") {
+      console.log("🚫 Countdown already in progress, ignoring");
+      return;
+    }
+
+    if (gamePhase === "playing") {
+      console.log("🚫 Game already started, ignoring countdown request");
+      return;
+    }
+
+    // Clear any existing timers
+    if (countdownInterval.current) {
+      clearInterval(countdownInterval.current);
+      countdownInterval.current = null;
+    }
+    if (battleStartTimeout.current) {
+      clearTimeout(battleStartTimeout.current);
+      battleStartTimeout.current = null;
+    }
+
     setGamePhase("countdown");
     setCountdownValue(3);
 
-    const countdownInterval = setInterval(() => {
-      setCountdownValue((prev) => {
-        if (prev <= 1) {
-          clearInterval(countdownInterval);
-          setGamePhase("playing");
-          setCurrentRoundIndex(0);
-          setGameStartTime(Date.now());
-          return 0;
-        }
-        return prev - 1;
-      });
+    let currentCount = 3;
+    countdownInterval.current = setInterval(() => {
+      currentCount--;
+      console.log("⏰ Local countdown:", currentCount);
+
+      if (currentCount <= 0) {
+        // Clear the interval
+        clearInterval(countdownInterval.current);
+        countdownInterval.current = null;
+
+        // Always transition to playing when countdown finishes
+        setCountdownValue(0);
+        setGamePhase("playing");
+        setCurrentRoundIndex(0);
+        setGameStartTime(Date.now());
+        console.log("✅ Local countdown finished, transitioned to playing");
+      } else {
+        setCountdownValue(currentCount);
+      }
     }, 1000);
   };
 
-  const transitionToResults = () => {
-    console.log("🎯 Transitioning to results page");
+  // Legacy function - now just calls the new one
+  const startCountdown = () => {
+    startLocalCountdown();
+  };
 
-    // Navigate to results page with battle data
+  const clearAllTimers = () => {
+    console.log("🧹 Clearing all timers and intervals");
+
+    if (countdownInterval.current) {
+      clearInterval(countdownInterval.current);
+      countdownInterval.current = null;
+    }
+
+    if (battleStartTimeout.current) {
+      clearTimeout(battleStartTimeout.current);
+      battleStartTimeout.current = null;
+    }
+
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+
+    if (roundPollingInterval.current) {
+      clearInterval(roundPollingInterval.current);
+      roundPollingInterval.current = null;
+    }
+  };
+
+  const navigateToResults = async () => {
+    console.log("🎯 Preparing to navigate to results page");
+
+    // Ensure we have a valid user ID before navigation
+    let validUserId = currentUserId;
+
+    if (!validUserId || validUserId === 0) {
+      console.log("⚠️ No valid currentUserId, fetching from stored user data");
+      try {
+        const userData = await userAPI.getStoredUserData();
+        if (userData && userData.id) {
+          validUserId = userData.id;
+          setCurrentUserId(validUserId); // Update state for consistency
+          console.log("✅ Retrieved user ID from storage:", validUserId);
+        }
+      } catch (error) {
+        console.error("❌ Failed to get stored user data:", error);
+      }
+    }
+
+    // Clear all timers before navigation
+    clearAllTimers();
+
+    // Navigate to results page with validated user ID
     router.replace({
       pathname: "/game/duoBattle/battleResult",
       params: {
         battleId: battleId,
-        currentUserId: currentUserId?.toString() || "",
+        currentUserId: validUserId?.toString() || "0",
       },
     });
+
+    console.log("🎯 Navigated to results with user ID:", validUserId);
+  };
+
+  const transitionToResults = async () => {
+    console.log("🎯 Transitioning to results page");
+    await navigateToResults();
   };
 
   useEffect(() => {
@@ -563,13 +690,7 @@ export default function BattleGameScreen() {
         // Determine game phase
         if (response.battle_session.completed_at) {
           console.log("🏁 Battle completed, navigating to results");
-          router.replace({
-            pathname: "/game/duoBattle/battleResult",
-            params: {
-              battleId: battleId,
-              currentUserId: currentUserId?.toString() || "",
-            },
-          });
+          await navigateToResults();
           return;
         } else if (
           response.opponent &&
@@ -587,6 +708,12 @@ export default function BattleGameScreen() {
             (round: BattleRound) =>
               round.creator_symbol || round.opponent_symbol
           );
+
+          // Don't override countdown or playing state
+          if (gamePhase === "countdown" || gamePhase === "playing") {
+            console.log("🚫 Not overriding current game phase:", gamePhase);
+            return;
+          }
 
           if (hasPlayedRounds) {
             console.log("🎮 Battle is in progress, setting phase to playing");
@@ -606,6 +733,12 @@ export default function BattleGameScreen() {
             setGamePhase("ready-to-start");
           }
         } else {
+          // Don't override countdown or playing state
+          if (gamePhase === "countdown" || gamePhase === "playing") {
+            console.log("🚫 Not overriding current game phase:", gamePhase);
+            return;
+          }
+
           console.log("⏳ No opponent or rounds yet, setting phase to waiting");
           setGamePhase("waiting");
           startPollingForOpponent();
@@ -777,6 +910,14 @@ export default function BattleGameScreen() {
       return; // Prevent multiple submissions for same round
     }
 
+    // Ensure we're in playing phase when submitting answers
+    if (gamePhase !== "playing") {
+      console.log(
+        "🔧 Force setting game phase to playing during answer submission"
+      );
+      setGamePhase("playing");
+    }
+
     setSelectedAnswer(answer);
 
     const currentRound = rounds[currentRoundIndex];
@@ -828,6 +969,14 @@ export default function BattleGameScreen() {
   const moveToNextRound = () => {
     setSelectedAnswer("");
 
+    // Ensure we stay in playing phase during round transitions
+    if (gamePhase !== "playing") {
+      console.log(
+        "🔧 Force setting game phase to playing during round transition"
+      );
+      setGamePhase("playing");
+    }
+
     if (currentRoundIndex + 1 >= rounds.length) {
       // All rounds completed for this player - complete battle immediately
       completeBattle();
@@ -835,6 +984,9 @@ export default function BattleGameScreen() {
       // Move to next round immediately
       setCurrentRoundIndex(currentRoundIndex + 1);
       setRoundStartTime(Date.now());
+      console.log(
+        `🎮 Moved to round ${currentRoundIndex + 2}/${rounds.length}`
+      );
     }
   };
 
