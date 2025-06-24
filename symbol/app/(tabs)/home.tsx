@@ -14,13 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import {
-  apiUtils,
-  authAPI,
-  userAPI,
-  gameAPI,
-  battleAPI,
-} from "../../services/api";
+import { apiUtils, authAPI, userAPI, battleAPI } from "../../services/api";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -283,10 +277,17 @@ export default function HomeScreen() {
 
   const gameCategories: GameCategory[] = [
     {
+      id: "practice-mode",
+      title: "Practice Mode",
+      icon: "school",
+      color: "#4CAF50", // Vibrant green like menu
+      description: "Practice offline without pressure",
+    },
+    {
       id: "symbol-match",
       title: "Symbol Match",
       icon: "shapes",
-      color: "#FF4757", // Vibrant red-orange
+      color: "#FF4757", // Vibrant red like menu
       description: "Match symbols to score points",
     },
     {
@@ -295,20 +296,6 @@ export default function HomeScreen() {
       icon: "flash",
       color: "#E91E63", // Vibrant pink/magenta
       description: "Challenge other players in real-time",
-    },
-    {
-      id: "practice-mode",
-      title: "Practice Mode",
-      icon: "school",
-      color: "#4CAF50", // Vibrant green like menu
-      description: "Practice offline without pressure",
-    },
-    {
-      id: "instant-game",
-      title: "Instant Game",
-      icon: "flash",
-      color: "#FF9800", // Vibrant orange like menu
-      description: "Quick game, instant fun",
     },
   ];
 
@@ -378,8 +365,6 @@ export default function HomeScreen() {
       handleBattleMode();
     } else if (game.id === "practice-mode") {
       handlePracticeMode();
-    } else if (game.id === "instant-game") {
-      handleInstantGame();
     } else {
       Alert.alert("Start Game", `Ready to play ${game.title}?`, [
         { text: "Cancel", style: "cancel" },
@@ -399,37 +384,6 @@ export default function HomeScreen() {
         title: "Practice Game",
       },
     });
-  };
-
-  const handleInstantGame = async () => {
-    console.log(`🎮 Creating instant game from home`);
-
-    try {
-      setLoading(true);
-
-      // Create instant game with default settings
-      const result = await gameAPI.createInstantGame({
-        difficulty_level: 2,
-        number_of_rounds: 10,
-      });
-
-      console.log("✅ Instant game created:", result);
-
-      // Navigate to game with the created session
-      router.push({
-        pathname: "/game/play",
-        params: {
-          sessionId: result.game_session.id.toString(),
-          gameType: "Instant Game",
-          title: "Quick Play",
-        },
-      });
-    } catch (error) {
-      console.error("❌ Failed to create instant game:", error);
-      Alert.alert("Error", "Failed to create instant game. Please try again.");
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleBattleMode = () => {
@@ -860,23 +814,10 @@ export default function HomeScreen() {
       <View style={styles.gamesSection}>
         <Text style={styles.sectionTitle}>🎮 Game Modes</Text>
         <View style={styles.gameModeContainer}>
-          {/* Symbol Match - Browse Games */}
-          <TouchableOpacity
-            style={styles.symbolMatchButton}
-            onPress={() => handleGamePress(gameCategories[0])}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="shapes" size={24} color="#fff" />
-            <Text style={styles.symbolMatchButtonText}>🎯 Symbol Match</Text>
-            <Text style={styles.symbolMatchButtonSubtext}>
-              Browse available games
-            </Text>
-          </TouchableOpacity>
-
           {/* Practice Mode */}
           <TouchableOpacity
             style={styles.practiceButton}
-            onPress={() => handleGamePress(gameCategories[2])}
+            onPress={() => handleGamePress(gameCategories[0])}
             activeOpacity={0.8}
           >
             <Ionicons name="school" size={24} color="#fff" />
@@ -886,24 +827,23 @@ export default function HomeScreen() {
             </Text>
           </TouchableOpacity>
 
-          {/* Instant Game */}
+          {/* Symbol Match - Browse Games */}
           <TouchableOpacity
-            style={styles.instantGameButton}
-            onPress={() => handleGamePress(gameCategories[3])}
+            style={styles.symbolMatchButton}
+            onPress={() => handleGamePress(gameCategories[1])}
             activeOpacity={0.8}
-            disabled={loading}
           >
-            <Ionicons name="flash" size={24} color="#fff" />
-            <Text style={styles.instantGameButtonText}>⚡ Instant Game</Text>
-            <Text style={styles.instantGameButtonSubtext}>
-              Quick setup • Full tracking
+            <Ionicons name="shapes" size={24} color="#fff" />
+            <Text style={styles.symbolMatchButtonText}>🎯 Symbol Match</Text>
+            <Text style={styles.symbolMatchButtonSubtext}>
+              Browse available games
             </Text>
           </TouchableOpacity>
 
           {/* Battle Mode */}
           <TouchableOpacity
             style={styles.battleModeButton}
-            onPress={() => handleGamePress(gameCategories[1])}
+            onPress={() => handleGamePress(gameCategories[2])}
             activeOpacity={0.8}
           >
             <Ionicons name="flash" size={24} color="#fff" />
@@ -1171,33 +1111,6 @@ const getResponsiveStyles = (dimensions: any) =>
     },
     practiceButtonSubtext: {
       color: "#E8F5E8",
-      fontSize: getResponsiveFontSize(12),
-      marginTop: 5,
-      textAlign: "center",
-      fontStyle: "italic",
-    },
-    instantGameButton: {
-      flexDirection: "column",
-      alignItems: "center",
-      backgroundColor: "#FF9800",
-      padding: 20,
-      borderRadius: 15,
-      marginBottom: 16,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 3 },
-      shadowOpacity: 0.3,
-      shadowRadius: 6,
-      elevation: 6,
-    },
-    instantGameButtonText: {
-      color: "#fff",
-      fontSize: getResponsiveFontSize(18),
-      fontWeight: "bold",
-      marginLeft: 8,
-      textAlign: "center",
-    },
-    instantGameButtonSubtext: {
-      color: "#FFF3E0",
       fontSize: getResponsiveFontSize(12),
       marginTop: 5,
       textAlign: "center",

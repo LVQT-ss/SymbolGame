@@ -941,10 +941,9 @@ export default function BattleGameScreen() {
     }
     setRounds(updatedRounds);
 
-    // Immediately move to next round - no waiting
-    moveToNextRound();
+    const isLastRound = currentRoundIndex + 1 >= rounds.length;
 
-    // Submit to backend in background (no UI blocking)
+    // **FIX: Submit to backend FIRST before any navigation logic**
     try {
       if (socketService.isSocketConnected()) {
         socketService.submitRound(
@@ -961,8 +960,33 @@ export default function BattleGameScreen() {
         user_symbol: answer,
         response_time: responseTime,
       });
+
+      console.log(
+        `✅ Round ${currentRound.round_number} submitted successfully`
+      );
+
+      // **FIX: Only proceed to completion/next round AFTER successful submission**
+      if (isLastRound) {
+        // All rounds completed AND submitted - complete battle
+        console.log(`🏁 All ${rounds.length} rounds completed and submitted`);
+        completeBattle();
+      } else {
+        // Move to next round only after successful submission
+        moveToNextRound();
+      }
     } catch (error) {
-      // Silent background submission - don't interrupt gameplay
+      console.error(
+        `❌ Failed to submit round ${currentRound.round_number}:`,
+        error
+      );
+      Alert.alert(
+        "Submission Failed",
+        `Failed to submit round ${currentRound.round_number}. Please try again.`,
+        [
+          { text: "Retry", onPress: () => setSelectedAnswer("") },
+          { text: "Cancel", style: "cancel" },
+        ]
+      );
     }
   };
 
@@ -977,17 +1001,11 @@ export default function BattleGameScreen() {
       setGamePhase("playing");
     }
 
-    if (currentRoundIndex + 1 >= rounds.length) {
-      // All rounds completed for this player - complete battle immediately
-      completeBattle();
-    } else {
-      // Move to next round immediately
-      setCurrentRoundIndex(currentRoundIndex + 1);
-      setRoundStartTime(Date.now());
-      console.log(
-        `🎮 Moved to round ${currentRoundIndex + 2}/${rounds.length}`
-      );
-    }
+    // **FIX: Removed automatic completion logic - now handled in submitAnswer**
+    // Move to next round (this function is only called for non-final rounds now)
+    setCurrentRoundIndex(currentRoundIndex + 1);
+    setRoundStartTime(Date.now());
+    console.log(`🎮 Moved to round ${currentRoundIndex + 2}/${rounds.length}`);
   };
 
   const completeBattle = async () => {
