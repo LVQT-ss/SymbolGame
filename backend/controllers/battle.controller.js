@@ -605,8 +605,10 @@ export const completeBattle = async (req, res) => {
         for (const round of battleSession.battleRounds) {
             if (round[`${fieldPrefix}_is_correct`]) {
                 correctAnswers++;
-                // Base score + time bonus
-                const timeBonus = Math.max(0, 60 - (round[`${fieldPrefix}_response_time`] || 60));
+                // Base score + time bonus (0.5-10 seconds range in 0.5 increments)
+                const rawResponseTime = round[`${fieldPrefix}_response_time`] || 10;
+                const responseTime = Math.min(10, Math.max(0.5, Math.round(rawResponseTime * 2) / 2));
+                const timeBonus = Math.max(0, (10 - responseTime) * 5);
                 score += 100 + Math.floor(timeBonus);
             }
         }

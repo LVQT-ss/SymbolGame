@@ -877,8 +877,20 @@ export const completeGame = async (req, res) => {
             }
         }
 
-        // Calculate final score
-        const finalScore = correctAnswers * 100; // 100 points per correct answer
+        // Calculate final score with time bonus (same as battle system)
+        let finalScore = 0;
+        for (let i = 0; i < processedRounds.length; i++) {
+            const roundData = processedRounds[i];
+            const userRound = rounds[i];
+
+            if (roundData.is_correct) {
+                // Base score + time bonus (0.5-10 seconds range in 0.5 increments)
+                const rawResponseTime = userRound.response_time || roundData.response_time || 10;
+                const responseTime = Math.min(10, Math.max(0.5, Math.round(rawResponseTime * 2) / 2));
+                const timeBonus = Math.max(0, (10 - responseTime) * 5);
+                finalScore += 100 + Math.floor(timeBonus);
+            }
+        }
         const accuracy = Math.round((correctAnswers / gameSession.number_of_rounds) * 100);
 
         // Prepare update data - NEVER change the completed status of GameSession
@@ -940,6 +952,15 @@ export const completeGame = async (req, res) => {
             }
 
             if (roundDetail) {
+                // Calculate points earned with time bonus (same as battle system)
+                let pointsEarned = 0;
+                if (roundData.is_correct) {
+                    const rawResponseTime = userRound.response_time || roundData.response_time || 10;
+                    const responseTime = Math.min(10, Math.max(0.5, Math.round(rawResponseTime * 2) / 2));
+                    const timeBonus = Math.max(0, (10 - responseTime) * 5);
+                    pointsEarned = 100 + Math.floor(timeBonus);
+                }
+
                 await UserRoundResponse.create({
                     round_detail_id: roundDetail.id,
                     game_history_id: gameHistory.id,
@@ -947,7 +968,7 @@ export const completeGame = async (req, res) => {
                     user_symbol: userRound.user_symbol || roundData.your_answer,
                     response_time: userRound.response_time || roundData.response_time,
                     is_correct: roundData.is_correct,
-                    points_earned: roundData.is_correct ? 100 : 0,
+                    points_earned: pointsEarned,
                     answered_at: new Date()
                 });
                 console.log(`✅ Created UserRoundResponse for Round ${i + 1}: ${roundData.your_answer} (${roundData.is_correct ? 'Correct' : 'Wrong'})`);
@@ -1528,8 +1549,19 @@ export const submitWholeGame = async (req, res) => {
             });
         }
 
-        // Calculate final score and update game session
-        const finalScore = correctAnswers * 100; // 100 points per correct answer
+        // Calculate final score with time bonus (same as battle system)
+        let finalScore = 0;
+        for (let i = 0; i < processedRounds.length; i++) {
+            const roundData = processedRounds[i];
+
+            if (roundData.is_correct) {
+                // Base score + time bonus (0.5-10 seconds range in 0.5 increments)
+                const rawResponseTime = roundData.response_time || 10;
+                const responseTime = Math.min(10, Math.max(0.5, Math.round(rawResponseTime * 2) / 2));
+                const timeBonus = Math.max(0, (10 - responseTime) * 5);
+                finalScore += 100 + Math.floor(timeBonus);
+            }
+        }
         const accuracy = Math.round((correctAnswers / number_of_rounds) * 100);
 
         await gameSession.update({
