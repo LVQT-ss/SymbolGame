@@ -186,6 +186,38 @@ export const userAPI = {
         }
     },
 
+    // 🆕 Update stored user data with new level/XP info
+    updateStoredUserLevel: async (updatedInfo) => {
+        try {
+            const currentUser = await AsyncStorage.getItem("user_profile");
+            if (currentUser) {
+                const userData = JSON.parse(currentUser);
+
+                // Update the relevant fields
+                if (updatedInfo.current_level !== undefined) {
+                    userData.current_level = updatedInfo.current_level;
+                }
+                if (updatedInfo.experience_points !== undefined) {
+                    userData.experience_points = updatedInfo.experience_points;
+                }
+                if (updatedInfo.level_progress !== undefined) {
+                    userData.level_progress = updatedInfo.level_progress;
+                }
+                if (updatedInfo.coins !== undefined) {
+                    userData.coins = updatedInfo.coins;
+                }
+
+                await AsyncStorage.setItem("user_profile", JSON.stringify(userData));
+                console.log("✅ Updated stored user level data:", updatedInfo);
+                return userData;
+            }
+            return null;
+        } catch (error) {
+            console.error("Error updating stored user level data:", error);
+            return null;
+        }
+    },
+
     // Debug function to check current user identity
     debugCurrentUser: async () => {
         try {
@@ -527,6 +559,9 @@ export const gameAPI = {
                 coinsEarned: response.data.game_result?.scoring?.coins_earned,
                 leveledUp: response.data.game_result?.player?.level_up,
                 newLevel: response.data.game_result?.player?.level_after,
+                levelsGained: response.data.game_result?.player?.levels_gained,
+                // 🆕 Updated user info for immediate state update
+                updatedUserInfo: response.data.updated_user_info,
                 _api_endpoint: "/api/game/complete"
             };
 
@@ -900,7 +935,25 @@ export const gameAPI = {
     submitWholeGame: async (gameData) => {
         try {
             const response = await api.post("/game/submit-whole", gameData);
-            return response.data;
+
+            // Extract useful info for easy access (similar to completeGame)
+            return {
+                success: true,
+                ...response.data,
+                // Extract useful info for easy access
+                gameId: response.data.game_result?.game_id,
+                finalScore: response.data.game_result?.scoring?.final_score,
+                correctAnswers: response.data.game_result?.performance?.correct_answers,
+                accuracy: response.data.game_result?.performance?.accuracy,
+                experienceGained: response.data.game_result?.scoring?.experience_gained,
+                coinsEarned: response.data.game_result?.scoring?.coins_earned,
+                leveledUp: response.data.game_result?.player?.level_up,
+                newLevel: response.data.game_result?.player?.level_after,
+                levelsGained: response.data.game_result?.player?.levels_gained,
+                // 🆕 Updated user info for immediate state update
+                updated_user_info: response.data.updated_user_info,
+                _api_endpoint: "/api/game/submit-whole"
+            };
         } catch (error) {
             throw new Error(error.response?.data?.message || "Failed to submit whole game");
         }

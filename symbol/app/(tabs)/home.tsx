@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Link, router } from "expo-router";
-import React, { useEffect, useState } from "react";
+import { Link, router, useFocusEffect } from "expo-router";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   Alert,
   Dimensions,
@@ -165,6 +165,38 @@ export default function HomeScreen() {
       subscription?.remove();
     };
   }, []);
+
+  // 🆕 Refresh user profile when screen comes into focus (e.g., after completing a game)
+  useFocusEffect(
+    useCallback(() => {
+      const refreshUserProfile = async () => {
+        if (isAuthenticated && !checkingAuth) {
+          try {
+            // Check if there's updated user data from game completion
+            const storedData = await userAPI.getStoredUserData();
+            if (storedData) {
+              console.log("🔄 Refreshing user profile from stored data");
+              setUserProfile((prevProfile) => ({
+                ...prevProfile,
+                current_level:
+                  storedData.current_level || prevProfile.current_level,
+                experience_points:
+                  storedData.experience_points || prevProfile.experience_points,
+                level_progress:
+                  storedData.level_progress || prevProfile.level_progress,
+                coins: storedData.coins || prevProfile.coins,
+                // Keep other fields from previous profile
+              }));
+            }
+          } catch (error) {
+            console.error("Error refreshing user profile:", error);
+          }
+        }
+      };
+
+      refreshUserProfile();
+    }, [isAuthenticated, checkingAuth])
+  );
 
   const checkAuthStatus = async () => {
     try {

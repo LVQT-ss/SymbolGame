@@ -983,14 +983,17 @@ export const completeGame = async (req, res) => {
         const experienceGained = Math.floor(finalScore * 0.1); // 10% of score as XP
         const coinsEarned = correctAnswers; // 1 coin per correct answer
 
-        // Update user stats
-        const newExperience = user.experience_points + experienceGained;
-        const newLevel = Math.floor(newExperience / 1000) + 1;
-
+        // Update user coins (XP and level will be updated by level service)
         await user.update({
-            experience_points: newExperience,
-            coins: user.coins + coinsEarned,
-            current_level: newLevel
+            coins: user.coins + coinsEarned
+        });
+
+        // 🆕 Update user level using the new progressive system BEFORE sending response
+        const levelUpdateResult = await updateUserLevelAfterGame(userId);
+
+        // Get the updated user data to include in response
+        const updatedUser = await User.findByPk(userId, {
+            attributes: ['current_level', 'experience_points', 'level_progress']
         });
 
         console.log(`✅ Game ${gameSession.id} completed by user ${user.username}: ${correctAnswers}/${gameSession.number_of_rounds} correct, ${finalScore} points`);
@@ -1008,9 +1011,10 @@ export const completeGame = async (req, res) => {
                 game_id: gameSession.id,
                 player: {
                     username: user.username,
-                    level_before: user.current_level,
-                    level_after: newLevel,
-                    level_up: newLevel > user.current_level
+                    level_before: levelUpdateResult.old_level,
+                    level_after: levelUpdateResult.new_level,
+                    level_up: levelUpdateResult.leveled_up,
+                    levels_gained: levelUpdateResult.levels_gained
                 },
                 performance: {
                     total_rounds: gameSession.number_of_rounds,
@@ -1043,21 +1047,17 @@ export const completeGame = async (req, res) => {
                     isNewSession && difficulty_level > 1 && accuracy < 50 ?
                         `Try difficulty level ${difficulty_level - 1} next!` :
                         'Keep playing to improve!'
+            },
+            // 🆕 Updated user info for instant frontend state update
+            updated_user_info: {
+                current_level: updatedUser.current_level,
+                experience_points: updatedUser.experience_points,
+                level_progress: updatedUser.level_progress,
+                coins: user.coins + coinsEarned
             }
         });
 
-        // 🆕 Update user level based on total game history score (non-blocking)
-        // This runs asynchronously after the response is sent to avoid affecting JSON output
-        setImmediate(async () => {
-            try {
-                const levelUpdate = await updateUserLevelAfterGame(userId);
-                if (levelUpdate.leveled_up) {
-                    console.log(`🎉 LEVEL UP! User ${user.username}: Level ${levelUpdate.old_level} → ${levelUpdate.new_level} (+${levelUpdate.levels_gained} levels)`);
-                }
-            } catch (levelError) {
-                console.error(`❌ Level update failed for user ${userId}:`, levelError.message);
-            }
-        });
+        // Level update is now done synchronously above and included in response
 
     } catch (err) {
         console.error('❌ Error in complete game:', err);
@@ -1587,14 +1587,17 @@ export const submitWholeGame = async (req, res) => {
         const experienceGained = Math.floor(finalScore * 0.1); // 10% of score as XP
         const coinsEarned = correctAnswers; // 1 coin per correct answer
 
-        // Update user stats
-        const newExperience = user.experience_points + experienceGained;
-        const newLevel = Math.floor(newExperience / 1000) + 1;
-
+        // Update user coins (XP and level will be updated by level service)
         await user.update({
-            experience_points: newExperience,
-            coins: user.coins + coinsEarned,
-            current_level: newLevel
+            coins: user.coins + coinsEarned
+        });
+
+        // 🆕 Update user level using the new progressive system BEFORE sending response
+        const levelUpdateResult = await updateUserLevelAfterGame(userId);
+
+        // Get the updated user data to include in response
+        const updatedUser = await User.findByPk(userId, {
+            attributes: ['current_level', 'experience_points', 'level_progress']
         });
 
         console.log(`✅ Game ${gameSession.id} completed: ${correctAnswers}/${number_of_rounds} correct, ${finalScore} points`);
@@ -1606,9 +1609,10 @@ export const submitWholeGame = async (req, res) => {
                 game_id: gameSession.id,
                 player: {
                     username: user.username,
-                    level_before: user.current_level,
-                    level_after: newLevel,
-                    level_up: newLevel > user.current_level
+                    level_before: levelUpdateResult.old_level,
+                    level_after: levelUpdateResult.new_level,
+                    level_up: levelUpdateResult.leveled_up,
+                    levels_gained: levelUpdateResult.levels_gained
                 },
                 performance: {
                     total_rounds: number_of_rounds,
@@ -1639,20 +1643,17 @@ export const submitWholeGame = async (req, res) => {
                     difficulty_level > 1 && accuracy < 50 ?
                         `Try difficulty level ${difficulty_level - 1} next!` :
                         'Keep playing to improve!'
+            },
+            // 🆕 Updated user info for instant frontend state update
+            updated_user_info: {
+                current_level: updatedUser.current_level,
+                experience_points: updatedUser.experience_points,
+                level_progress: updatedUser.level_progress,
+                coins: user.coins + coinsEarned
             }
         });
 
-        // 🆕 Update user level based on total game history score (non-blocking)
-        setImmediate(async () => {
-            try {
-                const levelUpdate = await updateUserLevelAfterGame(userId);
-                if (levelUpdate.leveled_up) {
-                    console.log(`🎉 LEVEL UP! User ${user.username}: Level ${levelUpdate.old_level} → ${levelUpdate.new_level} (+${levelUpdate.levels_gained} levels)`);
-                }
-            } catch (levelError) {
-                console.error(`❌ Level update failed for user ${userId}:`, levelError.message);
-            }
-        });
+        // Level update is now done synchronously above and included in response
 
     } catch (err) {
         console.error('❌ Error in submit whole game:', err);

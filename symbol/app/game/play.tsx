@@ -12,7 +12,7 @@ import {
   FlatList,
   ScrollView,
 } from "react-native";
-import { gameAPI } from "../../services/api";
+import { gameAPI, userAPI } from "../../services/api";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -521,6 +521,12 @@ export default function GameScreen() {
 
       console.log("✅ Game completed successfully:", result);
 
+      // 🆕 Update stored user profile with new level/XP info if available
+      if (result.updatedUserInfo) {
+        console.log("🎉 Updating user level info:", result.updatedUserInfo);
+        await userAPI.updateStoredUserLevel(result.updatedUserInfo);
+      }
+
       // Get results data from server response
       const finalScore =
         result.data?.game_result?.scoring?.final_score || score;
@@ -589,6 +595,12 @@ export default function GameScreen() {
 
       console.log("✅ Whole game submitted successfully!");
       console.log("📊 Results:", result.game_result);
+
+      // 🆕 Update stored user profile with new level/XP info if available
+      if (result.updated_user_info) {
+        console.log("🎉 Updating user level info:", result.updated_user_info);
+        await userAPI.updateStoredUserLevel(result.updated_user_info);
+      }
 
       // Get results data from server response
       const serverScore =
