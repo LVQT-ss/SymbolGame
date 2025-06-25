@@ -78,6 +78,9 @@ export default function GameScreen() {
   const [correctAnswers, setCorrectAnswers] = useState(0);
   const [gameCompleted, setGameCompleted] = useState(false);
   const [roundStartTime, setRoundStartTime] = useState<number>(0);
+  const [gameStartTime, setGameStartTime] = useState<number>(0);
+  const [totalTime, setTotalTime] = useState<number>(0);
+  const [finalScore, setFinalScore] = useState<number>(0);
 
   useEffect(() => {
     if (parsedSessionId) {
@@ -123,21 +126,12 @@ export default function GameScreen() {
         ) {
           setGameCompleted(true);
 
-          // Show completion summary
-          Alert.alert(
-            "Game Already Completed! 🎉",
-            `This game has been finished!\n\nFinal Score: ${
-              response.game_session.score || 0
-            }\nCorrect Answers: ${response.game_session.correct_answers || 0}/${
-              response.game_session.number_of_rounds
-            }\nTotal Time: ${(response.game_session.total_time || 0).toFixed(
-              1
-            )}s`,
-            [
-              { text: "View Results", style: "default" },
-              { text: "Back to Menu", onPress: () => router.back() },
-            ]
-          );
+          // Navigate to result screen for completed game
+          router.push({
+            pathname: "/game/gameResult",
+            params: { sessionId: parsedSessionId?.toString() || sessionId },
+          });
+          return;
         } else {
           // Find current round
           const completedRounds = response.rounds.filter(
@@ -147,12 +141,12 @@ export default function GameScreen() {
 
           // Check if all rounds are actually completed but game not marked as completed
           if (completedRounds >= response.game_session.number_of_rounds) {
-            Alert.alert(
-              "Game Completed! 🎉",
-              "All rounds have been completed! The game will be marked as finished.",
-              [{ text: "OK", onPress: () => router.back() }]
-            );
             setGameCompleted(true);
+            router.push({
+              pathname: "/game/gameResult",
+              params: { sessionId: parsedSessionId?.toString() || sessionId },
+            });
+            return;
           }
         }
       }
@@ -214,7 +208,9 @@ export default function GameScreen() {
 
   const startFirstRound = () => {
     if (rounds.length > 0 && currentRoundIndex < rounds.length) {
-      setRoundStartTime(Date.now());
+      const now = Date.now();
+      setRoundStartTime(now);
+      setGameStartTime(now);
     }
   };
 
@@ -278,14 +274,36 @@ export default function GameScreen() {
 
   const completeGame = async (finalRounds: Round[]) => {
     try {
-      const totalTime = finalRounds.reduce(
+      const calculatedTotalTime = finalRounds.reduce(
         (sum, round) => sum + (round.response_time || 0),
         0
       );
 
+      // Calculate final score and correct answers
+      const finalCorrectAnswers = finalRounds.filter(
+        (round) => round.is_correct
+      ).length;
+      const calculatedFinalScore = finalRounds.reduce((sum, round) => {
+        if (round.is_correct) {
+          // Apply same scoring logic as backend (base 100 + time bonus)
+          const responseTime = Math.min(
+            10,
+            Math.max(0.5, Math.round((round.response_time || 10) * 2) / 2)
+          );
+          const timeBonus = Math.max(0, (10 - responseTime) * 5);
+          return sum + 100 + Math.floor(timeBonus);
+        }
+        return sum;
+      }, 0);
+
+      // Store final results for result screen
+      setTotalTime(calculatedTotalTime);
+      setFinalScore(calculatedFinalScore);
+      setCorrectAnswers(finalCorrectAnswers);
+
       const gameResults = {
         game_session_id: parsedSessionId,
-        total_time: totalTime,
+        total_time: calculatedTotalTime,
         rounds: finalRounds.map((round) => ({
           round_number: round.round_number,
           first_number: round.first_number,
@@ -295,24 +313,33 @@ export default function GameScreen() {
         })),
       };
 
-      await gameAPI.completeGame(gameResults);
-      setGameCompleted(true);
+      const response = await gameAPI.completeGame(gameResults);
 
-      Alert.alert(
-        "Game Complete!",
-        `Final Score: ${
-          score + (finalRounds[currentRoundIndex]?.is_correct ? 100 : 0)
-        }\nCorrect Answers: ${
-          correctAnswers + (finalRounds[currentRoundIndex]?.is_correct ? 1 : 0)
-        }/${rounds.length}`,
-        [
-          { text: "Play Again", onPress: () => router.back() },
-          { text: "Menu", onPress: () => router.replace("/game/menu") },
-        ]
-      );
+      // Update with server response if available
+      if (response?.finalScore) {
+        setFinalScore(response.finalScore);
+      }
+      if (response?.correctAnswers) {
+        setCorrectAnswers(response.correctAnswers);
+      }
+
+      // Navigate directly to result screen without showing completion screen
+      router.push({
+        pathname: "/game/gameResult",
+        params: { sessionId: parsedSessionId?.toString() || sessionId },
+      });
     } catch (error) {
       console.error("Error completing game:", error);
-      Alert.alert("Error", "Failed to complete game");
+      Alert.alert(
+        "Error",
+        "Failed to complete game. Showing local results instead."
+      );
+
+      // Navigate to result screen even if completion fails
+      router.push({
+        pathname: "/game/gameResult",
+        params: { sessionId: parsedSessionId?.toString() || sessionId },
+      });
     }
   };
 
@@ -463,38 +490,6 @@ export default function GameScreen() {
       </View>
     );
   };
-
-  if (gameCompleted) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.content}>
-          <Ionicons name="trophy" size={80} color="#ffd33d" />
-          <Text style={styles.gameTitle}>Game Complete!</Text>
-          <Text style={styles.finalScore}>Final Score: {score}</Text>
-          <Text style={styles.accuracy}>
-            Accuracy: {correctAnswers}/{rounds.length} (
-            {Math.round((correctAnswers / rounds.length) * 100)}%)
-          </Text>
-
-          <View style={styles.finalButtons}>
-            <TouchableOpacity
-              style={styles.playAgainButton}
-              onPress={() => router.back()}
-            >
-              <Text style={styles.playAgainButtonText}>Play Again</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.menuButton}
-              onPress={() => router.replace("/game/menu")}
-            >
-              <Text style={styles.menuButtonText}>Back to Menu</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    );
-  }
 
   if (!gameStarted) {
     return renderWaitingScreen();
@@ -701,44 +696,5 @@ const styles = StyleSheet.create({
     fontSize: getResponsiveFontSize(18),
     color: "#F44336",
     textAlign: "center",
-  },
-  finalScore: {
-    fontSize: getResponsiveFontSize(32),
-    fontWeight: "bold",
-    color: "#ffd33d",
-    marginTop: 20,
-  },
-  accuracy: {
-    fontSize: getResponsiveFontSize(18),
-    color: "#fff",
-    marginTop: 10,
-    marginBottom: 40,
-  },
-  finalButtons: {
-    width: "100%",
-    maxWidth: 300,
-  },
-  playAgainButton: {
-    backgroundColor: "#4CAF50",
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  playAgainButtonText: {
-    fontSize: getResponsiveFontSize(18),
-    fontWeight: "bold",
-    color: "#fff",
-  },
-  menuButton: {
-    backgroundColor: "#333",
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  menuButtonText: {
-    fontSize: getResponsiveFontSize(18),
-    fontWeight: "bold",
-    color: "#fff",
   },
 });

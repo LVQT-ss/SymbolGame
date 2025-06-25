@@ -81,6 +81,13 @@ export default function GameLayout() {
           title: "Battle Results",
         }}
       />
+      <Stack.Screen
+        name="gameResult"
+        options={{
+          headerShown: false,
+          title: "Game Results",
+        }}
+      />
     </Stack>
   );
 }

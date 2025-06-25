@@ -34,14 +34,6 @@ interface Progress {
   is_completed: boolean;
 }
 
-interface RoundResult {
-  round_number: number;
-  user_symbol: string;
-  correct_symbol: string;
-  is_correct: boolean;
-  response_time: number;
-}
-
 export default function RoundByRoundGame() {
   const { gameId } = useLocalSearchParams();
   const [gameSession, setGameSession] = useState<GameSession | null>(null);
@@ -50,7 +42,6 @@ export default function RoundByRoundGame() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
-  const [gameResults, setGameResults] = useState<RoundResult[]>([]);
 
   useEffect(() => {
     loadGameSession();
@@ -65,9 +56,9 @@ export default function RoundByRoundGame() {
       setProgress(response.progress);
       setStartTime(Date.now());
 
-      // If game is already completed, show results
+      // If game is already completed, navigate to results
       if (response.progress.is_completed) {
-        showGameResults();
+        navigateToResults();
       }
     } catch (error: any) {
       Alert.alert("Error", error.message);
@@ -82,7 +73,7 @@ export default function RoundByRoundGame() {
 
     try {
       setSubmitting(true);
-      const responseTime = (Date.now() - startTime) / 1000; // Convert to seconds
+      const responseTime = (Date.now() - startTime) / 1000;
 
       const roundData = {
         round_number: currentRound.round_number,
@@ -92,10 +83,7 @@ export default function RoundByRoundGame() {
 
       const response = await gameAPI.submitRound(gameId as string, roundData);
 
-      // Store round result
-      setGameResults((prev) => [...prev, response.round_result]);
-
-      // Show round result
+      // Show round result feedback
       Alert.alert(
         response.round_result.is_correct ? "✅ Correct!" : "❌ Wrong!",
         `${currentRound.first_number} ${response.round_result.correct_symbol} ${currentRound.second_number}\n` +
@@ -127,35 +115,22 @@ export default function RoundByRoundGame() {
   const completeGame = async () => {
     try {
       setLoading(true);
-      const response = await gameAPI.completeGameRounds(gameId as string);
-      showGameResults(response.game_result);
+      await gameAPI.completeGameRounds(gameId as string);
+      navigateToResults();
     } catch (error: any) {
       Alert.alert("Error", error.message);
+      // Even if there's an error, try to navigate to results
+      navigateToResults();
     } finally {
       setLoading(false);
     }
   };
 
-  const showGameResults = (finalResults?: any) => {
-    const correctAnswers = gameResults.filter(
-      (result) => result.is_correct
-    ).length;
-    const totalRounds = gameResults.length;
-    const accuracy =
-      totalRounds > 0 ? Math.round((correctAnswers / totalRounds) * 100) : 0;
-
-    Alert.alert(
-      "🎉 Game Complete!",
-      `Correct Answers: ${correctAnswers}/${totalRounds}\n` +
-        `Accuracy: ${accuracy}%\n` +
-        (finalResults ? `Score: ${finalResults.score}\n` : "") +
-        (finalResults ? `XP Gained: ${finalResults.experience_gained}\n` : "") +
-        (finalResults ? `Coins Earned: ${finalResults.coins_earned}` : ""),
-      [
-        { text: "Play Again", onPress: () => router.back() },
-        { text: "Back to Menu", onPress: () => router.back() },
-      ]
-    );
+  const navigateToResults = () => {
+    router.push({
+      pathname: "/game/gameResult",
+      params: { sessionId: gameId as string },
+    });
   };
 
   if (loading) {
@@ -171,7 +146,16 @@ export default function RoundByRoundGame() {
     return (
       <View style={styles.container}>
         <Text style={styles.title}>Game Complete!</Text>
-        <TouchableOpacity style={styles.button} onPress={() => router.back()}>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => navigateToResults()}
+        >
+          <Text style={styles.buttonText}>View Results</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: "#666", marginTop: 10 }]}
+          onPress={() => router.replace("/game/menu")}
+        >
           <Text style={styles.buttonText}>Back to Menu</Text>
         </TouchableOpacity>
       </View>

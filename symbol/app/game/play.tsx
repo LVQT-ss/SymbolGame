@@ -361,14 +361,39 @@ export default function GameScreen() {
 
   const startFirstRound = () => {
     if (rounds.length > 0 && currentRoundIndex < rounds.length) {
-      setRoundStartTime(Date.now());
+      const now = Date.now();
+      setRoundStartTime(now);
+      // Set game start time when the first round actually begins (after countdown)
+      setGameStartTime(now);
     }
   };
 
   const handleStartGame = () => {
     setGameStarted(true);
-    setGameStartTime(Date.now());
-    startFirstRound();
+    // Don't set gameStartTime here - it will be set when first round starts
+  };
+
+  // Enhanced point calculation function from duoBattle system
+  const calculatePointsWithTimeBonus = (
+    isCorrect: boolean,
+    responseTime: number
+  ): number => {
+    if (!isCorrect) return 0;
+
+    // Base score + time bonus (0.5-10 seconds range in 0.5 increments)
+    const clampedResponseTime = Math.min(
+      10,
+      Math.max(0.5, Math.round(responseTime * 2) / 2)
+    );
+    const timeBonus = Math.max(0, (10 - clampedResponseTime) * 5);
+    const pointsEarned = 100 + Math.floor(timeBonus);
+
+    console.log(
+      `⚡ Points calculation: Base(100) + TimeBonus(${Math.floor(
+        timeBonus
+      )}) = ${pointsEarned} [Response time: ${responseTime.toFixed(3)}s]`
+    );
+    return pointsEarned;
   };
 
   const handleSymbolChoice = async (symbol: string) => {
@@ -387,6 +412,9 @@ export default function GameScreen() {
 
     const isCorrect = symbol === correctSymbol;
 
+    // Calculate points using the enhanced algorithm
+    const pointsEarned = calculatePointsWithTimeBonus(isCorrect, responseTime);
+
     // Update local state
     const updatedRounds = [...rounds];
     updatedRounds[currentRoundIndex] = {
@@ -399,7 +427,7 @@ export default function GameScreen() {
 
     if (isCorrect) {
       setCorrectAnswers((prev) => prev + 1);
-      setScore((prev) => prev + 100);
+      setScore((prev) => prev + pointsEarned);
     }
 
     try {
@@ -408,13 +436,23 @@ export default function GameScreen() {
         // Game completed
         if (sessionId === "practice") {
           setGameCompleted(true);
-          Alert.alert(
-            "Practice Complete! 🎉",
-            `Score: ${score + (isCorrect ? 100 : 0)}\nCorrect: ${
-              correctAnswers + (isCorrect ? 1 : 0)
-            }/${rounds.length}\n\nThis was practice mode - no progress saved.`,
-            [{ text: "Back to Menu", onPress: () => router.back() }]
-          );
+
+          // Redirect to gameResult.tsx for practice mode
+          router.push({
+            pathname: "/game/gameResult",
+            params: {
+              gameType: "practice",
+              finalScore: (score + (isCorrect ? 100 : 0)).toString(),
+              correctAnswers: (correctAnswers + (isCorrect ? 1 : 0)).toString(),
+              totalRounds: rounds.length.toString(),
+              accuracy: Math.round(
+                ((correctAnswers + (isCorrect ? 1 : 0)) / rounds.length) * 100
+              ).toString(),
+              totalTime: ((Date.now() - gameStartTime) / 1000).toString(),
+              xpGained: "0",
+              coinsEarned: "0",
+            },
+          });
         } else if (sessionId === "quick-submit") {
           // Submit whole game at once
           await submitWholeGame(updatedRounds);
@@ -439,16 +477,23 @@ export default function GameScreen() {
       // Skip completion for practice mode
       if (parsedSessionId === "practice") {
         setGameCompleted(true);
-        Alert.alert(
-          "Practice Complete!",
-          `Great job practicing!\nCorrect Answers: ${correctAnswers}/${rounds.length}`,
-          [
-            {
-              text: "Back to Menu",
-              onPress: () => router.replace("/game/menu"),
-            },
-          ]
-        );
+
+        // Redirect to gameResult.tsx for practice mode
+        router.push({
+          pathname: "/game/gameResult",
+          params: {
+            gameType: "practice",
+            finalScore: score.toString(),
+            correctAnswers: correctAnswers.toString(),
+            totalRounds: rounds.length.toString(),
+            accuracy: Math.round(
+              (correctAnswers / rounds.length) * 100
+            ).toString(),
+            totalTime: ((Date.now() - gameStartTime) / 1000).toString(),
+            xpGained: "0",
+            coinsEarned: "0",
+          },
+        });
         return;
       }
 
@@ -476,7 +521,7 @@ export default function GameScreen() {
 
       console.log("✅ Game completed successfully:", result);
 
-      // Show results with data from server response
+      // Get results data from server response
       const finalScore =
         result.data?.game_result?.scoring?.final_score || score;
       const finalCorrect =
@@ -489,15 +534,21 @@ export default function GameScreen() {
         result.data?.game_result?.scoring?.experience_gained || 0;
       const coinsEarned = result.data?.game_result?.scoring?.coins_earned || 0;
 
-      Alert.alert(
-        "Game Complete! 🎉",
-        `Final Score: ${finalScore}\n` +
-          `Accuracy: ${accuracy}%\n` +
-          `Correct Answers: ${finalCorrect}/${rounds.length}\n` +
-          `XP Gained: ${xpGained}\n` +
-          `Coins Earned: ${coinsEarned}`,
-        [{ text: "Back to Menu", onPress: () => router.replace("/game/menu") }]
-      );
+      // Redirect to gameResult.tsx instead of showing alert
+      router.push({
+        pathname: "/game/gameResult",
+        params: {
+          gameType: "session",
+          sessionId: (parsedSessionId || 0).toString(),
+          finalScore: finalScore.toString(),
+          correctAnswers: finalCorrect.toString(),
+          totalRounds: rounds.length.toString(),
+          accuracy: accuracy.toString(),
+          totalTime: totalTime.toString(),
+          xpGained: xpGained.toString(),
+          coinsEarned: coinsEarned.toString(),
+        },
+      });
     } catch (error: any) {
       console.error("❌ Error completing game:", error);
       Alert.alert(
@@ -539,22 +590,31 @@ export default function GameScreen() {
       console.log("✅ Whole game submitted successfully!");
       console.log("📊 Results:", result.game_result);
 
-      Alert.alert(
-        "Game Submitted! 🚀",
-        `Score: ${result.game_result?.scoring?.final_score || finalScore}\n` +
-          `Accuracy: ${
-            result.game_result?.performance?.accuracy ||
-            Math.round((finalCorrect / rounds.length) * 100)
-          }%\n` +
-          `Correct: ${
-            result.game_result?.performance?.correct_answers || finalCorrect
-          }/${rounds.length}\n` +
-          `XP Gained: ${
-            result.game_result?.scoring?.experience_gained || 0
-          }\n` +
-          `Coins Earned: ${result.game_result?.scoring?.coins_earned || 0}`,
-        [{ text: "Back to Menu", onPress: () => router.back() }]
-      );
+      // Get results data from server response
+      const serverScore =
+        result.game_result?.scoring?.final_score || finalScore;
+      const serverCorrect =
+        result.game_result?.performance?.correct_answers || finalCorrect;
+      const serverAccuracy =
+        result.game_result?.performance?.accuracy ||
+        Math.round((finalCorrect / rounds.length) * 100);
+      const xpGained = result.game_result?.scoring?.experience_gained || 0;
+      const coinsEarned = result.game_result?.scoring?.coins_earned || 0;
+
+      // Redirect to gameResult.tsx instead of showing alert
+      router.push({
+        pathname: "/game/gameResult",
+        params: {
+          gameType: "quick-submit",
+          finalScore: serverScore.toString(),
+          correctAnswers: serverCorrect.toString(),
+          totalRounds: rounds.length.toString(),
+          accuracy: serverAccuracy.toString(),
+          totalTime: (totalTime / 1000).toString(),
+          xpGained: xpGained.toString(),
+          coinsEarned: coinsEarned.toString(),
+        },
+      });
     } catch (error) {
       console.error("❌ Failed to submit whole game:", error);
       Alert.alert("Error", "Failed to submit game. Please try again.");
@@ -633,8 +693,10 @@ export default function GameScreen() {
     setScore(0);
     setCorrectAnswers(0);
     setGameCompleted(false);
-    setGameStartTime(Date.now());
-    setRoundStartTime(Date.now());
+    // Reset timing - gameStartTime will be set when first round actually starts
+    const now = Date.now();
+    setGameStartTime(now);
+    setRoundStartTime(now);
 
     console.log(
       `🎮 New game generated with difficulty ${difficulty} (max: ${maxNumber})`
@@ -1189,78 +1251,6 @@ export default function GameScreen() {
       </View>
     );
   };
-
-  if (gameCompleted) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.content}>
-          <Ionicons name="trophy" size={80} color="#ffd33d" />
-          <Text style={styles.gameTitle}>Game Complete!</Text>
-          <Text style={styles.finalScore}>Final Score: {score}</Text>
-          <Text style={styles.accuracy}>
-            Accuracy: {correctAnswers}/{rounds.length} (
-            {Math.round((correctAnswers / rounds.length) * 100)}%)
-          </Text>
-
-          <View style={styles.finalButtons}>
-            <TouchableOpacity
-              style={styles.playAgainButton}
-              onPress={() => router.back()}
-            >
-              <Text style={styles.playAgainButtonText}>Play Again</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.menuButton}
-              onPress={() => router.replace("/game/menu")}
-            >
-              <Text style={styles.menuButtonText}>Back to Menu</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    );
-  }
-
-  if (!gameStarted) {
-    return renderWaitingScreen();
-  }
-
-  if (countdown > 0) {
-    return renderCountdown();
-  }
-
-  if (gameCompleted) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.content}>
-          <Ionicons name="trophy" size={80} color="#ffd33d" />
-          <Text style={styles.gameTitle}>Game Complete!</Text>
-          <Text style={styles.finalScore}>Final Score: {score}</Text>
-          <Text style={styles.accuracy}>
-            Accuracy: {correctAnswers}/{rounds.length} (
-            {Math.round((correctAnswers / rounds.length) * 100)}%)
-          </Text>
-
-          <View style={styles.finalButtons}>
-            <TouchableOpacity
-              style={styles.playAgainButton}
-              onPress={() => router.back()}
-            >
-              <Text style={styles.playAgainButtonText}>Play Again</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.menuButton}
-              onPress={() => router.replace("/game/menu")}
-            >
-              <Text style={styles.menuButtonText}>Back to Menu</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    );
-  }
 
   if (!gameStarted) {
     return renderWaitingScreen();
