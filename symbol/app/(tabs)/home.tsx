@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Link, router, useFocusEffect } from "expo-router";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   Alert,
   Dimensions,
@@ -13,6 +13,10 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Animated,
+  Easing,
+  StatusBar,
+  Vibration,
 } from "react-native";
 import { apiUtils, authAPI, userAPI, battleAPI } from "../../services/api";
 import { getLevelDisplayInfo } from "../../utils/levelUtils";
@@ -149,8 +153,30 @@ export default function HomeScreen() {
   const [tempUsername, setTempUsername] = useState(userProfile.username);
   const [loading, setLoading] = useState(false);
 
+  // 🎨 Interactive Animation States
+  const [dailyBonus, setDailyBonus] = useState({
+    available: true,
+    claimed: false,
+  });
+  const [streak, setStreak] = useState(3);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [quickStats, setQuickStats] = useState({
+    todayGames: 2,
+    todayScore: 1450,
+    weeklyGoal: 5000,
+    weeklyProgress: 2800,
+  });
+
+  // 🎯 Animation References
+  const pulseAnimation = useRef(new Animated.Value(1)).current;
+  const slideAnimation = useRef(new Animated.Value(0)).current;
+  const floatAnimation = useRef(new Animated.Value(0)).current;
+  const celebrationScale = useRef(new Animated.Value(0)).current;
+  const progressAnimation = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
     checkAuthStatus();
+    startAnimations();
 
     const timer = setInterval(() => {
       setCurrentTime(new Date());
@@ -165,6 +191,61 @@ export default function HomeScreen() {
       subscription?.remove();
     };
   }, []);
+
+  // 🎨 Start continuous animations
+  const startAnimations = () => {
+    // Pulse animation for notifications
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnimation, {
+          toValue: 1.2,
+          duration: 1000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnimation, {
+          toValue: 1,
+          duration: 1000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    // Float animation for game cards
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnimation, {
+          toValue: 1,
+          duration: 3000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(floatAnimation, {
+          toValue: 0,
+          duration: 3000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    // Slide in animation for content
+    Animated.timing(slideAnimation, {
+      toValue: 1,
+      duration: 800,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+
+    // Progress bar animation
+    Animated.timing(progressAnimation, {
+      toValue: 1,
+      duration: 1500,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  };
 
   // 🆕 Refresh user profile when screen comes into focus (e.g., after completing a game)
   useFocusEffect(
@@ -515,6 +596,68 @@ export default function HomeScreen() {
     router.push("/(auth)/Auth");
   };
 
+  // 🎉 Interactive Features
+  const handleDailyBonus = () => {
+    if (!dailyBonus.available || dailyBonus.claimed) return;
+
+    Vibration.vibrate(100);
+    setDailyBonus({ available: true, claimed: true });
+    setShowCelebration(true);
+
+    // Celebration animation
+    Animated.sequence([
+      Animated.timing(celebrationScale, {
+        toValue: 1,
+        duration: 300,
+        easing: Easing.out(Easing.back(2)),
+        useNativeDriver: true,
+      }),
+      Animated.delay(1500),
+      Animated.timing(celebrationScale, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start(() => setShowCelebration(false));
+
+    // Update coins
+    setUserProfile((prev) => ({ ...prev, coins: prev.coins + 50 }));
+  };
+
+  const handleQuickStart = (mode: string) => {
+    Vibration.vibrate(50);
+
+    // Quick start animation
+    const button = mode === "practice" ? pulseAnimation : floatAnimation;
+    Animated.sequence([
+      Animated.timing(button, {
+        toValue: 0.9,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.timing(button, {
+        toValue: 1,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    if (mode === "practice") {
+      handlePracticeMode();
+    } else if (mode === "battle") {
+      handleBattleMode();
+    }
+  };
+
+  const handleNotificationPress = () => {
+    Vibration.vibrate(50);
+    Alert.alert(
+      "🔔 Notifications",
+      "• Daily bonus available!\n• Your friend challenged you\n• New achievement unlocked",
+      [{ text: "Close" }]
+    );
+  };
+
   const ProfileModal = () => (
     <Modal
       visible={showProfileModal}
@@ -821,20 +964,46 @@ export default function HomeScreen() {
       }
       showsVerticalScrollIndicator={false}
     >
-      <View style={styles.header}>
+      <Animated.View
+        style={[
+          styles.header,
+          {
+            transform: [
+              {
+                translateY: slideAnimation.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [-50, 0],
+                }),
+              },
+            ],
+            opacity: slideAnimation,
+          },
+        ]}
+      >
         <View style={styles.headerLeft}>
           <Text style={styles.greeting}>{getGreeting()}!</Text>
           <Text style={styles.username}>
             {isAuthenticated ? userProfile.username : "Guest"}
           </Text>
+          {isAuthenticated && (
+            <View style={styles.streakContainer}>
+              <Ionicons name="flame" size={16} color="#FF6B35" />
+              <Text style={styles.streakText}>{streak} day streak!</Text>
+            </View>
+          )}
         </View>
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.notificationButton}>
-            <Ionicons
-              name="notifications"
-              size={getResponsiveFontSize(24)}
-              color="#ffd33d"
-            />
+          <TouchableOpacity
+            style={styles.notificationButton}
+            onPress={handleNotificationPress}
+          >
+            <Animated.View style={{ transform: [{ scale: pulseAnimation }] }}>
+              <Ionicons
+                name="notifications"
+                size={getResponsiveFontSize(24)}
+                color="#ffd33d"
+              />
+            </Animated.View>
             <View style={styles.notificationBadge}>
               <Text style={styles.badgeText}>3</Text>
             </View>
@@ -860,12 +1029,90 @@ export default function HomeScreen() {
             </TouchableOpacity>
           )}
         </View>
-      </View>
+      </Animated.View>
 
       {/* Show profile modal only for authenticated users */}
       {isAuthenticated && <ProfileModal />}
 
-      <View style={styles.progressSection}>
+      {/* 🎁 Daily Bonus Section */}
+      {isAuthenticated && (
+        <Animated.View
+          style={[
+            styles.dailyBonusSection,
+            {
+              transform: [
+                {
+                  translateX: slideAnimation.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-100, 0],
+                  }),
+                },
+              ],
+              opacity: slideAnimation,
+            },
+          ]}
+        >
+          <View style={styles.dailyBonusHeader}>
+            <View style={styles.dailyBonusInfo}>
+              <Text style={styles.dailyBonusTitle}>🎁 Daily Bonus</Text>
+              <Text style={styles.dailyBonusSubtitle}>Claim your reward!</Text>
+            </View>
+            <TouchableOpacity
+              style={[
+                styles.dailyBonusButton,
+                dailyBonus.claimed && styles.dailyBonusButtonClaimed,
+              ]}
+              onPress={handleDailyBonus}
+              disabled={dailyBonus.claimed}
+            >
+              <Text style={styles.dailyBonusButtonText}>
+                {dailyBonus.claimed ? "✅ Claimed" : "50 💰"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.quickStatsRow}>
+            <View style={styles.quickStat}>
+              <Text style={styles.quickStatNumber}>
+                {quickStats.todayGames}
+              </Text>
+              <Text style={styles.quickStatLabel}>Today Games</Text>
+            </View>
+            <View style={styles.quickStat}>
+              <Text style={styles.quickStatNumber}>
+                {formatNumber(quickStats.todayScore)}
+              </Text>
+              <Text style={styles.quickStatLabel}>Today Score</Text>
+            </View>
+            <View style={styles.quickStat}>
+              <Text style={styles.quickStatNumber}>
+                {Math.round(
+                  (quickStats.weeklyProgress / quickStats.weeklyGoal) * 100
+                )}
+                %
+              </Text>
+              <Text style={styles.quickStatLabel}>Weekly Goal</Text>
+            </View>
+          </View>
+        </Animated.View>
+      )}
+
+      <Animated.View
+        style={[
+          styles.progressSection,
+          {
+            transform: [
+              {
+                translateX: slideAnimation.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [100, 0],
+                }),
+              },
+            ],
+            opacity: slideAnimation,
+          },
+        ]}
+      >
         <View style={styles.progressHeader}>
           <Text style={styles.sectionTitle}>Level Progress</Text>
           <Text style={styles.levelText}>
@@ -898,54 +1145,169 @@ export default function HomeScreen() {
             return `${levelInfo.formattedCurrentXP} / ${levelInfo.formattedNextLevelXP} XP to next level`;
           })()}
         </Text>
-      </View>
+      </Animated.View>
 
-      <View style={styles.gamesSection}>
+      <Animated.View
+        style={[
+          styles.gamesSection,
+          {
+            transform: [
+              {
+                scale: slideAnimation.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.8, 1],
+                }),
+              },
+            ],
+            opacity: slideAnimation,
+          },
+        ]}
+      >
         <Text style={styles.sectionTitle}>🎮 Game Modes</Text>
         <View style={styles.gameModeContainer}>
           {/* Practice Mode */}
-          <TouchableOpacity
-            style={styles.practiceButton}
-            onPress={() => handleGamePress(gameCategories[0])}
-            activeOpacity={0.8}
+          <Animated.View
+            style={{
+              transform: [
+                {
+                  translateY: floatAnimation.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, -5],
+                  }),
+                },
+              ],
+            }}
           >
-            <Ionicons name="school" size={24} color="#fff" />
-            <Text style={styles.practiceButtonText}>🎯 Practice Mode</Text>
-            <Text style={styles.practiceButtonSubtext}>
-              Offline • No progress saved
-            </Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.practiceButton}
+              onPress={() => handleQuickStart("practice")}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="school" size={24} color="#fff" />
+              <Text style={styles.practiceButtonText}>🎯 Practice Mode</Text>
+              <Text style={styles.practiceButtonSubtext}>
+                Offline • No progress saved
+              </Text>
+              <View style={styles.quickStartBadge}>
+                <Text style={styles.quickStartText}>QUICK START</Text>
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
 
           {/* Symbol Match - Browse Games */}
-          <TouchableOpacity
-            style={styles.symbolMatchButton}
-            onPress={() => handleGamePress(gameCategories[1])}
-            activeOpacity={0.8}
+          <Animated.View
+            style={{
+              transform: [
+                {
+                  translateY: floatAnimation.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, 5],
+                  }),
+                },
+              ],
+            }}
           >
-            <Ionicons name="shapes" size={24} color="#fff" />
-            <Text style={styles.symbolMatchButtonText}>🎯 Symbol Match</Text>
-            <Text style={styles.symbolMatchButtonSubtext}>
-              Browse available games
-            </Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.symbolMatchButton}
+              onPress={() => handleGamePress(gameCategories[1])}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="shapes" size={24} color="#fff" />
+              <Text style={styles.symbolMatchButtonText}>🎯 Symbol Match</Text>
+              <Text style={styles.symbolMatchButtonSubtext}>
+                Browse available games
+              </Text>
+              <View style={styles.popularBadge}>
+                <Text style={styles.popularText}>POPULAR</Text>
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
 
           {/* Battle Mode */}
-          <TouchableOpacity
-            style={styles.battleModeButton}
-            onPress={() => handleGamePress(gameCategories[2])}
-            activeOpacity={0.8}
+          <Animated.View
+            style={{
+              transform: [
+                {
+                  translateY: floatAnimation.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, -3],
+                  }),
+                },
+              ],
+            }}
           >
-            <Ionicons name="flash" size={24} color="#fff" />
-            <Text style={styles.battleModeButtonText}>⚔️ Battle Mode</Text>
-            <Text style={styles.battleModeButtonSubtext}>
-              Challenge other players
-            </Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.battleModeButton}
+              onPress={() => handleQuickStart("battle")}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="flash" size={24} color="#fff" />
+              <Text style={styles.battleModeButtonText}>⚔️ Battle Mode</Text>
+              <Text style={styles.battleModeButtonSubtext}>
+                Challenge other players
+              </Text>
+              <View style={styles.newBadge}>
+                <Text style={styles.newText}>NEW</Text>
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
         </View>
-      </View>
+      </Animated.View>
 
       <View style={styles.achievementsSection}>
         <Text style={styles.sectionTitle}>Recent Achievements</Text>
+        {/* 🎉 Celebration Overlay */}
+        {showCelebration && (
+          <Animated.View
+            style={[
+              {
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: "rgba(0,0,0,0.8)",
+                justifyContent: "center",
+                alignItems: "center",
+                zIndex: 1000,
+              },
+              {
+                transform: [{ scale: celebrationScale }],
+                opacity: celebrationScale,
+              },
+            ]}
+          >
+            <View
+              style={{
+                backgroundColor: "#4CAF50",
+                borderRadius: 20,
+                padding: 30,
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ fontSize: 40, marginBottom: 10 }}>🎉</Text>
+              <Text
+                style={{
+                  color: "#fff",
+                  fontSize: getResponsiveFontSize(24),
+                  fontWeight: "bold",
+                  marginBottom: 10,
+                }}
+              >
+                Daily Bonus Claimed!
+              </Text>
+              <Text
+                style={{
+                  color: "#fff",
+                  fontSize: getResponsiveFontSize(18),
+                }}
+              >
+                +50 Coins Added!
+              </Text>
+            </View>
+          </Animated.View>
+        )}
+
         {recentAchievements.map((achievement) => (
           <View key={achievement.id} style={styles.achievementItem}>
             <View
@@ -1024,6 +1386,17 @@ const getResponsiveStyles = (dimensions: any) =>
       flexDirection: "row",
       alignItems: "center",
     },
+    streakContainer: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginTop: 4,
+    },
+    streakText: {
+      fontSize: getResponsiveFontSize(12),
+      color: "#FF6B35",
+      fontWeight: "600",
+      marginLeft: 4,
+    },
     notificationButton: {
       marginRight: dimensions.isTablet ? 20 : 16,
       position: "relative",
@@ -1052,6 +1425,67 @@ const getResponsiveStyles = (dimensions: any) =>
       borderColor: "#ffd33d",
     },
 
+    dailyBonusSection: {
+      margin: getResponsivePadding(),
+      backgroundColor: "#2A2D35",
+      borderRadius: dimensions.isTablet ? 16 : 12,
+      padding: getResponsivePadding(),
+      borderWidth: 1,
+      borderColor: "#4CAF50",
+      marginBottom: getResponsivePadding() / 2,
+    },
+    dailyBonusHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 16,
+    },
+    dailyBonusInfo: {
+      flex: 1,
+    },
+    dailyBonusTitle: {
+      fontSize: getResponsiveFontSize(18),
+      fontWeight: "bold",
+      color: "#4CAF50",
+      marginBottom: 2,
+    },
+    dailyBonusSubtitle: {
+      fontSize: getResponsiveFontSize(14),
+      color: "#ccc",
+    },
+    dailyBonusButton: {
+      backgroundColor: "#4CAF50",
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 20,
+    },
+    dailyBonusButtonClaimed: {
+      backgroundColor: "#666",
+    },
+    dailyBonusButtonText: {
+      color: "#fff",
+      fontWeight: "bold",
+      fontSize: getResponsiveFontSize(14),
+    },
+    quickStatsRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+    },
+    quickStat: {
+      alignItems: "center",
+      flex: 1,
+    },
+    quickStatNumber: {
+      fontSize: getResponsiveFontSize(20),
+      fontWeight: "bold",
+      color: "#4CAF50",
+      marginBottom: 4,
+    },
+    quickStatLabel: {
+      fontSize: getResponsiveFontSize(12),
+      color: "#888",
+      textAlign: "center",
+    },
     progressSection: {
       margin: getResponsivePadding(),
       backgroundColor: "#333",
@@ -1601,5 +2035,48 @@ const getResponsiveStyles = (dimensions: any) =>
       fontSize: getResponsiveFontSize(14),
       fontWeight: "600",
       color: "#ffd33d",
+    },
+    // 🎯 Badge Styles for Game Cards
+    quickStartBadge: {
+      position: "absolute",
+      top: 8,
+      right: 8,
+      backgroundColor: "#4CAF50",
+      borderRadius: 12,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    quickStartText: {
+      color: "#fff",
+      fontSize: getResponsiveFontSize(10),
+      fontWeight: "bold",
+    },
+    popularBadge: {
+      position: "absolute",
+      top: 8,
+      right: 8,
+      backgroundColor: "#FF9800",
+      borderRadius: 12,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    popularText: {
+      color: "#fff",
+      fontSize: getResponsiveFontSize(10),
+      fontWeight: "bold",
+    },
+    newBadge: {
+      position: "absolute",
+      top: 8,
+      right: 8,
+      backgroundColor: "#E91E63",
+      borderRadius: 12,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    newText: {
+      color: "#fff",
+      fontSize: getResponsiveFontSize(10),
+      fontWeight: "bold",
     },
   });
