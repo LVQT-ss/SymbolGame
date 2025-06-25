@@ -5,6 +5,7 @@ import UserRoundResponse from '../model/user-round-responses.model.js';
 import User from '../model/user.model.js';
 import sequelize from '../database/db.js';
 import { Op } from 'sequelize';
+import { updateUserLevelAfterGame } from '../services/levelService.js';
 
 // POST /api/game/start - Create new game session (ADMIN ONLY)
 export const startGame = async (req, res) => {
@@ -1045,6 +1046,19 @@ export const completeGame = async (req, res) => {
             }
         });
 
+        // 🆕 Update user level based on total game history score (non-blocking)
+        // This runs asynchronously after the response is sent to avoid affecting JSON output
+        setImmediate(async () => {
+            try {
+                const levelUpdate = await updateUserLevelAfterGame(userId);
+                if (levelUpdate.leveled_up) {
+                    console.log(`🎉 LEVEL UP! User ${user.username}: Level ${levelUpdate.old_level} → ${levelUpdate.new_level} (+${levelUpdate.levels_gained} levels)`);
+                }
+            } catch (levelError) {
+                console.error(`❌ Level update failed for user ${userId}:`, levelError.message);
+            }
+        });
+
     } catch (err) {
         console.error('❌ Error in complete game:', err);
         res.status(500).json({
@@ -1625,6 +1639,18 @@ export const submitWholeGame = async (req, res) => {
                     difficulty_level > 1 && accuracy < 50 ?
                         `Try difficulty level ${difficulty_level - 1} next!` :
                         'Keep playing to improve!'
+            }
+        });
+
+        // 🆕 Update user level based on total game history score (non-blocking)
+        setImmediate(async () => {
+            try {
+                const levelUpdate = await updateUserLevelAfterGame(userId);
+                if (levelUpdate.leveled_up) {
+                    console.log(`🎉 LEVEL UP! User ${user.username}: Level ${levelUpdate.old_level} → ${levelUpdate.new_level} (+${levelUpdate.levels_gained} levels)`);
+                }
+            } catch (levelError) {
+                console.error(`❌ Level update failed for user ${userId}:`, levelError.message);
             }
         });
 

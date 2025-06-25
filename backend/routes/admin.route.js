@@ -1,7 +1,9 @@
 import express from 'express';
 import {
     getCustomerCount,
-    createSampleGames
+    createSampleGames,
+    updateUserLevels,
+    recalculateAllLevels
 } from '../controllers/admin.controller.js';
 import { verifyToken } from '../middleware/verifyUser.js';
 
@@ -44,4 +46,9 @@ const router = express.Router();
  */
 router.get('/customers/count', verifyToken, getCustomerCount);
 router.post('/create-sample-games', verifyToken, createSampleGames);
+
+// 🆕 Level Management Endpoints
+router.post('/users/update-levels', verifyToken, updateUserLevels);
+router.post('/users/recalculate-all-levels', verifyToken, recalculateAllLevels);
+
 export default router; 

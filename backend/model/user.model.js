@@ -40,11 +40,6 @@ const User = sequelize.define('User', {
         type: DataTypes.DATE,
         allowNull: true,
     },
-    country: {
-        type: DataTypes.STRING(3),
-        defaultValue: 'VN',
-        comment: 'ISO 3166-1 alpha-2 country code (VN, US, JP, etc.)'
-    },
     coins: {
         type: DataTypes.INTEGER,
         defaultValue: 0,

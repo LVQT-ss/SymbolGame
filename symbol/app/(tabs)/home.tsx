@@ -15,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { apiUtils, authAPI, userAPI, battleAPI } from "../../services/api";
+import { getLevelDisplayInfo } from "../../utils/levelUtils";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -668,29 +669,63 @@ export default function HomeScreen() {
                   style={[
                     styles.expProgressFill,
                     {
-                      width: `${
-                        ((userProfile.experience ||
-                          userProfile.experience_points ||
-                          0) /
-                          (userProfile.maxExperience ||
-                            (userProfile.current_level || 1) * 100)) *
-                        100
-                      }%`,
+                      width: `${(() => {
+                        const levelInfo = getLevelDisplayInfo(userProfile);
+                        return levelInfo.isMaxLevel
+                          ? 100
+                          : levelInfo.progressPercent;
+                      })()}%`,
                     },
                   ]}
                 />
               </View>
               <Text style={styles.expText}>
-                {formatNumber(
-                  userProfile.experience || userProfile.experience_points || 0
-                )}{" "}
-                /{" "}
-                {formatNumber(
-                  userProfile.maxExperience ||
-                    (userProfile.current_level || 1) * 100
-                )}{" "}
-                XP
+                {(() => {
+                  const levelInfo = getLevelDisplayInfo(userProfile);
+                  if (levelInfo.isMaxLevel) {
+                    return `🏆 Max Level! ${levelInfo.formattedCurrentXP} XP`;
+                  }
+                  return `${levelInfo.formattedCurrentXP} / ${levelInfo.formattedNextLevelXP} XP`;
+                })()}
               </Text>
+            </View>
+
+            {/* 🆕 Additional Level Info */}
+            <View style={styles.levelDetailsContainer}>
+              <View style={styles.levelDetailRow}>
+                <Text style={styles.levelDetailLabel}>Current Level:</Text>
+                <Text style={styles.levelDetailValue}>
+                  {(() => {
+                    const levelInfo = getLevelDisplayInfo(userProfile);
+                    return levelInfo.currentLevel;
+                  })()}
+                </Text>
+              </View>
+
+              {(() => {
+                const levelInfo = getLevelDisplayInfo(userProfile);
+                if (!levelInfo.isMaxLevel) {
+                  return (
+                    <View style={styles.levelDetailRow}>
+                      <Text style={styles.levelDetailLabel}>XP Needed:</Text>
+                      <Text style={styles.levelDetailValue}>
+                        {levelInfo.formattedXPNeeded}
+                      </Text>
+                    </View>
+                  );
+                }
+                return null;
+              })()}
+
+              <View style={styles.levelDetailRow}>
+                <Text style={styles.levelDetailLabel}>Total XP:</Text>
+                <Text style={styles.levelDetailValue}>
+                  {(() => {
+                    const levelInfo = getLevelDisplayInfo(userProfile);
+                    return levelInfo.formattedCurrentXP;
+                  })()}
+                </Text>
+              </View>
             </View>
           </View>
 
@@ -802,13 +837,35 @@ export default function HomeScreen() {
         <View style={styles.progressHeader}>
           <Text style={styles.sectionTitle}>Level Progress</Text>
           <Text style={styles.levelText}>
-            Level {userProfile.current_level}
+            Level{" "}
+            {(() => {
+              const levelInfo = getLevelDisplayInfo(userProfile);
+              return levelInfo.currentLevel;
+            })()}
           </Text>
         </View>
         <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: "70%" }]} />
+          <View
+            style={[
+              styles.progressFill,
+              {
+                width: `${(() => {
+                  const levelInfo = getLevelDisplayInfo(userProfile);
+                  return levelInfo.isMaxLevel ? 100 : levelInfo.progressPercent;
+                })()}%`,
+              },
+            ]}
+          />
         </View>
-        <Text style={styles.progressText}>7,200 / 10,000 XP to next level</Text>
+        <Text style={styles.progressText}>
+          {(() => {
+            const levelInfo = getLevelDisplayInfo(userProfile);
+            if (levelInfo.isMaxLevel) {
+              return `🏆 Max Level Reached! ${levelInfo.formattedCurrentXP} XP`;
+            }
+            return `${levelInfo.formattedCurrentXP} / ${levelInfo.formattedNextLevelXP} XP to next level`;
+          })()}
+        </Text>
       </View>
 
       <View style={styles.gamesSection}>
@@ -1490,5 +1547,27 @@ const getResponsiveStyles = (dimensions: any) =>
       fontSize: getResponsiveFontSize(20),
       fontWeight: "bold",
       color: "#fff",
+    },
+    // 🆕 Level Detail Styles
+    levelDetailsContainer: {
+      marginTop: 16,
+      backgroundColor: "#2a2a2a",
+      borderRadius: 8,
+      padding: 12,
+    },
+    levelDetailRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      paddingVertical: 6,
+    },
+    levelDetailLabel: {
+      fontSize: getResponsiveFontSize(14),
+      color: "#888",
+    },
+    levelDetailValue: {
+      fontSize: getResponsiveFontSize(14),
+      fontWeight: "600",
+      color: "#ffd33d",
     },
   });

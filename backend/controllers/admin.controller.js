@@ -1,6 +1,7 @@
 import User from '../model/user.model.js';
 import GameSession from '../model/game-sessions.model.js';
 import RoundDetail from '../model/round-details.model.js';
+import { updateUserLevel, updateUserLevelsBatch, updateAllUserLevels } from '../services/levelService.js';
 
 
 
@@ -148,6 +149,81 @@ export const createSampleGames = async (req, res) => {
 
     } catch (err) {
         console.error('Error creating sample game sessions:', err);
+        res.status(500).json({ message: 'Server error', error: err.message });
+    }
+};
+
+// POST /api/admin/users/update-levels - Update levels for specific users
+export const updateUserLevels = async (req, res) => {
+    const adminId = req.userId;
+    const { user_ids, return_details = false } = req.body;
+
+    try {
+        // Verify admin permissions
+        const admin = await User.findByPk(adminId);
+        if (!admin || admin.usertype !== 'Admin') {
+            return res.status(403).json({
+                message: 'Admin access required to update user levels.'
+            });
+        }
+
+        if (!user_ids || !Array.isArray(user_ids) || user_ids.length === 0) {
+            return res.status(400).json({
+                message: 'user_ids array is required and must contain at least one user ID.'
+            });
+        }
+
+        console.log(`🔄 Admin ${admin.username} requesting level update for ${user_ids.length} users`);
+
+        // Update levels using batch service
+        const result = await updateUserLevelsBatch(user_ids, return_details);
+
+        res.status(200).json({
+            message: `Level update completed for ${result.total_processed} users`,
+            admin: { id: admin.id, username: admin.username },
+            update_summary: result
+        });
+
+    } catch (err) {
+        console.error('Error updating user levels:', err);
+        res.status(500).json({ message: 'Server error', error: err.message });
+    }
+};
+
+// POST /api/admin/users/recalculate-all-levels - Recalculate all user levels
+export const recalculateAllLevels = async (req, res) => {
+    const adminId = req.userId;
+    const { confirm_action, return_details = false } = req.body;
+
+    try {
+        // Verify admin permissions
+        const admin = await User.findByPk(adminId);
+        if (!admin || admin.usertype !== 'Admin') {
+            return res.status(403).json({
+                message: 'Admin access required to recalculate all user levels.'
+            });
+        }
+
+        // Require explicit confirmation for bulk operation
+        if (confirm_action !== 'RECALCULATE_ALL_LEVELS') {
+            return res.status(400).json({
+                message: 'Please include "confirm_action": "RECALCULATE_ALL_LEVELS" to proceed.',
+                warning: 'This operation will recalculate levels for ALL active users.'
+            });
+        }
+
+        console.log(`⚠️ Admin ${admin.username} initiating FULL level recalculation`);
+
+        const result = await updateAllUserLevels(return_details);
+
+        res.status(200).json({
+            message: `✅ Full level recalculation completed successfully`,
+            admin: { id: admin.id, username: admin.username },
+            recalculation_summary: result
+        });
+
+    } catch (err) {
+        console.error('Error in full level recalculation:', err);
         res.status(500).json({ message: 'Server error', error: err.message });
     }
 }; 
