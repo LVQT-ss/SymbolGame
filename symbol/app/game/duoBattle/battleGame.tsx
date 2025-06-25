@@ -77,7 +77,8 @@ export default function BattleGameScreen() {
   const [gameLoading, setGameLoading] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState<string>("");
   const [roundStartTime, setRoundStartTime] = useState<number>(0);
-  const [gameStartTime, setGameStartTime] = useState<number>(Date.now());
+  const [gameStartTime, setGameStartTime] = useState<number | null>(null);
+  const [gameEndTime, setGameEndTime] = useState<number | null>(null);
   const [totalGameTime, setTotalGameTime] = useState<number>(0);
   const [gamePhase, setGamePhase] = useState<
     "waiting" | "ready-to-start" | "countdown" | "playing" | "waiting-for-both"
@@ -352,12 +353,17 @@ export default function BattleGameScreen() {
         battleStartTimeout.current = null;
       }
 
-      // Force transition to playing phase
+      // Force transition to playing phase and start timing
       setCountdownValue(0);
       setGamePhase("playing");
       setCurrentRoundIndex(0);
-      setGameStartTime(Date.now());
-      console.log("✅ Transitioned to playing phase via socket event");
+      const now = Date.now();
+      setGameStartTime(now);
+      setRoundStartTime(now);
+      console.log(
+        "✅ Transitioned to playing phase via socket event, game timer started at:",
+        now
+      );
     }
   };
 
@@ -493,12 +499,17 @@ export default function BattleGameScreen() {
         clearInterval(countdownInterval.current);
         countdownInterval.current = null;
 
-        // Always transition to playing when countdown finishes
+        // Always transition to playing when countdown finishes and start timing
         setCountdownValue(0);
         setGamePhase("playing");
         setCurrentRoundIndex(0);
-        setGameStartTime(Date.now());
-        console.log("✅ Local countdown finished, transitioned to playing");
+        const now = Date.now();
+        setGameStartTime(now);
+        setRoundStartTime(now);
+        console.log(
+          "✅ Local countdown finished, transitioned to playing, game timer started at:",
+          now
+        );
       } else {
         setCountdownValue(currentCount);
       }
@@ -574,18 +585,8 @@ export default function BattleGameScreen() {
     await navigateToResults();
   };
 
-  useEffect(() => {
-    if (gamePhase === "playing" && rounds.length > 0) {
-      console.log("🎮 Game phase set to playing, starting round timer");
-      setRoundStartTime(Date.now());
-
-      // Set game start time if not already set
-      if (!gameStartTime) {
-        console.log("⏰ Setting game start time");
-        setGameStartTime(Date.now());
-      }
-    }
-  }, [gamePhase, currentRoundIndex]);
+  // Removed the useEffect that was setting gameStartTime at wrong time
+  // Now gameStartTime is only set when countdown finishes
 
   const startPulseAnimation = () => {
     Animated.loop(
@@ -725,7 +726,7 @@ export default function BattleGameScreen() {
             );
             console.log("Current round index:", currentRound);
             setCurrentRoundIndex(currentRound);
-            setGameStartTime(Date.now());
+            // Don't set gameStartTime here - it will be set in useEffect when playing phase is active
           } else {
             console.log(
               "⏳ Battle has opponent but hasn't started, setting phase to ready-to-start"
@@ -967,8 +968,13 @@ export default function BattleGameScreen() {
 
       // **FIX: Only proceed to completion/next round AFTER successful submission**
       if (isLastRound) {
-        // All rounds completed AND submitted - complete battle
+        // All rounds completed AND submitted - record end time and complete battle
         console.log(`🏁 All ${rounds.length} rounds completed and submitted`);
+        const endTime = Date.now();
+        setGameEndTime(endTime);
+        console.log(
+          `⏰ Game completed at: ${endTime}, started at: ${gameStartTime}`
+        );
         completeBattle();
       } else {
         // Move to next round only after successful submission
@@ -1011,8 +1017,24 @@ export default function BattleGameScreen() {
   const completeBattle = async () => {
     try {
       setGameLoading(true);
-      const totalTime = (Date.now() - gameStartTime) / 1000; // Convert to seconds with decimal precision
+
+      // Ensure we have a valid game start time
+      if (!gameStartTime) {
+        console.error(
+          "❌ No game start time recorded - this shouldn't happen!"
+        );
+        Alert.alert("Error", "Game timing error. Please restart the battle.");
+        return;
+      }
+
+      // Use the captured end time for accurate total time calculation
+      const endTimeToUse = gameEndTime || Date.now();
+      const totalTime = (endTimeToUse - gameStartTime) / 1000; // Convert to seconds with decimal precision
       setTotalGameTime(totalTime);
+
+      console.log(
+        `⏰ Total game time calculated: ${totalTime}s (${endTimeToUse} - ${gameStartTime})`
+      );
 
       const response = await battleAPI.completeBattle(
         battleSession!.id,
