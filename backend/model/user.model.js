@@ -64,6 +64,11 @@ const User = sequelize.define('User', {
         type: DataTypes.FLOAT,
         defaultValue: 0.0,
     },
+    country: {
+        type: DataTypes.STRING(2),
+        allowNull: true,
+        comment: 'ISO 3166-1 alpha-2 country code (e.g., US, VN, JP)',
+    },
     is_active: {
         type: DataTypes.BOOLEAN,
         defaultValue: true,

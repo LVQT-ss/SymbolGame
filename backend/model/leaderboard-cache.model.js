@@ -8,9 +8,9 @@ const LeaderboardCache = sequelize.define('LeaderboardCache', {
         primaryKey: true,
     },
     leaderboard_type: {
-        type: DataTypes.ENUM('regional', 'monthly'),
+        type: DataTypes.ENUM('regional', 'monthly', 'allTime'),
         allowNull: false,
-        comment: 'Type of leaderboard: regional or monthly'
+        comment: 'Type of leaderboard: regional, monthly, or allTime'
     },
     region: {
         type: DataTypes.STRING(20),
@@ -39,6 +39,11 @@ const LeaderboardCache = sequelize.define('LeaderboardCache', {
         type: DataTypes.INTEGER,
         allowNull: false,
         comment: 'Score used for ranking'
+    },
+    total_time: {
+        type: DataTypes.FLOAT,
+        allowNull: true,
+        comment: 'Total time spent playing (in seconds)'
     },
     full_name: {
         type: DataTypes.STRING(255),

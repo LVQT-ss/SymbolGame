@@ -988,6 +988,54 @@ export const completeGame = async (req, res) => {
             coins: user.coins + coinsEarned
         });
 
+        // 🆕 UPDATE USER STATISTICS after game completion
+        try {
+            console.log(`📊 Updating UserStatistics for user ${userId} (${user.username})...`);
+
+            // Find or create user statistics record
+            let userStats = await UserStatistics.findOne({ where: { user_id: userId } });
+            if (!userStats) {
+                console.log(`   ⚠️  UserStatistics record not found, creating new one...`);
+                userStats = await UserStatistics.create({
+                    user_id: userId,
+                    games_played: 0,
+                    best_score: 0,
+                    total_score: 0
+                });
+                console.log(`   ✅ Created UserStatistics record for user ${userId}`);
+            }
+
+            // Get current best score from GameHistory
+            const currentBestScore = await GameHistory.max('score', {
+                where: { user_id: userId, completed: true }
+            }) || 0;
+
+            // Get total games played from GameHistory  
+            const totalGamesPlayed = await GameHistory.count({
+                where: { user_id: userId, completed: true }
+            });
+
+            // Get total score from GameHistory
+            const totalScore = await GameHistory.sum('score', {
+                where: { user_id: userId, completed: true }
+            }) || 0;
+
+            console.log(`   📈 Calculated stats - Games: ${totalGamesPlayed}, Best: ${currentBestScore}, Total: ${totalScore}`);
+
+            // Update the statistics
+            await userStats.update({
+                games_played: totalGamesPlayed,
+                best_score: currentBestScore,
+                total_score: totalScore
+            });
+
+            console.log(`   ✅ Successfully updated UserStatistics for ${user.username}: ${totalGamesPlayed} games, best: ${currentBestScore}, total: ${totalScore}`);
+
+        } catch (statsError) {
+            console.error(`❌ Error updating UserStatistics for user ${userId}:`, statsError);
+            // Don't fail the whole request if stats update fails
+        }
+
         // 🆕 Update user level using the new progressive system BEFORE sending response
         const levelUpdateResult = await updateUserLevelAfterGame(userId);
 
@@ -1591,6 +1639,54 @@ export const submitWholeGame = async (req, res) => {
         await user.update({
             coins: user.coins + coinsEarned
         });
+
+        // 🆕 UPDATE USER STATISTICS after game completion (submitWholeGame)
+        try {
+            console.log(`📊 Updating UserStatistics for user ${userId} (${user.username}) after submitWholeGame...`);
+
+            // Find or create user statistics record
+            let userStats = await UserStatistics.findOne({ where: { user_id: userId } });
+            if (!userStats) {
+                console.log(`   ⚠️  UserStatistics record not found, creating new one...`);
+                userStats = await UserStatistics.create({
+                    user_id: userId,
+                    games_played: 0,
+                    best_score: 0,
+                    total_score: 0
+                });
+                console.log(`   ✅ Created UserStatistics record for user ${userId}`);
+            }
+
+            // Get current best score from GameSessions (for submitWholeGame)
+            const currentBestScore = await GameSession.max('score', {
+                where: { user_id: userId, completed: true }
+            }) || 0;
+
+            // Get total games played from GameSessions
+            const totalGamesPlayed = await GameSession.count({
+                where: { user_id: userId, completed: true }
+            });
+
+            // Get total score from GameSessions  
+            const totalScore = await GameSession.sum('score', {
+                where: { user_id: userId, completed: true }
+            }) || 0;
+
+            console.log(`   📈 Calculated stats from GameSessions - Games: ${totalGamesPlayed}, Best: ${currentBestScore}, Total: ${totalScore}`);
+
+            // Update the statistics
+            await userStats.update({
+                games_played: totalGamesPlayed,
+                best_score: currentBestScore,
+                total_score: totalScore
+            });
+
+            console.log(`   ✅ Successfully updated UserStatistics for ${user.username}: ${totalGamesPlayed} games, best: ${currentBestScore}, total: ${totalScore}`);
+
+        } catch (statsError) {
+            console.error(`❌ Error updating UserStatistics for user ${userId}:`, statsError);
+            // Don't fail the whole request if stats update fails
+        }
 
         // 🆕 Update user level using the new progressive system BEFORE sending response
         const levelUpdateResult = await updateUserLevelAfterGame(userId);

@@ -5,12 +5,16 @@ import {
   Dimensions,
   FlatList,
   Image,
+  Modal,
   RefreshControl,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  ScrollView,
+  Animated,
 } from "react-native";
+import { fetchLeaderboard } from "../../services/api";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -27,7 +31,7 @@ const responsiveSize = (small: number, medium: number, large: number) => {
 };
 
 const responsiveSpacing = (base: number) => {
-  return base * (screenWidth / 375); // 375 is iPhone 6/7/8 width as baseline
+  return base * (screenWidth / 375);
 };
 
 interface LeaderboardEntry {
@@ -37,7 +41,21 @@ interface LeaderboardEntry {
   score: number;
   avatar: string;
   level: number;
+  region?: string;
+  country?: string;
+  countryFlag?: string;
+  total_time?: number;
   isCurrentUser?: boolean;
+}
+
+type DifficultyLevel = 1 | 2 | 3;
+type TimeFilter = "monthly" | "allTime";
+type RegionFilter = "global" | "asia" | "america" | "europe" | "others";
+
+interface FilterOption {
+  value: string;
+  label: string;
+  icon?: string;
 }
 
 export default function LeaderboardScreen() {
@@ -45,9 +63,36 @@ export default function LeaderboardScreen() {
     []
   );
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedPeriod, setSelectedPeriod] = useState<
-    "daily" | "weekly" | "allTime"
-  >("allTime");
+  const [selectedDifficulty, setSelectedDifficulty] =
+    useState<DifficultyLevel>(1);
+  const [selectedTime, setSelectedTime] = useState<TimeFilter>("allTime");
+  const [selectedRegion, setSelectedRegion] = useState<RegionFilter>("global");
+  const [loading, setLoading] = useState(false);
+
+  // Dropdown states
+  const [showDifficultyMenu, setShowDifficultyMenu] = useState(false);
+  const [showTimeMenu, setShowTimeMenu] = useState(false);
+  const [showRegionMenu, setShowRegionMenu] = useState(false);
+
+  // Filter options
+  const difficultyOptions: FilterOption[] = [
+    { value: "1", label: "Easy", icon: "happy-outline" },
+    { value: "2", label: "Medium", icon: "trending-up-outline" },
+    { value: "3", label: "Hard", icon: "flame-outline" },
+  ];
+
+  const timeOptions: FilterOption[] = [
+    { value: "monthly", label: "This Month", icon: "calendar-outline" },
+    { value: "allTime", label: "All Time", icon: "infinite-outline" },
+  ];
+
+  const regionOptions: FilterOption[] = [
+    { value: "global", label: "Global", icon: "earth-outline" },
+    { value: "asia", label: "Asia", icon: "location-outline" },
+    { value: "america", label: "America", icon: "location-outline" },
+    { value: "europe", label: "Europe", icon: "location-outline" },
+    { value: "others", label: "Others", icon: "location-outline" },
+  ];
 
   // Sample data - replace with actual API call
   const generateMockData = (): LeaderboardEntry[] => {
@@ -74,6 +119,21 @@ export default function LeaderboardScreen() {
       "GameStar",
     ];
 
+    const regions = ["asia", "america", "europe", "others"];
+    const countries = [
+      "US",
+      "VN",
+      "JP",
+      "KR",
+      "CN",
+      "DE",
+      "FR",
+      "UK",
+      "BR",
+      "CA",
+    ];
+    const flags = ["🇺🇸", "🇻🇳", "🇯🇵", "🇰🇷", "🇨🇳", "🇩🇪", "🇫🇷", "🇬🇧", "🇧🇷", "🇨🇦"];
+
     return usernames
       .map((username, index) => ({
         id: `user_${index + 1}`,
@@ -82,7 +142,11 @@ export default function LeaderboardScreen() {
         score: Math.floor(Math.random() * 50000) + 10000 - index * 1000,
         avatar: `https://i.pravatar.cc/150?img=${index + 1}`,
         level: Math.floor(Math.random() * 50) + 10,
-        isCurrentUser: index === 4, // Mark 5th user as current user for demo
+        region: regions[Math.floor(Math.random() * regions.length)],
+        country: countries[index % countries.length],
+        countryFlag: flags[index % flags.length],
+        total_time: Math.floor(Math.random() * 300) + 60,
+        isCurrentUser: index === 4,
       }))
       .sort((a, b) => b.score - a.score)
       .map((item, index) => ({
@@ -93,15 +157,25 @@ export default function LeaderboardScreen() {
 
   useEffect(() => {
     loadLeaderboard();
-  }, [selectedPeriod]);
+  }, [selectedDifficulty, selectedTime, selectedRegion]);
 
   const loadLeaderboard = async () => {
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      const data = generateMockData();
-      setLeaderboardData(data);
+      setLoading(true);
+      // Simulate API call for now - replace with actual API call
+      const mockData = generateMockData();
+      setLeaderboardData(mockData);
+      /*
+      const response = await fetchLeaderboard({
+        difficulty_level: selectedDifficulty,
+        region: selectedRegion,
+        time_period: selectedTime,
+      });
+      setLeaderboardData(response.data);
+      */
+      setLoading(false);
     } catch (error) {
+      setLoading(false);
       Alert.alert("Error", "Failed to load leaderboard");
     }
   };
@@ -128,11 +202,11 @@ export default function LeaderboardScreen() {
   const getRankColor = (rank: number) => {
     switch (rank) {
       case 1:
-        return "#FFD700"; // Gold
+        return "#FFD700";
       case 2:
-        return "#C0C0C0"; // Silver
+        return "#C0C0C0";
       case 3:
-        return "#CD7F32"; // Bronze
+        return "#CD7F32";
       default:
         return "#ffd33d";
     }
@@ -142,16 +216,152 @@ export default function LeaderboardScreen() {
     return score.toLocaleString();
   };
 
-  const truncateUsername = (username: string, maxLength: number) => {
-    if (username.length <= maxLength) return username;
-    return username.substring(0, maxLength - 3) + "...";
+  const getCurrentFilterLabel = (type: string) => {
+    switch (type) {
+      case "difficulty":
+        return (
+          difficultyOptions.find(
+            (opt) => opt.value === selectedDifficulty.toString()
+          )?.label || "Easy"
+        );
+      case "time":
+        return (
+          timeOptions.find((opt) => opt.value === selectedTime)?.label ||
+          "All Time"
+        );
+      case "region":
+        return (
+          regionOptions.find((opt) => opt.value === selectedRegion)?.label ||
+          "Global"
+        );
+      default:
+        return "";
+    }
   };
 
-  const renderLeaderboardItem = ({ item }: { item: LeaderboardEntry }) => (
+  const renderFilterDropdown = (
+    type: string,
+    options: FilterOption[],
+    selectedValue: string,
+    onSelect: (value: any) => void,
+    showMenu: boolean,
+    setShowMenu: (show: boolean) => void
+  ) => (
+    <View style={styles.dropdownContainer}>
+      <TouchableOpacity
+        style={styles.dropdownButton}
+        onPress={() => setShowMenu(!showMenu)}
+      >
+        <Text style={styles.dropdownButtonText}>
+          {getCurrentFilterLabel(type)}
+        </Text>
+        <Ionicons
+          name={showMenu ? "chevron-up" : "chevron-down"}
+          size={16}
+          color="#ffffff"
+        />
+      </TouchableOpacity>
+
+      {showMenu && (
+        <View style={styles.dropdownMenu}>
+          {options.map((option) => (
+            <TouchableOpacity
+              key={option.value}
+              style={[
+                styles.dropdownItem,
+                selectedValue === option.value && styles.selectedDropdownItem,
+              ]}
+              onPress={() => {
+                onSelect(option.value);
+                setShowMenu(false);
+              }}
+            >
+              {option.icon && (
+                <Ionicons
+                  name={option.icon as any}
+                  size={18}
+                  color={selectedValue === option.value ? "#000000" : "#ffffff"}
+                  style={styles.dropdownItemIcon}
+                />
+              )}
+              <Text
+                style={[
+                  styles.dropdownItemText,
+                  selectedValue === option.value &&
+                    styles.selectedDropdownItemText,
+                ]}
+              >
+                {option.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+
+  const renderTopThree = () => {
+    if (leaderboardData.length < 3) return null;
+
+    const topThree = leaderboardData.slice(0, 3);
+    const [second, first, third] = [topThree[1], topThree[0], topThree[2]];
+
+    return (
+      <View style={styles.podiumContainer}>
+        {/* Second Place */}
+        <View style={[styles.podiumItem, styles.secondPlace]}>
+          <Image source={{ uri: second.avatar }} style={styles.podiumAvatar} />
+          <View style={[styles.podiumRank, styles.silverRank]}>
+            <Text style={styles.podiumRankText}>2</Text>
+          </View>
+          <Text style={styles.podiumName} numberOfLines={1}>
+            {second.username}
+          </Text>
+          <Text style={styles.podiumScore}>{formatScore(second.score)}</Text>
+        </View>
+
+        {/* First Place */}
+        <View style={[styles.podiumItem, styles.firstPlace]}>
+          <View style={styles.crownContainer}>
+            <Ionicons name="star" size={24} color="#FFD700" />
+          </View>
+          <Image source={{ uri: first.avatar }} style={styles.podiumAvatar} />
+          <View style={[styles.podiumRank, styles.goldRank]}>
+            <Ionicons name="trophy" size={18} color="#FFD700" />
+          </View>
+          <Text style={styles.podiumName} numberOfLines={1}>
+            {first.username}
+          </Text>
+          <Text style={styles.podiumScore}>{formatScore(first.score)}</Text>
+        </View>
+
+        {/* Third Place */}
+        <View style={[styles.podiumItem, styles.thirdPlace]}>
+          <Image source={{ uri: third.avatar }} style={styles.podiumAvatar} />
+          <View style={[styles.podiumRank, styles.bronzeRank]}>
+            <Text style={styles.podiumRankText}>3</Text>
+          </View>
+          <Text style={styles.podiumName} numberOfLines={1}>
+            {third.username}
+          </Text>
+          <Text style={styles.podiumScore}>{formatScore(third.score)}</Text>
+        </View>
+      </View>
+    );
+  };
+
+  const renderLeaderboardItem = ({
+    item,
+    index,
+  }: {
+    item: LeaderboardEntry;
+    index: number;
+  }) => (
     <TouchableOpacity
       style={[
         styles.leaderboardItem,
         item.isCurrentUser && styles.currentUserItem,
+        index < 3 && styles.topThreeItem,
       ]}
       onPress={() =>
         Alert.alert("Player Info", `View ${item.username}'s profile`)
@@ -161,7 +371,7 @@ export default function LeaderboardScreen() {
         {item.rank <= 3 && getRankIcon(item.rank) ? (
           <Ionicons
             name={getRankIcon(item.rank) as any}
-            size={responsiveSize(18, 20, 24)}
+            size={responsiveSize(20, 22, 24)}
             color={getRankColor(item.rank)}
           />
         ) : (
@@ -180,21 +390,22 @@ export default function LeaderboardScreen() {
             item.isCurrentUser && styles.currentUserText,
           ]}
           numberOfLines={1}
-          ellipsizeMode="tail"
         >
-          {truncateUsername(
-            item.username + (item.isCurrentUser ? " (You)" : ""),
-            isSmallScreen ? 12 : 20
-          )}
+          {item.username}
+          {item.isCurrentUser ? " (You)" : ""}
         </Text>
-        <Text style={styles.level}>Level {item.level}</Text>
+        <View style={styles.userDetails}>
+          <Text style={styles.level}>Level {item.level}</Text>
+          {item.region && <Text style={styles.region}>• {item.region}</Text>}
+          {item.countryFlag && (
+            <Text style={styles.countryFlag}>{item.countryFlag}</Text>
+          )}
+        </View>
       </View>
 
       <View style={styles.scoreContainer}>
         <Text
           style={[styles.score, item.isCurrentUser && styles.currentUserText]}
-          numberOfLines={1}
-          adjustsFontSizeToFit
         >
           {formatScore(item.score)}
         </Text>
@@ -203,32 +414,14 @@ export default function LeaderboardScreen() {
     </TouchableOpacity>
   );
 
-  const renderPeriodButton = (period: typeof selectedPeriod, label: string) => (
-    <TouchableOpacity
-      style={[
-        styles.periodButton,
-        selectedPeriod === period && styles.selectedPeriodButton,
-      ]}
-      onPress={() => setSelectedPeriod(period)}
-    >
-      <Text
-        style={[
-          styles.periodButtonText,
-          selectedPeriod === period && styles.selectedPeriodButtonText,
-        ]}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-      >
-        {label}
-      </Text>
-    </TouchableOpacity>
-  );
-
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>🏆 Leaderboard</Text>
+        <View>
+          <Text style={styles.title}>🏆 Leaderboard</Text>
+          <Text style={styles.subtitle}>Compete with players worldwide</Text>
+        </View>
         <TouchableOpacity style={styles.refreshButton} onPress={onRefresh}>
           <Ionicons
             name="refresh"
@@ -238,99 +431,58 @@ export default function LeaderboardScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Period Selection */}
-      <View style={styles.periodContainer}>
-        {renderPeriodButton("daily", "Daily")}
-        {renderPeriodButton("weekly", "Weekly")}
-        {renderPeriodButton("allTime", "All Time")}
+      {/* Filters */}
+      <View style={styles.filtersContainer}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={styles.filtersRow}>
+            {renderFilterDropdown(
+              "difficulty",
+              difficultyOptions,
+              selectedDifficulty.toString(),
+              (value) =>
+                setSelectedDifficulty(parseInt(value) as DifficultyLevel),
+              showDifficultyMenu,
+              setShowDifficultyMenu
+            )}
+            {renderFilterDropdown(
+              "region",
+              regionOptions,
+              selectedRegion,
+              setSelectedRegion,
+              showRegionMenu,
+              setShowRegionMenu
+            )}
+            {renderFilterDropdown(
+              "time",
+              timeOptions,
+              selectedTime,
+              setSelectedTime,
+              showTimeMenu,
+              setShowTimeMenu
+            )}
+          </View>
+        </ScrollView>
       </View>
 
       {/* Top 3 Podium */}
-      {leaderboardData.length >= 3 && (
-        <View style={styles.podiumContainer}>
-          {/* 2nd Place */}
-          <View style={styles.podiumItem}>
-            <Image
-              source={{ uri: leaderboardData[1].avatar }}
-              style={styles.podiumAvatar}
-            />
-            <View style={[styles.podiumRank, styles.silverRank]}>
-              <Text style={styles.podiumRankText}>2</Text>
-            </View>
-            <Text
-              style={styles.podiumName}
-              numberOfLines={2}
-              ellipsizeMode="tail"
-            >
-              {leaderboardData[1].username}
-            </Text>
-            <Text style={styles.podiumScore}>
-              {formatScore(leaderboardData[1].score)}
-            </Text>
-          </View>
+      {!loading && leaderboardData.length >= 3 && renderTopThree()}
 
-          {/* 1st Place */}
-          <View style={[styles.podiumItem, styles.goldPodium]}>
-            <Image
-              source={{ uri: leaderboardData[0].avatar }}
-              style={styles.podiumAvatar}
-            />
-            <View style={[styles.podiumRank, styles.goldRank]}>
-              <Ionicons
-                name="trophy"
-                size={responsiveSize(16, 18, 20)}
-                color="#FFD700"
-              />
-            </View>
-            <Text
-              style={styles.podiumName}
-              numberOfLines={2}
-              ellipsizeMode="tail"
-            >
-              {leaderboardData[0].username}
-            </Text>
-            <Text style={styles.podiumScore}>
-              {formatScore(leaderboardData[0].score)}
-            </Text>
-          </View>
-
-          {/* 3rd Place */}
-          <View style={styles.podiumItem}>
-            <Image
-              source={{ uri: leaderboardData[2].avatar }}
-              style={styles.podiumAvatar}
-            />
-            <View style={[styles.podiumRank, styles.bronzeRank]}>
-              <Text style={styles.podiumRankText}>3</Text>
-            </View>
-            <Text
-              style={styles.podiumName}
-              numberOfLines={2}
-              ellipsizeMode="tail"
-            >
-              {leaderboardData[2].username}
-            </Text>
-            <Text style={styles.podiumScore}>
-              {formatScore(leaderboardData[2].score)}
-            </Text>
-          </View>
-        </View>
-      )}
-
-      {/* Full Leaderboard List */}
+      {/* Leaderboard List */}
       <FlatList
-        data={leaderboardData}
+        data={loading ? [] : leaderboardData}
         renderItem={renderLeaderboardItem}
         keyExtractor={(item) => item.id}
-        style={styles.list}
-        showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#ffd33d"
-            colors={["#ffd33d"]}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+        contentContainerStyle={styles.listContainer}
+        showsVerticalScrollIndicator={false}
+        ListHeaderComponent={
+          loading ? (
+            <View style={styles.loadingContainer}>
+              <Text style={styles.loadingText}>Loading...</Text>
+            </View>
+          ) : null
         }
       />
     </View>
@@ -340,79 +492,149 @@ export default function LeaderboardScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#25292e",
+    backgroundColor: "#0a0a0a",
   },
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: responsiveSpacing(20),
     paddingTop: responsiveSpacing(20),
-    paddingBottom: responsiveSpacing(10),
+    paddingBottom: responsiveSpacing(16),
+    backgroundColor: "#1a1a1a",
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
   },
   title: {
-    fontSize: responsiveSize(22, 26, 28),
+    fontSize: responsiveSize(26, 30, 34),
     fontWeight: "bold",
-    color: "#fff",
+    color: "#ffffff",
+  },
+  subtitle: {
+    fontSize: responsiveSize(12, 14, 16),
+    color: "#888",
+    marginTop: 4,
   },
   refreshButton: {
-    padding: responsiveSpacing(8),
+    padding: responsiveSpacing(12),
+    backgroundColor: "#333",
+    borderRadius: 25,
   },
-  periodContainer: {
+  filtersContainer: {
+    backgroundColor: "#1a1a1a",
+    paddingVertical: responsiveSpacing(16),
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
+  },
+  filtersRow: {
     flexDirection: "row",
     paddingHorizontal: responsiveSpacing(20),
-    marginBottom: responsiveSpacing(20),
+    gap: responsiveSpacing(12),
   },
-  periodButton: {
-    flex: 1,
-    paddingVertical: responsiveSpacing(10),
+  dropdownContainer: {
+    position: "relative",
+    minWidth: responsiveSpacing(120),
+  },
+  dropdownButton: {
+    flexDirection: "row",
     alignItems: "center",
-    marginHorizontal: responsiveSpacing(4),
-    borderRadius: 8,
+    justifyContent: "space-between",
     backgroundColor: "#333",
-    minHeight: 40,
-    justifyContent: "center",
+    paddingHorizontal: responsiveSpacing(16),
+    paddingVertical: responsiveSpacing(12),
+    borderRadius: 25,
+    minWidth: responsiveSpacing(120),
   },
-  selectedPeriodButton: {
+  dropdownButtonText: {
+    color: "#ffffff",
+    fontSize: responsiveSize(14, 15, 16),
+    fontWeight: "600",
+  },
+  dropdownMenu: {
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    right: 0,
+    backgroundColor: "#2a2a2a",
+    borderRadius: 12,
+    marginTop: 4,
+    zIndex: 1000,
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  dropdownItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: responsiveSpacing(16),
+    paddingVertical: responsiveSpacing(12),
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
+  },
+  selectedDropdownItem: {
     backgroundColor: "#ffd33d",
   },
-  periodButtonText: {
-    color: "#ccc",
-    fontWeight: "600",
-    fontSize: responsiveSize(12, 14, 16),
+  dropdownItemIcon: {
+    marginRight: responsiveSpacing(8),
   },
-  selectedPeriodButtonText: {
-    color: "#25292e",
+  dropdownItemText: {
+    color: "#ffffff",
+    fontSize: responsiveSize(14, 15, 16),
+    fontWeight: "500",
+  },
+  selectedDropdownItemText: {
+    color: "#000000",
   },
   podiumContainer: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "flex-end",
     paddingHorizontal: responsiveSpacing(20),
-    marginBottom: responsiveSpacing(30),
-    height: responsiveSize(140, 160, 180),
+    paddingVertical: responsiveSpacing(20),
+    backgroundColor: "#1a1a1a",
+    marginBottom: responsiveSpacing(8),
   },
   podiumItem: {
     alignItems: "center",
-    marginHorizontal: responsiveSpacing(5),
-    flex: 1,
-    maxWidth: screenWidth / 3.5,
+    marginHorizontal: responsiveSpacing(8),
+    backgroundColor: "#2a2a2a",
+    borderRadius: 16,
+    padding: responsiveSpacing(12),
+    minWidth: responsiveSpacing(100),
   },
-  goldPodium: {
-    marginBottom: responsiveSpacing(20),
+  firstPlace: {
+    backgroundColor: "#3a3a2a",
+    borderWidth: 2,
+    borderColor: "#FFD700",
+    transform: [{ scale: 1.1 }],
+  },
+  secondPlace: {
+    backgroundColor: "#2a2a3a",
+    borderWidth: 1,
+    borderColor: "#C0C0C0",
+  },
+  thirdPlace: {
+    backgroundColor: "#3a2a2a",
+    borderWidth: 1,
+    borderColor: "#CD7F32",
+  },
+  crownContainer: {
+    position: "absolute",
+    top: -12,
+    zIndex: 1,
   },
   podiumAvatar: {
-    width: responsiveSize(45, 55, 60),
-    height: responsiveSize(45, 55, 60),
-    borderRadius: responsiveSize(22.5, 27.5, 30),
+    width: responsiveSize(50, 55, 60),
+    height: responsiveSize(50, 55, 60),
+    borderRadius: responsiveSize(25, 27.5, 30),
     marginBottom: responsiveSpacing(8),
-    borderWidth: 2,
-    borderColor: "#ffd33d",
   },
   podiumRank: {
-    width: responsiveSize(24, 28, 30),
-    height: responsiveSize(24, 28, 30),
-    borderRadius: responsiveSize(12, 14, 15),
+    width: responsiveSize(30, 32, 35),
+    height: responsiveSize(30, 32, 35),
+    borderRadius: responsiveSize(15, 16, 17.5),
     justifyContent: "center",
     alignItems: "center",
     marginBottom: responsiveSpacing(8),
@@ -427,86 +649,106 @@ const styles = StyleSheet.create({
     backgroundColor: "#CD7F32",
   },
   podiumRankText: {
-    color: "#fff",
+    color: "#000",
     fontWeight: "bold",
-    fontSize: responsiveSize(12, 14, 16),
+    fontSize: responsiveSize(14, 15, 16),
   },
   podiumName: {
     color: "#fff",
     fontWeight: "bold",
-    fontSize: responsiveSize(11, 13, 14),
+    fontSize: responsiveSize(12, 13, 14),
     textAlign: "center",
     marginBottom: responsiveSpacing(4),
-    minHeight: responsiveSize(30, 35, 40),
   },
   podiumScore: {
     color: "#ffd33d",
-    fontSize: responsiveSize(10, 11, 12),
+    fontSize: responsiveSize(11, 12, 13),
     fontWeight: "600",
   },
-  list: {
-    flex: 1,
+  listContainer: {
     paddingHorizontal: responsiveSpacing(20),
+    paddingBottom: responsiveSpacing(20),
   },
   leaderboardItem: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#333",
-    borderRadius: 12,
-    padding: responsiveSpacing(12),
-    marginBottom: responsiveSpacing(12),
+    backgroundColor: "#1a1a1a",
+    borderRadius: 16,
+    padding: responsiveSpacing(16),
+    marginBottom: responsiveSpacing(8),
     borderWidth: 1,
-    borderColor: "#444",
-    minHeight: responsiveSize(65, 75, 80),
+    borderColor: "#333",
   },
   currentUserItem: {
-    backgroundColor: "#3a4a3a",
+    backgroundColor: "#2a2a1a",
     borderColor: "#ffd33d",
     borderWidth: 2,
   },
+  topThreeItem: {
+    backgroundColor: "#2a2a2a",
+  },
   rankContainer: {
-    width: responsiveSize(30, 35, 40),
+    width: responsiveSize(40, 45, 50),
     alignItems: "center",
   },
   rankText: {
-    fontSize: responsiveSize(12, 14, 16),
+    fontSize: responsiveSize(14, 16, 18),
     fontWeight: "bold",
   },
   avatar: {
-    width: responsiveSize(40, 45, 50),
-    height: responsiveSize(40, 45, 50),
-    borderRadius: responsiveSize(20, 22.5, 25),
-    marginLeft: responsiveSpacing(8),
-    marginRight: responsiveSpacing(12),
+    width: responsiveSize(45, 50, 55),
+    height: responsiveSize(45, 50, 55),
+    borderRadius: responsiveSize(22.5, 25, 27.5),
+    marginRight: responsiveSpacing(16),
   },
   userInfo: {
     flex: 1,
-    paddingRight: responsiveSpacing(8),
+    paddingRight: responsiveSpacing(12),
   },
   username: {
     color: "#fff",
-    fontSize: responsiveSize(14, 15, 16),
+    fontSize: responsiveSize(16, 17, 18),
     fontWeight: "bold",
     marginBottom: responsiveSpacing(4),
   },
   currentUserText: {
     color: "#ffd33d",
   },
+  userDetails: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   level: {
     color: "#888",
     fontSize: responsiveSize(12, 13, 14),
   },
+  region: {
+    color: "#666",
+    fontSize: responsiveSize(12, 13, 14),
+    marginLeft: responsiveSpacing(4),
+  },
+  countryFlag: {
+    fontSize: responsiveSize(14, 15, 16),
+    marginLeft: responsiveSpacing(4),
+  },
   scoreContainer: {
     alignItems: "flex-end",
-    minWidth: responsiveSize(70, 80, 90),
   },
   score: {
     color: "#fff",
-    fontSize: responsiveSize(14, 16, 18),
+    fontSize: responsiveSize(16, 18, 20),
     fontWeight: "bold",
   },
   scoreLabel: {
     color: "#888",
-    fontSize: responsiveSize(10, 11, 12),
+    fontSize: responsiveSize(11, 12, 13),
+  },
+  loadingContainer: {
+    padding: responsiveSpacing(40),
+    alignItems: "center",
+  },
+  loadingText: {
+    color: "#888",
+    fontSize: responsiveSize(16, 17, 18),
   },
 });

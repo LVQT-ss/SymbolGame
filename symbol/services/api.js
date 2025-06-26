@@ -1279,6 +1279,24 @@ export const apiUtils = {
     }
 };
 
+// Leaderboard APIs
+export const fetchLeaderboard = async (filters) => {
+    try {
+        const { difficulty_level, region, time_period } = filters;
+        const response = await axios.get(`${BASE_URL}/leaderboard`, {
+            params: {
+                difficulty_level,
+                region,
+                time_period
+            }
+        });
+        return response.data;
+    } catch (error) {
+        console.error('Error fetching leaderboard:', error);
+        throw error;
+    }
+};
+
 // Default export for backward compatibility
 export default {
     auth: authAPI,
