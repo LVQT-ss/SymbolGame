@@ -3,6 +3,7 @@ import RoundDetail from '../model/round-details.model.js';
 import GameHistory from '../model/game-history.model.js';
 import UserRoundResponse from '../model/user-round-responses.model.js';
 import User from '../model/user.model.js';
+import UserStatistics from '../model/user-statistics.model.js';
 import sequelize from '../database/db.js';
 import { Op } from 'sequelize';
 import { updateUserLevelAfterGame } from '../services/levelService.js';
