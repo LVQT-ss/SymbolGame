@@ -13,8 +13,8 @@ import BattleRoundDetail from './battle-round-details.model.js';
 import LeaderboardCache from './leaderboard-cache.model.js';
 
 function setupAssociations() {
-    // User - UserStatistics (One-to-One)
-    User.hasOne(UserStatistics, {
+    // User - UserStatistics (One-to-Many) - Now supports multiple difficulty levels per user
+    User.hasMany(UserStatistics, {
         foreignKey: 'user_id',
         as: 'statistics',
         onDelete: 'CASCADE'

@@ -988,48 +988,72 @@ export const completeGame = async (req, res) => {
             coins: user.coins + coinsEarned
         });
 
-        // 🆕 UPDATE USER STATISTICS after game completion
+        // 🆕 UPDATE USER STATISTICS after game completion (per difficulty level)
         try {
-            console.log(`📊 Updating UserStatistics for user ${userId} (${user.username})...`);
+            // Get the difficulty level from the game session
+            const gameDifficulty = gameSession.difficulty_level || difficulty_level || 1;
+            console.log(`📊 Updating UserStatistics for user ${userId} (${user.username}) at difficulty ${gameDifficulty}...`);
 
-            // Find or create user statistics record
-            let userStats = await UserStatistics.findOne({ where: { user_id: userId } });
+            // Find or create user statistics record for this difficulty level
+            let userStats = await UserStatistics.findOne({
+                where: {
+                    user_id: userId,
+                    difficulty_level: gameDifficulty
+                }
+            });
+
             if (!userStats) {
-                console.log(`   ⚠️  UserStatistics record not found, creating new one...`);
+                console.log(`   ⚠️  UserStatistics record not found for difficulty ${gameDifficulty}, creating new one...`);
                 userStats = await UserStatistics.create({
                     user_id: userId,
+                    difficulty_level: gameDifficulty,
                     games_played: 0,
                     best_score: 0,
                     total_score: 0
                 });
-                console.log(`   ✅ Created UserStatistics record for user ${userId}`);
+                console.log(`   ✅ Created UserStatistics record for user ${userId} at difficulty ${gameDifficulty}`);
             }
 
-            // Get current best score from GameHistory
+            // Get current best score from GameHistory for this difficulty
             const currentBestScore = await GameHistory.max('score', {
+                include: [{
+                    model: GameSession,
+                    as: 'gameSession',
+                    where: { difficulty_level: gameDifficulty }
+                }],
                 where: { user_id: userId, completed: true }
             }) || 0;
 
-            // Get total games played from GameHistory  
+            // Get total games played from GameHistory for this difficulty
             const totalGamesPlayed = await GameHistory.count({
+                include: [{
+                    model: GameSession,
+                    as: 'gameSession',
+                    where: { difficulty_level: gameDifficulty }
+                }],
                 where: { user_id: userId, completed: true }
             });
 
-            // Get total score from GameHistory
+            // Get total score from GameHistory for this difficulty
             const totalScore = await GameHistory.sum('score', {
+                include: [{
+                    model: GameSession,
+                    as: 'gameSession',
+                    where: { difficulty_level: gameDifficulty }
+                }],
                 where: { user_id: userId, completed: true }
             }) || 0;
 
-            console.log(`   📈 Calculated stats - Games: ${totalGamesPlayed}, Best: ${currentBestScore}, Total: ${totalScore}`);
+            console.log(`   📈 Calculated stats for difficulty ${gameDifficulty} - Games: ${totalGamesPlayed}, Best: ${currentBestScore}, Total: ${totalScore}`);
 
-            // Update the statistics
+            // Update the statistics for this difficulty level
             await userStats.update({
                 games_played: totalGamesPlayed,
                 best_score: currentBestScore,
                 total_score: totalScore
             });
 
-            console.log(`   ✅ Successfully updated UserStatistics for ${user.username}: ${totalGamesPlayed} games, best: ${currentBestScore}, total: ${totalScore}`);
+            console.log(`   ✅ Successfully updated UserStatistics for ${user.username} at difficulty ${gameDifficulty}: ${totalGamesPlayed} games, best: ${currentBestScore}, total: ${totalScore}`);
 
         } catch (statsError) {
             console.error(`❌ Error updating UserStatistics for user ${userId}:`, statsError);
@@ -1640,48 +1664,67 @@ export const submitWholeGame = async (req, res) => {
             coins: user.coins + coinsEarned
         });
 
-        // 🆕 UPDATE USER STATISTICS after game completion (submitWholeGame)
+        // 🆕 UPDATE USER STATISTICS after game completion (submitWholeGame - per difficulty level)
         try {
-            console.log(`📊 Updating UserStatistics for user ${userId} (${user.username}) after submitWholeGame...`);
+            console.log(`📊 Updating UserStatistics for user ${userId} (${user.username}) after submitWholeGame at difficulty ${difficulty_level}...`);
 
-            // Find or create user statistics record
-            let userStats = await UserStatistics.findOne({ where: { user_id: userId } });
+            // Find or create user statistics record for this difficulty level
+            let userStats = await UserStatistics.findOne({
+                where: {
+                    user_id: userId,
+                    difficulty_level: difficulty_level
+                }
+            });
+
             if (!userStats) {
-                console.log(`   ⚠️  UserStatistics record not found, creating new one...`);
+                console.log(`   ⚠️  UserStatistics record not found for difficulty ${difficulty_level}, creating new one...`);
                 userStats = await UserStatistics.create({
                     user_id: userId,
+                    difficulty_level: difficulty_level,
                     games_played: 0,
                     best_score: 0,
                     total_score: 0
                 });
-                console.log(`   ✅ Created UserStatistics record for user ${userId}`);
+                console.log(`   ✅ Created UserStatistics record for user ${userId} at difficulty ${difficulty_level}`);
             }
 
-            // Get current best score from GameSessions (for submitWholeGame)
+            // Get current best score from GameSessions for this difficulty (for submitWholeGame)
             const currentBestScore = await GameSession.max('score', {
-                where: { user_id: userId, completed: true }
+                where: {
+                    user_id: userId,
+                    completed: true,
+                    difficulty_level: difficulty_level
+                }
             }) || 0;
 
-            // Get total games played from GameSessions
+            // Get total games played from GameSessions for this difficulty
             const totalGamesPlayed = await GameSession.count({
-                where: { user_id: userId, completed: true }
+                where: {
+                    user_id: userId,
+                    completed: true,
+                    difficulty_level: difficulty_level
+                }
             });
 
-            // Get total score from GameSessions  
+            // Get total score from GameSessions for this difficulty
             const totalScore = await GameSession.sum('score', {
-                where: { user_id: userId, completed: true }
+                where: {
+                    user_id: userId,
+                    completed: true,
+                    difficulty_level: difficulty_level
+                }
             }) || 0;
 
-            console.log(`   📈 Calculated stats from GameSessions - Games: ${totalGamesPlayed}, Best: ${currentBestScore}, Total: ${totalScore}`);
+            console.log(`   📈 Calculated stats from GameSessions for difficulty ${difficulty_level} - Games: ${totalGamesPlayed}, Best: ${currentBestScore}, Total: ${totalScore}`);
 
-            // Update the statistics
+            // Update the statistics for this difficulty level
             await userStats.update({
                 games_played: totalGamesPlayed,
                 best_score: currentBestScore,
                 total_score: totalScore
             });
 
-            console.log(`   ✅ Successfully updated UserStatistics for ${user.username}: ${totalGamesPlayed} games, best: ${currentBestScore}, total: ${totalScore}`);
+            console.log(`   ✅ Successfully updated UserStatistics for ${user.username} at difficulty ${difficulty_level}: ${totalGamesPlayed} games, best: ${currentBestScore}, total: ${totalScore}`);
 
         } catch (statsError) {
             console.error(`❌ Error updating UserStatistics for user ${userId}:`, statsError);
