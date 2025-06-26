@@ -10,7 +10,7 @@ import {
     getGameSession,
     submitRound,
     createInstantGame,
-    submitWholeGame,
+    // submitWholeGame,
 
 
 
@@ -388,7 +388,7 @@ router.post('/create-instant', verifyToken, createInstantGame);
  *       500:
  *         description: Server error
  */
-router.post('/submit-whole-game', verifyToken, submitWholeGame);
+// router.post('/submit-whole-game', verifyToken, submitWholeGame);
 
 /**
  * @swagger

@@ -1015,50 +1015,99 @@ export const completeGame = async (req, res) => {
                 console.log(`   ✅ Created UserStatistics record for user ${userId} at difficulty ${gameDifficulty}`);
             }
 
-            // Get current best score from GameHistory for this difficulty
-            const currentBestScore = await GameHistory.max('score', {
-                include: [{
-                    model: GameSession,
-                    as: 'gameSession',
-                    where: { difficulty_level: gameDifficulty }
-                }],
-                where: { user_id: userId, completed: true }
-            }) || 0;
+            // SIMPLIFIED APPROACH: Get statistics directly using raw queries to avoid association issues
+
+            // Get best score and its time from GameHistory for this difficulty
+            const bestScoreQuery = await sequelize.query(`
+                SELECT gh.score as best_score, gh.total_time as best_score_time, gh.completed_at as best_score_achieved_at
+                FROM game_history gh 
+                JOIN game_sessions gs ON gh.game_session_id = gs.id 
+                WHERE gh.user_id = :userId 
+                AND gh.completed = true 
+                AND gs.difficulty_level = :difficulty
+                ORDER BY gh.score DESC, gh.total_time ASC
+                LIMIT 1
+            `, {
+                replacements: { userId, difficulty: gameDifficulty },
+                type: sequelize.QueryTypes.SELECT
+            });
+            const bestScoreData = bestScoreQuery[0];
+            const currentBestScore = bestScoreData?.best_score || 0;
+            const bestScoreTime = bestScoreData?.best_score_time || null;
+            const bestScoreAchievedAt = bestScoreData?.best_score_achieved_at || null;
 
             // Get total games played from GameHistory for this difficulty
-            const totalGamesPlayed = await GameHistory.count({
-                include: [{
-                    model: GameSession,
-                    as: 'gameSession',
-                    where: { difficulty_level: gameDifficulty }
-                }],
-                where: { user_id: userId, completed: true }
+            const gamesPlayedQuery = await sequelize.query(`
+                SELECT COUNT(*) as games_played 
+                FROM game_history gh 
+                JOIN game_sessions gs ON gh.game_session_id = gs.id 
+                WHERE gh.user_id = :userId 
+                AND gh.completed = true 
+                AND gs.difficulty_level = :difficulty
+            `, {
+                replacements: { userId, difficulty: gameDifficulty },
+                type: sequelize.QueryTypes.SELECT
             });
+            const totalGamesPlayed = parseInt(gamesPlayedQuery[0]?.games_played || 0);
 
             // Get total score from GameHistory for this difficulty
-            const totalScore = await GameHistory.sum('score', {
-                include: [{
-                    model: GameSession,
-                    as: 'gameSession',
-                    where: { difficulty_level: gameDifficulty }
-                }],
-                where: { user_id: userId, completed: true }
-            }) || 0;
+            const totalScoreQuery = await sequelize.query(`
+                SELECT SUM(gh.score) as total_score 
+                FROM game_history gh 
+                JOIN game_sessions gs ON gh.game_session_id = gs.id 
+                WHERE gh.user_id = :userId 
+                AND gh.completed = true 
+                AND gs.difficulty_level = :difficulty
+            `, {
+                replacements: { userId, difficulty: gameDifficulty },
+                type: sequelize.QueryTypes.SELECT
+            });
+            const totalScore = parseInt(totalScoreQuery[0]?.total_score || 0);
 
-            console.log(`   📈 Calculated stats for difficulty ${gameDifficulty} - Games: ${totalGamesPlayed}, Best: ${currentBestScore}, Total: ${totalScore}`);
+            console.log(`   📈 Calculated stats for difficulty ${gameDifficulty} - Games: ${totalGamesPlayed}, Best: ${currentBestScore} (Time: ${bestScoreTime}s), Total: ${totalScore}`);
 
             // Update the statistics for this difficulty level
             await userStats.update({
                 games_played: totalGamesPlayed,
                 best_score: currentBestScore,
+                best_score_time: bestScoreTime,
+                best_score_achieved_at: bestScoreAchievedAt,
                 total_score: totalScore
             });
 
-            console.log(`   ✅ Successfully updated UserStatistics for ${user.username} at difficulty ${gameDifficulty}: ${totalGamesPlayed} games, best: ${currentBestScore}, total: ${totalScore}`);
+            console.log(`   ✅ Successfully updated UserStatistics for ${user.username} at difficulty ${gameDifficulty}: ${totalGamesPlayed} games, best: ${currentBestScore} (${bestScoreTime}s), total: ${totalScore}`);
+
+            // 🆕 UPDATE LEADERBOARD CACHE after statistics update
+            console.log(`🏆 Triggering leaderboard cache update after game completion...`);
+
+            try {
+                // Import the leaderboard controller
+                const { default: LeaderboardController } = await import('./leaderboard.controller.js');
+
+                // Create mock request/response objects for the leaderboard update
+                const mockReq = {};
+                const mockRes = {
+                    status: (code) => ({
+                        json: (data) => {
+                            console.log(`   📈 Leaderboard cache update result (${code}): ${data.message}`);
+                            return { status: code, json: data };
+                        }
+                    })
+                };
+
+                // Trigger the leaderboard cache update
+                await LeaderboardController.updateLeaderboardCache(mockReq, mockRes);
+                console.log(`   🏆 Leaderboard cache updated successfully after game completion`);
+
+            } catch (leaderboardError) {
+                console.error(`   ❌ Error updating leaderboard cache:`, leaderboardError.message);
+                // Don't fail the main request if leaderboard update fails
+            }
 
         } catch (statsError) {
             console.error(`❌ Error updating UserStatistics for user ${userId}:`, statsError);
-            // Don't fail the whole request if stats update fails
+            console.error(`   Full error details:`, statsError);
+            // Don't fail the whole request if stats update fails, but log the actual error
         }
 
         // 🆕 Update user level using the new progressive system BEFORE sending response
@@ -1689,14 +1738,20 @@ export const submitWholeGame = async (req, res) => {
                 console.log(`   ✅ Created UserStatistics record for user ${userId} at difficulty ${difficulty_level}`);
             }
 
-            // Get current best score from GameSessions for this difficulty (for submitWholeGame)
-            const currentBestScore = await GameSession.max('score', {
+            // Get best score and its time from GameSessions for this difficulty (for submitWholeGame)
+            const bestScoreData = await GameSession.findOne({
                 where: {
                     user_id: userId,
                     completed: true,
                     difficulty_level: difficulty_level
-                }
-            }) || 0;
+                },
+                order: [['score', 'DESC'], ['total_time', 'ASC']],
+                attributes: ['score', 'total_time', 'updatedAt']
+            });
+
+            const currentBestScore = bestScoreData?.score || 0;
+            const bestScoreTime = bestScoreData?.total_time || null;
+            const bestScoreAchievedAt = bestScoreData?.updatedAt || null;
 
             // Get total games played from GameSessions for this difficulty
             const totalGamesPlayed = await GameSession.count({
@@ -1716,20 +1771,50 @@ export const submitWholeGame = async (req, res) => {
                 }
             }) || 0;
 
-            console.log(`   📈 Calculated stats from GameSessions for difficulty ${difficulty_level} - Games: ${totalGamesPlayed}, Best: ${currentBestScore}, Total: ${totalScore}`);
+            console.log(`   📈 Calculated stats from GameSessions for difficulty ${difficulty_level} - Games: ${totalGamesPlayed}, Best: ${currentBestScore} (Time: ${bestScoreTime}s), Total: ${totalScore}`);
 
             // Update the statistics for this difficulty level
             await userStats.update({
                 games_played: totalGamesPlayed,
                 best_score: currentBestScore,
+                best_score_time: bestScoreTime,
+                best_score_achieved_at: bestScoreAchievedAt,
                 total_score: totalScore
             });
 
-            console.log(`   ✅ Successfully updated UserStatistics for ${user.username} at difficulty ${difficulty_level}: ${totalGamesPlayed} games, best: ${currentBestScore}, total: ${totalScore}`);
+            console.log(`   ✅ Successfully updated UserStatistics for ${user.username} at difficulty ${difficulty_level}: ${totalGamesPlayed} games, best: ${currentBestScore} (${bestScoreTime}s), total: ${totalScore}`);
+
+            // 🆕 UPDATE LEADERBOARD CACHE after statistics update
+            console.log(`🏆 Triggering leaderboard cache update after submitWholeGame...`);
+
+            try {
+                // Import the leaderboard controller
+                const { default: LeaderboardController } = await import('./leaderboard.controller.js');
+
+                // Create mock request/response objects for the leaderboard update
+                const mockReq = {};
+                const mockRes = {
+                    status: (code) => ({
+                        json: (data) => {
+                            console.log(`   📈 Leaderboard cache update result (${code}): ${data.message}`);
+                            return { status: code, json: data };
+                        }
+                    })
+                };
+
+                // Trigger the leaderboard cache update
+                await LeaderboardController.updateLeaderboardCache(mockReq, mockRes);
+                console.log(`   🏆 Leaderboard cache updated successfully after submitWholeGame`);
+
+            } catch (leaderboardError) {
+                console.error(`   ❌ Error updating leaderboard cache:`, leaderboardError.message);
+                // Don't fail the main request if leaderboard update fails
+            }
 
         } catch (statsError) {
             console.error(`❌ Error updating UserStatistics for user ${userId}:`, statsError);
-            // Don't fail the whole request if stats update fails
+            console.error(`   Full error details:`, statsError);
+            // Don't fail the whole request if stats update fails, but log the actual error
         }
 
         // 🆕 Update user level using the new progressive system BEFORE sending response

@@ -5,6 +5,9 @@ import GameHistory from '../model/game-history.model.js';
 import GameSession from '../model/game-sessions.model.js';
 import { Op } from 'sequelize';
 
+// Import associations to ensure they are set up
+import '../model/associations.js';
+
 // Region mapping from country codes
 const REGION_MAPPING = {
     // Asia
@@ -63,6 +66,19 @@ const LeaderboardController = {
 
             const leaderboard = await LeaderboardCache.findAll({
                 where: whereClause,
+                include: [
+                    {
+                        model: UserStatistics,
+                        as: 'userStatistics',
+                        include: [
+                            {
+                                model: User,
+                                as: 'user',
+                                attributes: ['id', 'username', 'full_name', 'avatar', 'current_level', 'country']
+                            }
+                        ]
+                    }
+                ],
                 order: [['score', 'DESC'], ['total_time', 'ASC']], // Highest score first, then fastest time
                 limit: parseInt(limit),
                 attributes: [
@@ -110,9 +126,7 @@ const LeaderboardController = {
     // Update Leaderboard Cache
     updateLeaderboardCache: async (req, res) => {
         try {
-            const startOfMonth = new Date();
-            startOfMonth.setDate(1);
-            startOfMonth.setHours(0, 0, 0, 0);
+            console.log('🏆 Starting leaderboard cache update...');
 
             // Clear existing cache
             await LeaderboardCache.destroy({
@@ -121,67 +135,49 @@ const LeaderboardController = {
 
             // Process each difficulty level
             for (const difficulty_level of DIFFICULTY_LEVELS) {
-                // Get all active users with their game sessions and history
-                const users = await User.findAll({
-                    include: [
-                        {
-                            model: GameHistory,
-                            as: 'gameHistories',
-                            include: [{
-                                model: GameSession,
-                                as: 'gameSession',
-                                where: {
-                                    difficulty_level,
-                                    completed: true
-                                },
-                                required: true
-                            }],
-                            required: true
-                        },
-                        {
-                            model: UserStatistics,
-                            as: 'statistics',
-                            required: false
-                        }
-                    ],
-                    where: { is_active: true }
+                console.log(`🎯 Processing difficulty level ${difficulty_level}...`);
+
+                // SIMPLIFIED APPROACH: Get UserStatistics directly instead of complex joins
+                const userStats = await UserStatistics.findAll({
+                    where: {
+                        difficulty_level: difficulty_level,
+                        best_score: { [Op.gt]: 0 }
+                    },
+                    order: [['best_score', 'DESC']]
                 });
 
-                // Process users for different time periods and regions
-                const processedUsers = users.map(user => {
-                    // Get all completed games for this difficulty
-                    const completedGames = user.gameHistories.filter(
-                        history => history.gameSession && history.completed
-                    );
+                console.log(`  Found ${userStats.length} users with scores for difficulty ${difficulty_level}`);
 
-                    if (completedGames.length === 0) {
-                        return null; // Skip users with no completed games
+                if (userStats.length === 0) {
+                    console.log(`  ⚠️  No users with scores for difficulty ${difficulty_level}, skipping...`);
+                    continue;
+                }
+
+                // Process each UserStatistics entry
+                const processedUsers = [];
+                for (const stat of userStats) {
+                    // Get user details
+                    const user = await User.findByPk(stat.user_id, {
+                        attributes: ['id', 'username', 'full_name', 'avatar', 'current_level', 'country', 'is_active']
+                    });
+
+                    if (!user || !user.is_active) {
+                        console.log(`  ⚠️  User ${stat.user_id} not found or inactive, skipping...`);
+                        continue;
                     }
 
-                    // Calculate highest score and total time
-                    const allTimeHighestScore = Math.max(...completedGames.map(game => game.score));
-                    const totalTime = completedGames.reduce((sum, game) => sum + (game.total_time || 0), 0);
-
-                    // Monthly calculations
-                    const monthlyGames = completedGames.filter(
-                        game => new Date(game.completed_at) >= startOfMonth
-                    );
-                    const monthlyHighestScore = monthlyGames.length > 0
-                        ? Math.max(...monthlyGames.map(game => game.score))
-                        : 0;
-                    const monthlyTotalTime = monthlyGames.reduce((sum, game) => sum + (game.total_time || 0), 0);
-
-                    return {
+                    processedUsers.push({
                         user,
-                        allTimeScore: allTimeHighestScore,
-                        allTimeTotalTime: totalTime,
-                        monthlyScore: monthlyHighestScore,
-                        monthlyTotalTime: monthlyTotalTime,
-                        totalGames: completedGames.length,
-                        monthlyGames: monthlyGames.length,
+                        userStatistics: stat, // Include the UserStatistics record
+                        allTimeScore: stat.best_score,
+                        allTimeTotalTime: stat.best_score_time || 0, // Now we have the best score time!
+                        monthlyScore: stat.best_score, // Same as all-time for now
+                        monthlyTotalTime: stat.best_score_time || 0,
+                        totalGames: stat.games_played,
+                        monthlyGames: stat.games_played, // Same as all-time for now
                         region: REGION_MAPPING[user.country] || 'others'
-                    };
-                }).filter(Boolean); // Remove null entries
+                    });
+                }
 
                 // Create cache entries for all-time scores
                 const allTimeEntries = processedUsers
@@ -196,7 +192,7 @@ const LeaderboardController = {
                         leaderboard_type: 'allTime',
                         difficulty_level,
                         region: data.region,
-                        user_id: data.user.id,
+                        user_statistics_id: data.userStatistics.id, // Reference UserStatistics instead of User
                         rank_position: index + 1,
                         score: data.allTimeScore,
                         total_time: data.allTimeTotalTime,
@@ -222,7 +218,7 @@ const LeaderboardController = {
                         leaderboard_type: 'monthly',
                         difficulty_level,
                         region: data.region,
-                        user_id: data.user.id,
+                        user_statistics_id: data.userStatistics.id, // Reference UserStatistics instead of User
                         rank_position: index + 1,
                         score: data.monthlyScore,
                         total_time: data.monthlyTotalTime,
@@ -237,11 +233,15 @@ const LeaderboardController = {
                 // Bulk create all entries
                 if (allTimeEntries.length > 0) {
                     await LeaderboardCache.bulkCreate(allTimeEntries);
+                    console.log(`  ✅ Created ${allTimeEntries.length} all-time leaderboard entries for difficulty ${difficulty_level}`);
                 }
                 if (monthlyEntries.length > 0) {
                     await LeaderboardCache.bulkCreate(monthlyEntries);
+                    console.log(`  ✅ Created ${monthlyEntries.length} monthly leaderboard entries for difficulty ${difficulty_level}`);
                 }
             }
+
+            console.log('🎉 Leaderboard cache updated successfully!');
 
             res.status(200).json({
                 success: true,

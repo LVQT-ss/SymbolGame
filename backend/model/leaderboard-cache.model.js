@@ -22,13 +22,14 @@ const LeaderboardCache = sequelize.define('LeaderboardCache', {
         allowNull: true,
         comment: 'Difficulty level filter, null for all difficulties'
     },
-    user_id: {
+    user_statistics_id: {
         type: DataTypes.INTEGER,
         allowNull: false,
         references: {
-            model: 'users',
+            model: 'user_statistics',
             key: 'id'
-        }
+        },
+        comment: 'References the specific UserStatistics record this leaderboard entry represents'
     },
     rank_position: {
         type: DataTypes.INTEGER,

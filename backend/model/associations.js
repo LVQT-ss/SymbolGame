@@ -241,15 +241,15 @@ function setupAssociations() {
         as: 'battleSession'
     });
 
-    // User - LeaderboardCache (One-to-Many)
-    User.hasMany(LeaderboardCache, {
-        foreignKey: 'user_id',
+    // UserStatistics - LeaderboardCache (One-to-Many)
+    UserStatistics.hasMany(LeaderboardCache, {
+        foreignKey: 'user_statistics_id',
         as: 'leaderboardEntries',
         onDelete: 'CASCADE'
     });
-    LeaderboardCache.belongsTo(User, {
-        foreignKey: 'user_id',
-        as: 'user'
+    LeaderboardCache.belongsTo(UserStatistics, {
+        foreignKey: 'user_statistics_id',
+        as: 'userStatistics'
     });
 }
 
