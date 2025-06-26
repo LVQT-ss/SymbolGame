@@ -46,13 +46,19 @@ export const register = async (req, res) => {
       is_active: true
     });
 
-    // Create corresponding user statistics
-    await UserStatistics.create({
-      user_id: user.id,
-      games_played: 0,
-      best_score: 0,
-      total_score: 0
-    });
+    // Create user statistics for all difficulty levels (1=Easy, 2=Medium, 3=Hard)
+    const difficultyLevels = [1, 2, 3];
+    for (const difficulty of difficultyLevels) {
+      await UserStatistics.create({
+        user_id: user.id,
+        difficulty_level: difficulty,
+        games_played: 0,
+        best_score: 0,
+        best_score_time: null,
+        best_score_achieved_at: null,
+        total_score: 0
+      });
+    }
 
     // Remove password from response
     const userResponse = { ...user.dataValues };
