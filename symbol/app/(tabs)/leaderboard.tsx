@@ -14,7 +14,7 @@ import {
   ScrollView,
   Animated,
 } from "react-native";
-import { fetchLeaderboard } from "../../services/api";
+import { fetchLeaderboard, userAPI } from "../../services/api";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -45,6 +45,9 @@ interface LeaderboardEntry {
   country?: string;
   countryFlag?: string;
   total_time?: number;
+  total_games?: number;
+  medal?: string;
+  isTopThree?: boolean;
   isCurrentUser?: boolean;
 }
 
@@ -94,8 +97,10 @@ export default function LeaderboardScreen() {
     { value: "others", label: "Others", icon: "location-outline" },
   ];
 
-  // Sample data - replace with actual API call
+  // Mock data for fallback when API fails
   const generateMockData = (): LeaderboardEntry[] => {
+    console.log("🎮 Generating mock leaderboard data...");
+
     const usernames = [
       "SymbolMaster",
       "GameChampion",
@@ -134,25 +139,38 @@ export default function LeaderboardScreen() {
     ];
     const flags = ["🇺🇸", "🇻🇳", "🇯🇵", "🇰🇷", "🇨🇳", "🇩🇪", "🇫🇷", "🇬🇧", "🇧🇷", "🇨🇦"];
 
-    return usernames
+    const mockData = usernames
       .map((username, index) => ({
-        id: `user_${index + 1}`,
+        id: `mock_user_${index + 1}`,
         rank: index + 1,
         username,
-        score: Math.floor(Math.random() * 50000) + 10000 - index * 1000,
+        score: Math.max(
+          1000,
+          50000 - index * 2000 + Math.floor(Math.random() * 5000)
+        ),
         avatar: `https://i.pravatar.cc/150?img=${index + 1}`,
-        level: Math.floor(Math.random() * 50) + 10,
+        level: Math.max(1, Math.floor(Math.random() * 50) + 10),
         region: regions[Math.floor(Math.random() * regions.length)],
         country: countries[index % countries.length],
         countryFlag: flags[index % flags.length],
         total_time: Math.floor(Math.random() * 300) + 60,
-        isCurrentUser: index === 4,
+        total_games: Math.floor(Math.random() * 50) + 5,
+        medal:
+          index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : null,
+        isTopThree: index < 3,
+        isCurrentUser: index === 4, // Make 5th player the current user for demo
       }))
       .sort((a, b) => b.score - a.score)
       .map((item, index) => ({
         ...item,
         rank: index + 1,
+        medal:
+          index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : null,
+        isTopThree: index < 3,
       }));
+
+    console.log(`✅ Generated ${mockData.length} mock players`);
+    return mockData;
   };
 
   useEffect(() => {
@@ -162,21 +180,93 @@ export default function LeaderboardScreen() {
   const loadLeaderboard = async () => {
     try {
       setLoading(true);
-      // Simulate API call for now - replace with actual API call
-      const mockData = generateMockData();
-      setLeaderboardData(mockData);
-      /*
-      const response = await fetchLeaderboard({
+
+      // Get current user info to identify them in the leaderboard
+      let currentUser = null;
+      try {
+        const userResponse = await userAPI.getCurrentUserProfile();
+        currentUser = userResponse.user || userResponse;
+        console.log("Current user:", currentUser);
+      } catch (userError) {
+        console.log("Could not get current user info:", userError);
+      }
+
+      // Call the actual API with current filter settings
+      console.log("🔍 Calling fetchLeaderboard with filters:", {
         difficulty_level: selectedDifficulty,
         region: selectedRegion,
         time_period: selectedTime,
       });
-      setLeaderboardData(response.data);
-      */
+
+      const response = await fetchLeaderboard({
+        difficulty_level: selectedDifficulty,
+        region: selectedRegion,
+        time_period: selectedTime,
+        limit: 100,
+      });
+
+      console.log("📊 API Response:", response);
+
+      if (
+        !response.success ||
+        !response.data ||
+        !Array.isArray(response.data)
+      ) {
+        throw new Error(response.message || "Invalid API response format");
+      }
+
+      // Transform API response to match our LeaderboardEntry interface
+      const transformedData: LeaderboardEntry[] = response.data.map(
+        (player: any, index: number) => ({
+          id: `api_user_${player.rank_position || index + 1}`,
+          rank: player.rank_position || index + 1,
+          username: player.full_name || "Unknown Player",
+          score: player.score || 0,
+          avatar:
+            player.avatar ||
+            `https://i.pravatar.cc/150?img=${(index % 50) + 1}`,
+          level: player.current_level || 1,
+          region: player.region || "others",
+          country: player.country || "",
+          countryFlag:
+            player.countryFlag || getCountryFlag(player.country || ""),
+          total_time: player.total_time || 0,
+          total_games: player.total_games || 0,
+          medal: player.medal || undefined,
+          isTopThree: player.isTopThree || player.rank_position <= 3,
+          isCurrentUser: currentUser
+            ? player.full_name === currentUser.username ||
+              player.full_name === currentUser.full_name ||
+              player.full_name === currentUser.name
+            : false,
+        })
+      );
+
+      setLeaderboardData(transformedData);
       setLoading(false);
+
+      console.log(
+        `✅ Loaded ${transformedData.length} players for difficulty ${selectedDifficulty}, region ${selectedRegion}, time ${selectedTime}`
+      );
     } catch (error) {
       setLoading(false);
-      Alert.alert("Error", "Failed to load leaderboard");
+      console.error("❌ Leaderboard loading error:", error);
+
+      // Fallback to mock data if API fails
+      console.log("🔄 API failed, using mock data as fallback");
+      const mockData = generateMockData();
+      setLeaderboardData(mockData);
+
+      // Only show alert if there's no data at all
+      if (mockData.length === 0) {
+        Alert.alert(
+          "Connection Issue",
+          "Could not load leaderboard from server and no sample data available.",
+          [{ text: "OK" }]
+        );
+      } else {
+        console.log("✅ Using mock data with", mockData.length, "players");
+      }
     }
   };
 
@@ -216,6 +306,35 @@ export default function LeaderboardScreen() {
     return score.toLocaleString();
   };
 
+  const getCountryFlag = (countryCode: string): string => {
+    if (!countryCode) return "";
+
+    const flagMap: { [key: string]: string } = {
+      US: "🇺🇸",
+      VN: "🇻🇳",
+      JP: "🇯🇵",
+      KR: "🇰🇷",
+      CN: "🇨🇳",
+      DE: "🇩🇪",
+      FR: "🇫🇷",
+      GB: "🇬🇧",
+      UK: "🇬🇧",
+      BR: "🇧🇷",
+      CA: "🇨🇦",
+      AU: "🇦🇺",
+      IN: "🇮🇳",
+      IT: "🇮🇹",
+      ES: "🇪🇸",
+      MX: "🇲🇽",
+      RU: "🇷🇺",
+      TH: "🇹🇭",
+      SG: "🇸🇬",
+      MY: "🇲🇾",
+    };
+
+    return flagMap[countryCode.toUpperCase()] || "🌍";
+  };
+
   const getCurrentFilterLabel = (type: string) => {
     switch (type) {
       case "difficulty":
@@ -250,7 +369,20 @@ export default function LeaderboardScreen() {
     <View style={styles.dropdownContainer}>
       <TouchableOpacity
         style={styles.dropdownButton}
-        onPress={() => setShowMenu(!showMenu)}
+        onPress={() => {
+          // Close other dropdowns first
+          if (type === "difficulty") {
+            setShowRegionMenu(false);
+            setShowTimeMenu(false);
+          } else if (type === "region") {
+            setShowDifficultyMenu(false);
+            setShowTimeMenu(false);
+          } else if (type === "time") {
+            setShowDifficultyMenu(false);
+            setShowRegionMenu(false);
+          }
+          setShowMenu(!showMenu);
+        }}
       >
         <Text style={styles.dropdownButtonText}>
           {getCurrentFilterLabel(type)}
@@ -264,12 +396,13 @@ export default function LeaderboardScreen() {
 
       {showMenu && (
         <View style={styles.dropdownMenu}>
-          {options.map((option) => (
+          {options.map((option, index) => (
             <TouchableOpacity
               key={option.value}
               style={[
                 styles.dropdownItem,
                 selectedValue === option.value && styles.selectedDropdownItem,
+                index === options.length - 1 && styles.lastDropdownItem,
               ]}
               onPress={() => {
                 onSelect(option.value);
@@ -301,10 +434,78 @@ export default function LeaderboardScreen() {
   );
 
   const renderTopThree = () => {
-    if (leaderboardData.length < 3) return null;
+    if (leaderboardData.length === 0) return null;
 
-    const topThree = leaderboardData.slice(0, 3);
-    const [second, first, third] = [topThree[1], topThree[0], topThree[2]];
+    const topPlayers = leaderboardData.slice(
+      0,
+      Math.min(3, leaderboardData.length)
+    );
+
+    // Handle different numbers of players
+    if (leaderboardData.length === 1) {
+      const first = topPlayers[0];
+      return (
+        <View style={styles.podiumContainer}>
+          <View style={[styles.podiumItem, styles.firstPlace]}>
+            <View style={styles.crownContainer}>
+              <Ionicons name="star" size={24} color="#FFD700" />
+            </View>
+            <Image source={{ uri: first.avatar }} style={styles.podiumAvatar} />
+            <View style={[styles.podiumRank, styles.goldRank]}>
+              <Ionicons name="trophy" size={18} color="#FFD700" />
+            </View>
+            <Text style={styles.podiumName} numberOfLines={1}>
+              {first.username}
+            </Text>
+            <Text style={styles.podiumScore}>{formatScore(first.score)}</Text>
+          </View>
+        </View>
+      );
+    }
+
+    if (leaderboardData.length === 2) {
+      const [first, second] = topPlayers;
+      return (
+        <View style={styles.podiumContainer}>
+          {/* Second Place */}
+          <View style={[styles.podiumItem, styles.secondPlace]}>
+            <Image
+              source={{ uri: second.avatar }}
+              style={styles.podiumAvatar}
+            />
+            <View style={[styles.podiumRank, styles.silverRank]}>
+              <Text style={styles.podiumRankText}>2</Text>
+            </View>
+            <Text style={styles.podiumName} numberOfLines={1}>
+              {second.username}
+            </Text>
+            <Text style={styles.podiumScore}>{formatScore(second.score)}</Text>
+          </View>
+
+          {/* First Place */}
+          <View style={[styles.podiumItem, styles.firstPlace]}>
+            <View style={styles.crownContainer}>
+              <Ionicons name="star" size={24} color="#FFD700" />
+            </View>
+            <Image source={{ uri: first.avatar }} style={styles.podiumAvatar} />
+            <View style={[styles.podiumRank, styles.goldRank]}>
+              <Ionicons name="trophy" size={18} color="#FFD700" />
+            </View>
+            <Text style={styles.podiumName} numberOfLines={1}>
+              {first.username}
+            </Text>
+            <Text style={styles.podiumScore}>{formatScore(first.score)}</Text>
+          </View>
+        </View>
+      );
+    }
+
+    // Original 3+ players logic
+    const [second, first, third] = [
+      topPlayers[1],
+      topPlayers[0],
+      topPlayers[2],
+    ];
 
     return (
       <View style={styles.podiumContainer}>
@@ -396,6 +597,9 @@ export default function LeaderboardScreen() {
         </Text>
         <View style={styles.userDetails}>
           <Text style={styles.level}>Level {item.level}</Text>
+          {item.total_games && item.total_games > 0 && (
+            <Text style={styles.gamesPlayed}>• {item.total_games} games</Text>
+          )}
           {item.region && <Text style={styles.region}>• {item.region}</Text>}
           {item.countryFlag && (
             <Text style={styles.countryFlag}>{item.countryFlag}</Text>
@@ -432,44 +636,54 @@ export default function LeaderboardScreen() {
       </View>
 
       {/* Filters */}
-      <View style={styles.filtersContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <View style={styles.filtersRow}>
-            {renderFilterDropdown(
-              "difficulty",
-              difficultyOptions,
-              selectedDifficulty.toString(),
-              (value) =>
-                setSelectedDifficulty(parseInt(value) as DifficultyLevel),
-              showDifficultyMenu,
-              setShowDifficultyMenu
-            )}
-            {renderFilterDropdown(
-              "region",
-              regionOptions,
-              selectedRegion,
-              setSelectedRegion,
-              showRegionMenu,
-              setShowRegionMenu
-            )}
-            {renderFilterDropdown(
-              "time",
-              timeOptions,
-              selectedTime,
-              setSelectedTime,
-              showTimeMenu,
-              setShowTimeMenu
-            )}
-          </View>
-        </ScrollView>
+      <View
+        style={[
+          styles.filtersContainer,
+          (showDifficultyMenu || showRegionMenu || showTimeMenu) &&
+            styles.filtersContainerExpanded,
+        ]}
+      >
+        <View style={styles.filtersRow}>
+          {renderFilterDropdown(
+            "difficulty",
+            difficultyOptions,
+            selectedDifficulty.toString(),
+            (value) =>
+              setSelectedDifficulty(parseInt(value) as DifficultyLevel),
+            showDifficultyMenu,
+            setShowDifficultyMenu
+          )}
+          {renderFilterDropdown(
+            "region",
+            regionOptions,
+            selectedRegion,
+            setSelectedRegion,
+            showRegionMenu,
+            setShowRegionMenu
+          )}
+          {renderFilterDropdown(
+            "time",
+            timeOptions,
+            selectedTime,
+            setSelectedTime,
+            showTimeMenu,
+            setShowTimeMenu
+          )}
+        </View>
       </View>
 
       {/* Top 3 Podium */}
-      {!loading && leaderboardData.length >= 3 && renderTopThree()}
+      {!loading && leaderboardData.length > 0 && renderTopThree()}
 
       {/* Leaderboard List */}
       <FlatList
-        data={loading ? [] : leaderboardData}
+        data={
+          loading
+            ? []
+            : leaderboardData.length >= 3
+            ? leaderboardData.slice(3)
+            : []
+        } // Skip top 3 users only if we have 3+ players
         renderItem={renderLeaderboardItem}
         keyExtractor={(item) => item.id}
         refreshControl={
@@ -480,7 +694,32 @@ export default function LeaderboardScreen() {
         ListHeaderComponent={
           loading ? (
             <View style={styles.loadingContainer}>
-              <Text style={styles.loadingText}>Loading...</Text>
+              <Ionicons name="hourglass-outline" size={32} color="#888" />
+              <Text style={styles.loadingText}>Loading leaderboard...</Text>
+            </View>
+          ) : leaderboardData.length >= 3 ? (
+            <View style={styles.listHeaderContainer}>
+              <Text style={styles.listHeaderText}>Rest of the Rankings</Text>
+              <Text style={styles.listHeaderSubtext}>
+                Continue scrolling to see ranks 4 and beyond
+              </Text>
+            </View>
+          ) : null
+        }
+        ListEmptyComponent={
+          !loading ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="trophy-outline" size={64} color="#444" />
+              <Text style={styles.emptyTitle}>
+                {leaderboardData.length <= 3
+                  ? "Only Top 3 Players"
+                  : "No Players Found"}
+              </Text>
+              <Text style={styles.emptySubtitle}>
+                {leaderboardData.length <= 3
+                  ? "All players are highlighted in the podium above!"
+                  : `Be the first to play and set a record for difficulty ${selectedDifficulty}!`}
+              </Text>
             </View>
           ) : null
         }
@@ -525,30 +764,42 @@ const styles = StyleSheet.create({
     paddingVertical: responsiveSpacing(16),
     borderBottomWidth: 1,
     borderBottomColor: "#333",
+    zIndex: 1000,
+    overflow: "visible",
+  },
+  filtersContainerExpanded: {
+    paddingBottom: responsiveSpacing(160), // Space for dropdown when open
   },
   filtersRow: {
     flexDirection: "row",
     paddingHorizontal: responsiveSpacing(20),
-    gap: responsiveSpacing(12),
+    justifyContent: "space-between",
+    alignItems: "center",
+    overflow: "visible",
   },
   dropdownContainer: {
     position: "relative",
-    minWidth: responsiveSpacing(120),
+    flex: 1,
+    marginHorizontal: responsiveSpacing(4),
+    zIndex: 1001,
+    overflow: "visible",
   },
   dropdownButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     backgroundColor: "#333",
-    paddingHorizontal: responsiveSpacing(16),
+    paddingHorizontal: responsiveSpacing(12),
     paddingVertical: responsiveSpacing(12),
-    borderRadius: 25,
-    minWidth: responsiveSpacing(120),
+    borderRadius: 22,
+    minHeight: 44,
   },
   dropdownButtonText: {
     color: "#ffffff",
-    fontSize: responsiveSize(14, 15, 16),
+    fontSize: responsiveSize(13, 14, 15),
     fontWeight: "600",
+    textAlign: "center",
+    flex: 1,
   },
   dropdownMenu: {
     position: "absolute",
@@ -557,24 +808,30 @@ const styles = StyleSheet.create({
     right: 0,
     backgroundColor: "#2a2a2a",
     borderRadius: 12,
-    marginTop: 4,
-    zIndex: 1000,
-    elevation: 5,
+    marginTop: 6,
+    zIndex: 2000,
+    elevation: 8,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    borderWidth: 1,
+    borderColor: "#444",
   },
   dropdownItem: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: responsiveSpacing(16),
-    paddingVertical: responsiveSpacing(12),
+    paddingVertical: responsiveSpacing(14),
     borderBottomWidth: 1,
     borderBottomColor: "#333",
+    minHeight: 48,
   },
   selectedDropdownItem: {
     backgroundColor: "#ffd33d",
+  },
+  lastDropdownItem: {
+    borderBottomWidth: 0,
   },
   dropdownItemIcon: {
     marginRight: responsiveSpacing(8),
@@ -722,6 +979,11 @@ const styles = StyleSheet.create({
     color: "#888",
     fontSize: responsiveSize(12, 13, 14),
   },
+  gamesPlayed: {
+    color: "#666",
+    fontSize: responsiveSize(12, 13, 14),
+    marginLeft: responsiveSpacing(4),
+  },
   region: {
     color: "#666",
     fontSize: responsiveSize(12, 13, 14),
@@ -750,5 +1012,43 @@ const styles = StyleSheet.create({
   loadingText: {
     color: "#888",
     fontSize: responsiveSize(16, 17, 18),
+    marginTop: responsiveSpacing(12),
+  },
+  listHeaderContainer: {
+    padding: responsiveSpacing(20),
+    alignItems: "center",
+    backgroundColor: "#1a1a1a",
+    borderRadius: 12,
+    marginBottom: responsiveSpacing(8),
+  },
+  listHeaderText: {
+    color: "#ffd33d",
+    fontSize: responsiveSize(18, 20, 22),
+    fontWeight: "bold",
+    textAlign: "center",
+  },
+  listHeaderSubtext: {
+    color: "#888",
+    fontSize: responsiveSize(13, 14, 15),
+    textAlign: "center",
+    marginTop: responsiveSpacing(4),
+  },
+  emptyContainer: {
+    padding: responsiveSpacing(60),
+    alignItems: "center",
+  },
+  emptyTitle: {
+    color: "#888",
+    fontSize: responsiveSize(18, 20, 22),
+    fontWeight: "bold",
+    marginTop: responsiveSpacing(16),
+    textAlign: "center",
+  },
+  emptySubtitle: {
+    color: "#666",
+    fontSize: responsiveSize(14, 15, 16),
+    textAlign: "center",
+    marginTop: responsiveSpacing(8),
+    lineHeight: responsiveSize(20, 22, 24),
   },
 });
