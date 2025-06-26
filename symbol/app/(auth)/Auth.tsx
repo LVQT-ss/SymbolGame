@@ -18,10 +18,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { authAPI, userAPI } from "../../services/api";
-import CountryPicker, {
-  Country,
-  CountryCode,
-} from "react-native-country-picker-modal";
+import { CountryPicker } from "react-native-country-codes-picker";
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -31,8 +28,8 @@ export default function Auth() {
   const [fullName, setFullName] = useState("");
   const [username, setUsername] = useState("");
   const [age, setAge] = useState("");
-  const [countryCode, setCountryCode] = useState<CountryCode>("US");
-  const [selectedCountry, setSelectedCountry] = useState<Country | null>(null);
+  const [countryCode, setCountryCode] = useState("US");
+  const [selectedCountry, setSelectedCountry] = useState<any>(null);
   const [showCountryPicker, setShowCountryPicker] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -461,28 +458,40 @@ export default function Auth() {
                     ]}
                   >
                     {selectedCountry
-                      ? `${selectedCountry.flag} ${selectedCountry.name}`
+                      ? `${selectedCountry.flag} ${
+                          selectedCountry.name?.en || selectedCountry.name
+                        }`
                       : "Select Country"}
                   </Text>
                 </TouchableOpacity>
                 <CountryPicker
-                  withFilter
-                  withFlag
-                  withEmoji
-                  withAlphaFilter
-                  withCallingCode={false}
-                  visible={showCountryPicker}
-                  onClose={() => setShowCountryPicker(false)}
-                  countryCode={countryCode}
-                  theme={{
-                    backgroundColor: "#25292e",
-                    onBackgroundTextColor: "#fff",
-                    filterPlaceholderTextColor: "#888",
-                  }}
-                  onSelect={(country) => {
-                    setCountryCode(country.cca2 as CountryCode);
-                    setSelectedCountry(country);
+                  show={showCountryPicker}
+                  lang="en"
+                  pickerButtonOnPress={(item: any) => {
+                    setCountryCode(item.code);
+                    setSelectedCountry(item);
                     setShowCountryPicker(false);
+                  }}
+                  style={{
+                    modal: {
+                      backgroundColor: "#25292e",
+                    },
+                    textInput: {
+                      color: "#fff",
+                      backgroundColor: "#333",
+                    },
+                    countryButtonStyles: {
+                      backgroundColor: "#333",
+                    },
+                    countryName: {
+                      color: "#fff",
+                    },
+                    dialCode: {
+                      color: "#888",
+                    },
+                    flag: {
+                      fontSize: 20,
+                    },
                   }}
                 />
               </View>
