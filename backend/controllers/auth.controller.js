@@ -7,10 +7,10 @@ import { sendPasswordResetEmail } from '../utils/mailer.js';
 import 'dotenv/config'
 
 export const register = async (req, res) => {
-  const { usertype, username, email, password, full_name, avatar, age } = req.body;
+  const { usertype, username, email, password, full_name, avatar, age, country, country_flag } = req.body;
 
   if (!usertype || !username || !email || !password) {
-    return res.status(400).json({ message: 'Please provide all required fields: usertype, username, email, password.' });
+    return res.status(400).json({ message: 'Please provide all required fields: usertype, username, email, password, country.' });
   }
 
   const validusertypes = ['Admin', 'Customer'];
@@ -20,7 +20,7 @@ export const register = async (req, res) => {
 
   // Validate field lengths based on new model
   if (username.length > 100 || email.length > 255 || password.length > 255 ||
-    (full_name && full_name.length > 255) || (avatar && avatar.length > 255)) {
+    (full_name && full_name.length > 255) || (avatar && avatar.length > 255) || (country_flag && country_flag.length > 4)) {
     return res.status(400).json({ message: 'Input data exceeds allowed length.' });
   }
 
@@ -36,6 +36,8 @@ export const register = async (req, res) => {
       full_name: full_name || null,
       avatar: avatar || null,
       age: age ? new Date(age) : null,
+      country: country.toUpperCase(),
+      country_flag: country_flag || null,
       // Default values for gaming fields
       coins: 0,
       followers_count: 0,

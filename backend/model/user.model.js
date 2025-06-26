@@ -69,6 +69,11 @@ const User = sequelize.define('User', {
         allowNull: true,
         comment: 'ISO 3166-1 alpha-2 country code (e.g., US, VN, JP)',
     },
+    country_flag: {
+        type: DataTypes.STRING(4),
+        allowNull: true,
+        comment: 'Unicode emoji flag of the country',
+    },
     is_active: {
         type: DataTypes.BOOLEAN,
         defaultValue: true,

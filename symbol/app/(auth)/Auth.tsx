@@ -1,8 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
+import { Picker } from "@react-native-picker/picker";
+import DateTimePicker, {
+  DateTimePickerAndroid,
+} from "@react-native-community/datetimepicker";
 import React, { useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -13,6 +18,10 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { authAPI, userAPI } from "../../services/api";
+import CountryPicker, {
+  Country,
+  CountryCode,
+} from "react-native-country-picker-modal";
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -22,6 +31,10 @@ export default function Auth() {
   const [fullName, setFullName] = useState("");
   const [username, setUsername] = useState("");
   const [age, setAge] = useState("");
+  const [countryCode, setCountryCode] = useState<CountryCode>("US");
+  const [selectedCountry, setSelectedCountry] = useState<Country | null>(null);
+  const [showCountryPicker, setShowCountryPicker] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -94,6 +107,10 @@ export default function Auth() {
         Alert.alert("Error", "Please enter a valid date in YYYY-MM-DD format");
         return false;
       }
+      if (!countryCode) {
+        Alert.alert("Error", "Please select your country");
+        return false;
+      }
       return true;
     }
   };
@@ -146,6 +163,8 @@ export default function Auth() {
             "https://i.pravatar.cc/100?img=" +
             Math.floor(Math.random() * 70 + 1), // Random avatar
           age: age.trim(),
+          country: countryCode,
+          country_flag: selectedCountry?.flag,
         };
 
         console.log("=== REGISTRATION DATA BEING SENT ===");
@@ -171,6 +190,8 @@ export default function Auth() {
                 setFullName("");
                 setEmail("");
                 setAge("");
+                setCountryCode("US");
+                setSelectedCountry(null);
               },
             },
           ]
@@ -252,13 +273,38 @@ export default function Auth() {
     setFullName("");
     setUsername("");
     setAge("");
+    setCountryCode("US");
+    setSelectedCountry(null);
     setShowPassword(false);
     setShowConfirmPassword(false);
+    setShowDatePicker(false);
+    setShowCountryPicker(false);
   };
 
   const toggleMode = () => {
     setIsLogin(!isLogin);
     resetForm();
+  };
+
+  // Helper to open the platform-appropriate date picker
+  const openDatePicker = () => {
+    if (Platform.OS === "android") {
+      DateTimePickerAndroid.open({
+        value: age ? new Date(age) : new Date(),
+        mode: "date",
+        is24Hour: true,
+        display: "spinner",
+        maximumDate: new Date(),
+        onChange: (_event, selectedDate) => {
+          if (selectedDate) {
+            const isoDate = selectedDate.toISOString().split("T")[0];
+            setAge(isoDate);
+          }
+        },
+      });
+    } else {
+      setShowDatePicker(true);
+    }
   };
 
   return (
@@ -343,13 +389,101 @@ export default function Auth() {
                   color="#888"
                   style={styles.inputIcon}
                 />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Birth Date (YYYY-MM-DD)"
-                  placeholderTextColor="#888"
-                  value={age}
-                  onChangeText={setAge}
-                  autoCapitalize="none"
+                <TouchableOpacity
+                  style={{ flex: 1 }}
+                  onPress={openDatePicker}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.input,
+                      {
+                        paddingVertical: 16,
+                        color: age ? "#fff" : "#888",
+                      },
+                    ]}
+                  >
+                    {age || "Birth Date (YYYY-MM-DD)"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {showDatePicker && (
+                <Modal transparent animationType="slide">
+                  <View style={styles.modalOverlay}>
+                    <View style={styles.datePickerContainer}>
+                      <DateTimePicker
+                        value={age ? new Date(age) : new Date()}
+                        mode="date"
+                        display="spinner"
+                        maximumDate={new Date()}
+                        onChange={(event, selectedDate) => {
+                          if (event.type === "set" && selectedDate) {
+                            const isoDate = selectedDate
+                              .toISOString()
+                              .split("T")[0];
+                            setAge(isoDate);
+                          }
+                        }}
+                        style={{ backgroundColor: "#25292e" }}
+                      />
+
+                      <TouchableOpacity
+                        style={styles.doneButton}
+                        onPress={() => setShowDatePicker(false)}
+                      >
+                        <Text style={styles.doneButtonText}>Done</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </Modal>
+              )}
+
+              <View style={styles.inputContainer}>
+                <Ionicons
+                  name="flag-outline"
+                  size={20}
+                  color="#888"
+                  style={styles.inputIcon}
+                />
+                <TouchableOpacity
+                  style={{ flex: 1 }}
+                  onPress={() => setShowCountryPicker(true)}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.input,
+                      {
+                        paddingVertical: 16,
+                        color: selectedCountry ? "#fff" : "#888",
+                      },
+                    ]}
+                  >
+                    {selectedCountry
+                      ? `${selectedCountry.flag} ${selectedCountry.name}`
+                      : "Select Country"}
+                  </Text>
+                </TouchableOpacity>
+                <CountryPicker
+                  withFilter
+                  withFlag
+                  withEmoji
+                  withAlphaFilter
+                  withCallingCode={false}
+                  visible={showCountryPicker}
+                  onClose={() => setShowCountryPicker(false)}
+                  countryCode={countryCode}
+                  theme={{
+                    backgroundColor: "#25292e",
+                    onBackgroundTextColor: "#fff",
+                    filterPlaceholderTextColor: "#888",
+                  }}
+                  onSelect={(country) => {
+                    setCountryCode(country.cca2 as CountryCode);
+                    setSelectedCountry(country);
+                    setShowCountryPicker(false);
+                  }}
                 />
               </View>
             </>
@@ -588,5 +722,24 @@ const styles = StyleSheet.create({
   linkText: {
     color: "#ffd33d",
     fontSize: 12,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  datePickerContainer: {
+    backgroundColor: "#25292e",
+  },
+  doneButton: {
+    padding: 12,
+    alignItems: "center",
+    borderTopWidth: 1,
+    borderTopColor: "#444",
+  },
+  doneButtonText: {
+    color: "#ffd33d",
+    fontSize: 16,
+    fontWeight: "bold",
   },
 });

@@ -27,6 +27,7 @@ const router = express.Router();
  *               - username
  *               - email
  *               - password
+ *               - country
  *             properties:
  *               usertype:
  *                 type: string
@@ -64,6 +65,11 @@ const router = express.Router();
  *                 format: date
  *                 example: 2010-05-15
  *                 description: User's birthdate
+ *               country:
+ *                 type: string
+ *                 maxLength: 2
+ *                 example: US
+ *                 description: ISO 3166-1 alpha-2 country code (e.g., US, VN)
  *     responses:
  *       201:
  *         description: User successfully registered
