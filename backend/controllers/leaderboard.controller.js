@@ -79,9 +79,10 @@ const LeaderboardController = {
                         ]
                     }
                 ],
-                order: [['score', 'DESC'], ['total_time', 'ASC']], // Highest score first, then fastest time
+                order: [['score', 'DESC'], ['total_time', 'ASC'], ['rank_position', 'ASC']], // Highest score first, then fastest time, then rank
                 limit: parseInt(limit),
                 attributes: [
+                    'id', // Include the cache entry ID to ensure uniqueness
                     'rank_position',
                     'full_name',
                     'avatar',
@@ -90,26 +91,47 @@ const LeaderboardController = {
                     'total_time',
                     'total_games',
                     'region',
-                    'country'
+                    'country',
+                    'user_statistics_id'
                 ]
             });
 
-            // Format response with medals and rankings
-            const formattedLeaderboard = leaderboard.map((player, index) => ({
-                ...player.toJSON(),
-                medal: index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : null,
-                isTopThree: index < 3,
-                countryFlag: player.country ? getCountryFlag(player.country) : null
-            }));
+            // Remove duplicates by grouping by user_statistics_id (each user should appear only once)
+            const uniqueLeaderboard = [];
+            const seenUserStats = new Set();
+
+            for (const player of leaderboard) {
+                if (!seenUserStats.has(player.user_statistics_id)) {
+                    seenUserStats.add(player.user_statistics_id);
+                    uniqueLeaderboard.push(player);
+                }
+            }
+
+            // Re-assign rank positions based on the final order
+            const finalLeaderboard = uniqueLeaderboard
+                .sort((a, b) => {
+                    // Sort by score descending, then by time ascending (faster is better)
+                    if (b.score !== a.score) {
+                        return b.score - a.score;
+                    }
+                    return a.total_time - b.total_time;
+                })
+                .map((player, index) => ({
+                    ...player.toJSON(),
+                    rank_position: index + 1, // Re-assign correct rank
+                    medal: index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : null,
+                    isTopThree: index < 3,
+                    countryFlag: player.country ? getCountryFlag(player.country) : null
+                }));
 
             res.status(200).json({
                 success: true,
-                data: formattedLeaderboard,
+                data: finalLeaderboard,
                 metadata: {
                     difficulty_level: parseInt(difficulty_level),
                     region,
                     time_period,
-                    total_players: formattedLeaderboard.length
+                    total_players: finalLeaderboard.length
                 },
                 message: 'Leaderboard retrieved successfully'
             });

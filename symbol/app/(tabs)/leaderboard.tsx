@@ -230,7 +230,9 @@ export default function LeaderboardScreen() {
       // Transform API response to match our LeaderboardEntry interface
       const transformedData: LeaderboardEntry[] = response.data.map(
         (player: any, index: number) => ({
-          id: `api_user_${player.rank_position || index + 1}`,
+          id: `api_user_${
+            player.user_statistics_id || player.id || index
+          }_${index}`, // Use user_statistics_id + index for guaranteed uniqueness
           rank: player.rank_position || index + 1,
           username: player.full_name || "Unknown Player",
           score: player.score || 0,
@@ -254,11 +256,19 @@ export default function LeaderboardScreen() {
         })
       );
 
-      setLeaderboardData(transformedData);
+      // Additional safeguard: Remove any duplicates by username + score combination
+      const deduplicatedData = transformedData.filter((player, index, arr) => {
+        const duplicateIndex = arr.findIndex(
+          (p) => p.username === player.username && p.score === player.score
+        );
+        return duplicateIndex === index; // Keep only the first occurrence
+      });
+
+      setLeaderboardData(deduplicatedData);
       setLoading(false);
 
       console.log(
-        `✅ Loaded ${transformedData.length} players for difficulty ${selectedDifficulty}, region ${selectedRegion}, time ${selectedTime}`
+        `✅ Loaded ${deduplicatedData.length} players (${transformedData.length} before deduplication) for difficulty ${selectedDifficulty}, region ${selectedRegion}, time ${selectedTime}`
       );
     } catch (error) {
       setLoading(false);
