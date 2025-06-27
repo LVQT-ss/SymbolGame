@@ -20,6 +20,7 @@ import {
 } from "react-native";
 import { apiUtils, authAPI, userAPI, battleAPI } from "../../services/api";
 import { getLevelDisplayInfo } from "../../utils/levelUtils";
+import Profile from "../../components/Profile";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -149,8 +150,6 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [editingUsername, setEditingUsername] = useState(false);
-  const [tempUsername, setTempUsername] = useState(userProfile.username);
   const [loading, setLoading] = useState(false);
 
   // 🎨 Interactive Animation States
@@ -160,12 +159,6 @@ export default function HomeScreen() {
   });
   const [streak, setStreak] = useState(3);
   const [showCelebration, setShowCelebration] = useState(false);
-  const [quickStats, setQuickStats] = useState({
-    todayGames: 2,
-    todayScore: 1450,
-    weeklyGoal: 5000,
-    weeklyProgress: 2800,
-  });
 
   // 🎯 Animation References
   const pulseAnimation = useRef(new Animated.Value(1)).current;
@@ -176,6 +169,46 @@ export default function HomeScreen() {
 
   // Add at the top, after useState for dailyBonus:
   const [dailyBonusTimer, setDailyBonusTimer] = useState(0);
+
+  // Helper function to calculate real statistics from user data
+  const calculateQuickStats = (profileData: any) => {
+    if (!profileData?.statistics || !Array.isArray(profileData.statistics)) {
+      return {
+        todayGames: 0,
+        todayScore: 0,
+        weeklyGoal: 5000,
+        weeklyProgress: 0,
+      };
+    }
+
+    // Aggregate statistics from all difficulty levels
+    const totalGames = profileData.statistics.reduce(
+      (sum: number, stat: any) => sum + (stat.games_played || 0),
+      0
+    );
+    const totalScore = profileData.statistics.reduce(
+      (sum: number, stat: any) => sum + (stat.total_score || 0),
+      0
+    );
+
+    // For today's games, we'll use a simplified calculation (could be enhanced with date filtering if needed)
+    const todayGames = Math.min(totalGames, 10); // Limit display for better UX
+    const todayScore = Math.min(totalScore, 50000); // Limit display for better UX
+
+    return {
+      todayGames,
+      todayScore,
+      weeklyGoal: 5000,
+      weeklyProgress: Math.min(totalScore, 5000), // Use total score as weekly progress
+    };
+  };
+
+  const [quickStats, setQuickStats] = useState({
+    todayGames: 0,
+    todayScore: 0,
+    weeklyGoal: 5000,
+    weeklyProgress: 0,
+  });
 
   useEffect(() => {
     checkAuthStatus();
@@ -260,17 +293,26 @@ export default function HomeScreen() {
             const storedData = await userAPI.getStoredUserData();
             if (storedData) {
               console.log("🔄 Refreshing user profile from stored data");
-              setUserProfile((prevProfile) => ({
-                ...prevProfile,
+
+              // Update user profile
+              const updatedProfile = {
+                ...userProfile,
                 current_level:
-                  storedData.current_level || prevProfile.current_level,
+                  storedData.current_level || userProfile.current_level,
                 experience_points:
-                  storedData.experience_points || prevProfile.experience_points,
+                  storedData.experience_points || userProfile.experience_points,
                 level_progress:
-                  storedData.level_progress || prevProfile.level_progress,
-                coins: storedData.coins || prevProfile.coins,
-                // Keep other fields from previous profile
-              }));
+                  storedData.level_progress || userProfile.level_progress,
+                coins: storedData.coins || userProfile.coins,
+                statistics: storedData.statistics || userProfile.statistics,
+              };
+
+              setUserProfile(updatedProfile);
+
+              // Update quick stats with fresh data
+              const realStats = calculateQuickStats(storedData);
+              setQuickStats(realStats);
+              console.log("🔄 Quick stats refreshed:", realStats);
             }
           } catch (error) {
             console.error("Error refreshing user profile:", error);
@@ -279,7 +321,7 @@ export default function HomeScreen() {
       };
 
       refreshUserProfile();
-    }, [isAuthenticated, checkingAuth])
+    }, [isAuthenticated, checkingAuth, userProfile.experience_points]) // Add dependency to trigger on XP changes
   );
 
   const checkAuthStatus = async () => {
@@ -382,7 +424,12 @@ export default function HomeScreen() {
 
       setUserProfile(mappedProfile);
 
+      // Update quick stats with real data
+      const realStats = calculateQuickStats(profileData);
+      setQuickStats(realStats);
+
       console.log("Profile successfully mapped and set");
+      console.log("Quick stats calculated:", realStats);
 
       // --- Daily Bonus Logic ---
       const lastBonus = profileData.last_daily_bonus
@@ -548,24 +595,8 @@ export default function HomeScreen() {
     setShowProfileModal(true);
   };
 
-  const handleUsernameEdit = () => {
-    setEditingUsername(true);
-    setTempUsername(userProfile.username);
-  };
-
-  const saveUsername = () => {
-    if (tempUsername.trim().length >= 3) {
-      setUserProfile((prev) => ({ ...prev, username: tempUsername.trim() }));
-      setEditingUsername(false);
-      Alert.alert("Success", "Username updated successfully!");
-    } else {
-      Alert.alert("Error", "Username must be at least 3 characters long");
-    }
-  };
-
-  const cancelUsernameEdit = () => {
-    setEditingUsername(false);
-    setTempUsername(userProfile.username);
+  const handleUpdateProfile = (updatedProfile: Partial<UserProfile>) => {
+    setUserProfile((prev) => ({ ...prev, ...updatedProfile }));
   };
 
   const formatNumber = (num: number) => {
@@ -716,290 +747,6 @@ export default function HomeScreen() {
     );
   };
 
-  const ProfileModal = () => (
-    <Modal
-      visible={showProfileModal}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={() => setShowProfileModal(false)}
-    >
-      <View style={styles.modalContainer}>
-        <View style={styles.modalHeader}>
-          <TouchableOpacity
-            style={styles.closeButton}
-            onPress={() => setShowProfileModal(false)}
-          >
-            <Ionicons
-              name="close"
-              size={getResponsiveFontSize(24)}
-              color="#fff"
-            />
-          </TouchableOpacity>
-          <Text style={styles.modalTitle}>Profile</Text>
-          <TouchableOpacity style={styles.settingsButton}>
-            <Ionicons
-              name="settings"
-              size={getResponsiveFontSize(24)}
-              color="#ffd33d"
-            />
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView
-          style={styles.modalContent}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.profileSection}>
-            <Image
-              source={{ uri: userProfile.avatar }}
-              style={styles.profileModalImage}
-            />
-
-            <View style={styles.usernameContainer}>
-              {editingUsername ? (
-                <View style={styles.usernameEditContainer}>
-                  <TextInput
-                    style={styles.usernameInput}
-                    value={tempUsername}
-                    onChangeText={setTempUsername}
-                    placeholder="Enter username"
-                    placeholderTextColor="#888"
-                    maxLength={20}
-                  />
-                  <View style={styles.usernameEditButtons}>
-                    <TouchableOpacity
-                      style={styles.cancelButton}
-                      onPress={cancelUsernameEdit}
-                    >
-                      <Text style={styles.cancelButtonText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.saveButton}
-                      onPress={saveUsername}
-                    >
-                      <Text style={styles.saveButtonText}>Save</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ) : (
-                <TouchableOpacity
-                  style={styles.usernameDisplay}
-                  onPress={handleUsernameEdit}
-                >
-                  <Text style={styles.profileUsername}>
-                    {userProfile.username}
-                  </Text>
-                  <Ionicons
-                    name="pencil"
-                    size={getResponsiveFontSize(16)}
-                    color="#ffd33d"
-                  />
-                </TouchableOpacity>
-              )}
-            </View>
-
-            <Text style={styles.profileLevel}>Level {userProfile.level}</Text>
-            <Text style={styles.joinDate}>
-              Member since {userProfile.joinDate}
-            </Text>
-          </View>
-
-          <View style={styles.currencySection}>
-            <View style={styles.currencyItem}>
-              <View style={styles.currencyIcon}>
-                <Ionicons
-                  name="cash"
-                  size={getResponsiveFontSize(24)}
-                  color="#FFD700"
-                />
-              </View>
-              <View style={styles.currencyInfo}>
-                <Text style={styles.currencyLabel}>Coins</Text>
-                <Text style={styles.currencyValue}>
-                  {formatNumber(userProfile.coins)}
-                </Text>
-              </View>
-              <TouchableOpacity style={styles.addButton}>
-                <Ionicons
-                  name="add"
-                  size={getResponsiveFontSize(20)}
-                  color="#ffd33d"
-                />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.currencyItem}>
-              <View
-                style={[styles.currencyIcon, { backgroundColor: "#9C27B0" }]}
-              >
-                <Ionicons
-                  name="diamond"
-                  size={getResponsiveFontSize(24)}
-                  color="#fff"
-                />
-              </View>
-              <View style={styles.currencyInfo}>
-                <Text style={styles.currencyLabel}>Gems</Text>
-                <Text style={styles.currencyValue}>{userProfile.gems}</Text>
-              </View>
-              <TouchableOpacity style={styles.addButton}>
-                <Ionicons
-                  name="add"
-                  size={getResponsiveFontSize(20)}
-                  color="#ffd33d"
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={styles.socialSection}>
-            <Text style={styles.profileSectionTitle}>Social</Text>
-
-            <View style={styles.socialStatsContainer}>
-              <TouchableOpacity style={styles.socialStatItem}>
-                <View
-                  style={[styles.socialIcon, { backgroundColor: "#4ECDC4" }]}
-                >
-                  <Ionicons
-                    name="people"
-                    size={getResponsiveFontSize(20)}
-                    color="#fff"
-                  />
-                </View>
-                <View style={styles.socialInfo}>
-                  <Text style={styles.socialStatLabel}>Followers</Text>
-                  <Text style={styles.socialStatValue}>
-                    {formatNumber(userProfile.followers_count || 0)}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.socialStatItem}>
-                <View
-                  style={[styles.socialIcon, { backgroundColor: "#FF6B6B" }]}
-                >
-                  <Ionicons
-                    name="person-add"
-                    size={getResponsiveFontSize(20)}
-                    color="#fff"
-                  />
-                </View>
-                <View style={styles.socialInfo}>
-                  <Text style={styles.socialStatLabel}>Following</Text>
-                  <Text style={styles.socialStatValue}>
-                    {formatNumber(userProfile.following_count || 0)}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={styles.experienceSection}>
-            <Text style={styles.profileSectionTitle}>Experience Progress</Text>
-            <View style={styles.expProgressContainer}>
-              <View style={styles.expProgressBar}>
-                <View
-                  style={[
-                    styles.expProgressFill,
-                    {
-                      width: `${(() => {
-                        const levelInfo = getLevelDisplayInfo(userProfile);
-                        return levelInfo.isMaxLevel
-                          ? 100
-                          : levelInfo.progressPercent;
-                      })()}%`,
-                    },
-                  ]}
-                />
-              </View>
-              <Text style={styles.expText}>
-                {(() => {
-                  const levelInfo = getLevelDisplayInfo(userProfile);
-                  if (levelInfo.isMaxLevel) {
-                    return `🏆 Max Level! ${levelInfo.formattedCurrentXP} XP`;
-                  }
-                  return `${levelInfo.formattedCurrentXP} / ${levelInfo.formattedNextLevelXP} XP`;
-                })()}
-              </Text>
-            </View>
-
-            {/* 🆕 Additional Level Info */}
-            <View style={styles.levelDetailsContainer}>
-              <View style={styles.levelDetailRow}>
-                <Text style={styles.levelDetailLabel}>Current Level:</Text>
-                <Text style={styles.levelDetailValue}>
-                  {(() => {
-                    const levelInfo = getLevelDisplayInfo(userProfile);
-                    return levelInfo.currentLevel;
-                  })()}
-                </Text>
-              </View>
-
-              {(() => {
-                const levelInfo = getLevelDisplayInfo(userProfile);
-                if (!levelInfo.isMaxLevel) {
-                  return (
-                    <View style={styles.levelDetailRow}>
-                      <Text style={styles.levelDetailLabel}>XP Needed:</Text>
-                      <Text style={styles.levelDetailValue}>
-                        {levelInfo.formattedXPNeeded}
-                      </Text>
-                    </View>
-                  );
-                }
-                return null;
-              })()}
-
-              <View style={styles.levelDetailRow}>
-                <Text style={styles.levelDetailLabel}>Total XP:</Text>
-                <Text style={styles.levelDetailValue}>
-                  {(() => {
-                    const levelInfo = getLevelDisplayInfo(userProfile);
-                    return levelInfo.formattedCurrentXP;
-                  })()}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.actionButtonsSection}>
-            <TouchableOpacity style={styles.actionButton}>
-              <Ionicons
-                name="camera"
-                size={getResponsiveFontSize(20)}
-                color="#fff"
-              />
-              <Text style={styles.actionButtonText}>Change Avatar</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionButton}>
-              <Ionicons
-                name="share-social"
-                size={getResponsiveFontSize(20)}
-                color="#fff"
-              />
-              <Text style={styles.actionButtonText}>Share Profile</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={handleLogout}
-            >
-              <Ionicons
-                name="log-out"
-                size={getResponsiveFontSize(20)}
-                color="#FF6B6B"
-              />
-              <Text style={[styles.actionButtonText, { color: "#FF6B6B" }]}>
-                Logout
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      </View>
-    </Modal>
-  );
-
   // Show loading indicator while checking auth
   if (checkingAuth) {
     return (
@@ -1090,7 +837,15 @@ export default function HomeScreen() {
       </Animated.View>
 
       {/* Show profile modal only for authenticated users */}
-      {isAuthenticated && <ProfileModal />}
+      {isAuthenticated && (
+        <Profile
+          visible={showProfileModal}
+          onClose={() => setShowProfileModal(false)}
+          userProfile={userProfile}
+          onUpdateProfile={handleUpdateProfile}
+          onLogout={handleLogout}
+        />
+      )}
 
       {/* 🎁 Daily Bonus Section */}
       {isAuthenticated && (

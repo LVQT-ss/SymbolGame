@@ -14,7 +14,7 @@ import {
   ScrollView,
   Animated,
 } from "react-native";
-import { fetchLeaderboard, userAPI } from "../../services/api";
+import { fetchLeaderboard, userAPI, socialAPI } from "../../services/api";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -49,6 +49,11 @@ interface LeaderboardEntry {
   medal?: string;
   isTopThree?: boolean;
   isCurrentUser?: boolean;
+  user_statistics_id?: number;
+  userStatistics?: any;
+  rank_position?: number;
+  time?: number;
+  created_at?: string;
 }
 
 type DifficultyLevel = 1 | 2 | 3;
@@ -59,6 +64,22 @@ interface FilterOption {
   value: string;
   label: string;
   icon?: string;
+}
+
+interface UserProfile {
+  id: number;
+  username: string;
+  full_name?: string;
+  avatar?: string;
+  current_level?: number;
+  experience_points?: number;
+  country?: string;
+  followers_count?: number;
+  following_count?: number;
+  coins?: number;
+  statistics?: any[];
+  created_at?: string;
+  error?: boolean;
 }
 
 export default function LeaderboardScreen() {
@@ -76,6 +97,16 @@ export default function LeaderboardScreen() {
   const [showDifficultyMenu, setShowDifficultyMenu] = useState(false);
   const [showTimeMenu, setShowTimeMenu] = useState(false);
   const [showRegionMenu, setShowRegionMenu] = useState(false);
+
+  // Profile modal states
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [selectedUserProfile, setSelectedUserProfile] =
+    useState<UserProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followLoading, setFollowLoading] = useState(false);
+  const [lastProfileRequest, setLastProfileRequest] = useState("");
 
   // Filter options
   const difficultyOptions: FilterOption[] = [
@@ -187,6 +218,7 @@ export default function LeaderboardScreen() {
 
   useEffect(() => {
     loadLeaderboard();
+    getCurrentUser();
   }, [selectedDifficulty, selectedTime, selectedRegion]);
 
   const loadLeaderboard = async () => {
@@ -253,6 +285,11 @@ export default function LeaderboardScreen() {
               player.full_name === currentUser.full_name ||
               player.full_name === currentUser.name
             : false,
+          user_statistics_id: player.user_statistics_id,
+          userStatistics: player.userStatistics,
+          rank_position: player.rank_position,
+          time: player.time,
+          created_at: player.created_at,
         })
       );
 
@@ -290,6 +327,261 @@ export default function LeaderboardScreen() {
         console.log("✅ Using mock data with", mockData.length, "players");
       }
     }
+  };
+
+  // Get current user info
+  const getCurrentUser = async () => {
+    try {
+      // Try getting from API first
+      const storedUser = await userAPI.getCurrentUserProfile();
+      console.log("📱 API user response:", JSON.stringify(storedUser, null, 2));
+
+      // Extract user data ensuring we have an ID
+      const user = {
+        ...(storedUser?.user || storedUser),
+        id: storedUser?.user?.id || storedUser?.id,
+      };
+
+      console.log("👤 Setting current user from API:", user);
+      setCurrentUser(user);
+    } catch (error) {
+      console.log("⚠️ API call failed, trying stored data...");
+      try {
+        // Fallback to stored data
+        const storedData = await userAPI.getStoredUserData();
+        if (storedData) {
+          console.log("📦 Found stored user data:", storedData);
+          setCurrentUser(storedData);
+        } else {
+          console.error("❌ No stored user data found");
+        }
+      } catch (storageError) {
+        console.error("❌ Error getting stored user data:", storageError);
+      }
+    }
+  };
+
+  // Check if current user is following the profile user
+  const checkFollowStatus = async (userId: number) => {
+    try {
+      console.log(
+        "🔍 Checking follow status - Current user:",
+        currentUser?.id,
+        "Target user:",
+        userId
+      );
+      if (!currentUser?.id) {
+        console.log("⚠️ No current user ID available");
+        return;
+      }
+
+      // Get both following and followers lists to check status
+      const followingResponse = await socialAPI.getFollowing(currentUser.id);
+      console.log(
+        "👥 Following list:",
+        followingResponse?.following?.length || 0,
+        "users"
+      );
+
+      // Check if current user is following the target user
+      const isUserFollowed = followingResponse.following?.some(
+        (follow: any) => follow.following_id === userId || follow.id === userId
+      );
+
+      console.log("✅ Is following:", isUserFollowed);
+      setIsFollowing(isUserFollowed || false);
+    } catch (error) {
+      console.error("❌ Error checking follow status:", error);
+      setIsFollowing(false);
+    }
+  };
+
+  // Enhanced handleViewUserProfile - Show modal first, then load data
+  const handleViewUserProfile = async (player: LeaderboardEntry) => {
+    // Prevent duplicate requests
+    if (
+      profileLoading ||
+      lastProfileRequest === player.user_statistics_id?.toString()
+    ) {
+      console.log("🚫 Profile request blocked - already loading or duplicate");
+      return;
+    }
+
+    if (player.isCurrentUser) {
+      Alert.alert(
+        "Info",
+        "This is your own profile! You can view it from the home screen."
+      );
+      return;
+    }
+
+    // Show modal immediately
+    setShowProfileModal(true);
+    setSelectedUserProfile(null);
+    setIsFollowing(false);
+    setLastProfileRequest(player.user_statistics_id?.toString() || "");
+
+    // Then fetch data inside modal
+    try {
+      setProfileLoading(true);
+
+      // Extract user ID - try all possible sources
+      let userId = null;
+      if (player.userStatistics?.user?.id) {
+        userId = player.userStatistics.user.id;
+      } else if (player.userStatistics?.user_id) {
+        userId = player.userStatistics.user_id;
+      } else if (player.id) {
+        // If it's a string ID, convert to number
+        userId =
+          typeof player.id === "string" ? parseInt(player.id) : player.id;
+      } else if (player.user_statistics_id) {
+        userId = player.user_statistics_id;
+      }
+
+      console.log("🔍 Player data:", {
+        id: player.id,
+        user_statistics_id: player.user_statistics_id,
+        userStatistics: player.userStatistics,
+        extractedUserId: userId,
+      });
+
+      if (!userId) {
+        throw new Error("Unable to find user ID for this player");
+      }
+
+      console.log(`🔍 Fetching profile for user ID: ${userId}`);
+
+      const profileResponse = await socialAPI.getUserStats(userId);
+      console.log("📊 Profile response:", {
+        id: profileResponse.user?.id,
+        username: profileResponse.user?.username,
+      });
+
+      // Ensure we have an ID in the profile data
+      const userData = {
+        ...profileResponse.user,
+        id: profileResponse.user?.id || userId,
+      };
+
+      setSelectedUserProfile(userData);
+      await checkFollowStatus(userId);
+    } catch (error) {
+      console.error("❌ Error fetching user profile:", error);
+      // Keep modal open but show error state
+      setSelectedUserProfile({
+        error: true,
+        username: player.username,
+        id:
+          typeof player.id === "string" ? parseInt(player.id) : player.id || 0,
+      });
+    } finally {
+      setProfileLoading(false);
+      setTimeout(() => setLastProfileRequest(""), 1000);
+    }
+  };
+
+  // Handle follow/unfollow
+  const handleFollowToggle = async () => {
+    if (!currentUser?.id || !selectedUserProfile?.id) {
+      Alert.alert("Error", "Unable to follow at this time");
+      return;
+    }
+
+    if (currentUser.id === selectedUserProfile.id) {
+      Alert.alert("Info", "You cannot follow yourself!");
+      return;
+    }
+
+    try {
+      setFollowLoading(true);
+      console.log(
+        `${isFollowing ? "🔄 Unfollowing" : "🔄 Following"} user ${
+          selectedUserProfile.username
+        }`
+      );
+
+      if (isFollowing) {
+        await socialAPI.unfollowUser(selectedUserProfile.id);
+        setIsFollowing(false);
+        // Update followers count in profile
+        setSelectedUserProfile((prev) => {
+          if (!prev || prev.error) return prev;
+          return {
+            ...prev,
+            followers_count: Math.max(0, (prev.followers_count || 0) - 1),
+          };
+        });
+        console.log(`✅ Unfollowed user ${selectedUserProfile.username}`);
+      } else {
+        try {
+          await socialAPI.followUser(selectedUserProfile.id);
+          setIsFollowing(true);
+          // Update followers count in profile
+          setSelectedUserProfile((prev) => {
+            if (!prev || prev.error) return prev;
+            return {
+              ...prev,
+              followers_count: (prev.followers_count || 0) + 1,
+            };
+          });
+          console.log(`✅ Following user ${selectedUserProfile.username}`);
+        } catch (followError: any) {
+          // Handle "Already following" error gracefully
+          if (followError.message?.includes("Already following")) {
+            console.log("⚠️ Already following this user, updating UI state");
+            setIsFollowing(true);
+            // Refresh follow status to ensure counts are correct
+            await checkFollowStatus(selectedUserProfile.id);
+            return;
+          }
+          throw followError; // Re-throw other errors to be caught by outer catch
+        }
+      }
+    } catch (error) {
+      console.error("❌ Error toggling follow:", error);
+      // Only revert the follow status if it wasn't an "Already following" error
+      if (!String(error).includes("Already following")) {
+        setIsFollowing(!isFollowing);
+        Alert.alert(
+          "Error",
+          isFollowing
+            ? "Failed to unfollow user. Please try again."
+            : "Failed to follow user. Please try again."
+        );
+      }
+    } finally {
+      setFollowLoading(false);
+    }
+  };
+
+  // Helper function to aggregate statistics from all difficulty levels
+  const getAggregatedStats = (statisticsArray: any[]) => {
+    if (!statisticsArray || !Array.isArray(statisticsArray)) {
+      return {
+        games_played: 0,
+        best_score: 0,
+        total_score: 0,
+        best_score_time: null,
+      };
+    }
+
+    return statisticsArray.reduce(
+      (acc, stat) => {
+        return {
+          games_played: acc.games_played + (stat.games_played || 0),
+          best_score: Math.max(acc.best_score, stat.best_score || 0),
+          total_score: acc.total_score + (stat.total_score || 0),
+          best_score_time: stat.best_score_time || acc.best_score_time,
+        };
+      },
+      {
+        games_played: 0,
+        best_score: 0,
+        total_score: 0,
+        best_score_time: null,
+      }
+    );
   };
 
   const onRefresh = async () => {
@@ -586,9 +878,7 @@ export default function LeaderboardScreen() {
         item.isCurrentUser && styles.currentUserItem,
         index < 3 && styles.topThreeItem,
       ]}
-      onPress={() =>
-        Alert.alert("Player Info", `View ${item.username}'s profile`)
-      }
+      onPress={() => handleViewUserProfile(item)}
     >
       <View style={styles.rankContainer}>
         {item.rank <= 3 && getRankIcon(item.rank) ? (
@@ -727,6 +1017,263 @@ export default function LeaderboardScreen() {
           ) : null
         }
       />
+
+      {/* Profile Modal */}
+      <Modal
+        visible={showProfileModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => {
+          setShowProfileModal(false);
+          setSelectedUserProfile(null);
+          setLastProfileRequest("");
+        }}
+      >
+        <View style={styles.modalContainer}>
+          {/* Modal Header */}
+          <View style={styles.modalHeader}>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => {
+                setShowProfileModal(false);
+                setSelectedUserProfile(null);
+                setLastProfileRequest("");
+              }}
+            >
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Player Profile</Text>
+            <View style={styles.closeButton} />
+          </View>
+
+          <ScrollView style={styles.modalContent}>
+            {profileLoading ? (
+              <View style={styles.loadingContainer}>
+                <Ionicons name="hourglass-outline" size={48} color="#ffd33d" />
+                <Text style={styles.loadingText}>Loading profile...</Text>
+              </View>
+            ) : selectedUserProfile ? (
+              selectedUserProfile.error ? (
+                <View style={styles.errorContainer}>
+                  <Ionicons
+                    name="alert-circle-outline"
+                    size={48}
+                    color="#FF6B6B"
+                  />
+                  <Text style={styles.errorText}>
+                    Failed to load {selectedUserProfile.username}'s profile
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.retryButton}
+                    onPress={() => {
+                      setSelectedUserProfile(null);
+                      setProfileLoading(true);
+                    }}
+                  >
+                    <Text style={styles.retryButtonText}>Try Again</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View>
+                  {/* Profile Header */}
+                  <View style={styles.profileHeader}>
+                    <Image
+                      source={{
+                        uri:
+                          selectedUserProfile.avatar ||
+                          "https://i.pravatar.cc/150?img=1",
+                      }}
+                      style={styles.profileAvatar}
+                    />
+                    <Text style={styles.profileUsername}>
+                      {selectedUserProfile.full_name ||
+                        selectedUserProfile.username}
+                    </Text>
+                    <Text style={styles.profileLevel}>
+                      Level {selectedUserProfile.current_level || 1}
+                    </Text>
+                    {selectedUserProfile.country && (
+                      <Text style={styles.profileCountry}>
+                        {getCountryFlag(selectedUserProfile.country)}{" "}
+                        {selectedUserProfile.country}
+                      </Text>
+                    )}
+                  </View>
+
+                  {/* Social Stats & Follow Button */}
+                  <View style={styles.socialSection}>
+                    <View style={styles.socialStatsRow}>
+                      <View style={styles.socialStatContainer}>
+                        <Text style={styles.socialStatNumber}>
+                          {selectedUserProfile.followers_count || 0}
+                        </Text>
+                        <Text style={styles.socialStatLabel}>Followers</Text>
+                      </View>
+
+                      <View style={styles.socialStatContainer}>
+                        <Text style={styles.socialStatNumber}>
+                          {selectedUserProfile.following_count || 0}
+                        </Text>
+                        <Text style={styles.socialStatLabel}>Following</Text>
+                      </View>
+
+                      <View style={styles.socialStatContainer}>
+                        <Text style={styles.socialStatNumber}>
+                          {selectedUserProfile.coins || 0}
+                        </Text>
+                        <Text style={styles.socialStatLabel}>Coins</Text>
+                      </View>
+                    </View>
+
+                    {/* Follow Button */}
+                    {(() => {
+                      console.log("🔘 Follow button check:", {
+                        currentUserId: currentUser?.id,
+                        profileId: selectedUserProfile?.id,
+                        shouldShow: Boolean(
+                          currentUser?.id &&
+                            selectedUserProfile?.id !== currentUser?.id
+                        ),
+                      });
+                      return (
+                        currentUser?.id &&
+                        selectedUserProfile?.id !== currentUser?.id && (
+                          <TouchableOpacity
+                            style={[
+                              styles.followButton,
+                              isFollowing && styles.followingButton,
+                            ]}
+                            onPress={handleFollowToggle}
+                            disabled={followLoading}
+                          >
+                            {followLoading ? (
+                              <Text
+                                style={[
+                                  styles.followButtonText,
+                                  isFollowing && styles.followingButtonText,
+                                ]}
+                              >
+                                {isFollowing
+                                  ? "Unfollowing..."
+                                  : "Following..."}
+                              </Text>
+                            ) : (
+                              <>
+                                <Ionicons
+                                  name={
+                                    isFollowing ? "person-remove" : "person-add"
+                                  }
+                                  size={16}
+                                  color={isFollowing ? "#666" : "#25292e"}
+                                />
+                                <Text
+                                  style={[
+                                    styles.followButtonText,
+                                    isFollowing && styles.followingButtonText,
+                                  ]}
+                                >
+                                  {isFollowing ? "Following" : "Follow"}
+                                </Text>
+                              </>
+                            )}
+                          </TouchableOpacity>
+                        )
+                      );
+                    })()}
+                  </View>
+
+                  {/* Game Statistics */}
+                  <View style={styles.statsSection}>
+                    <Text style={styles.sectionTitle}>Game Statistics</Text>
+                    {(() => {
+                      const stats = getAggregatedStats(
+                        selectedUserProfile.statistics || []
+                      );
+                      return (
+                        <>
+                          <View style={styles.statsGrid}>
+                            <View style={styles.statItem}>
+                              <Text style={styles.statValue}>
+                                {stats.best_score}
+                              </Text>
+                              <Text style={styles.statLabel}>Best Score</Text>
+                            </View>
+
+                            <View style={styles.statItem}>
+                              <Text style={styles.statValue}>
+                                {stats.games_played}
+                              </Text>
+                              <Text style={styles.statLabel}>Games Played</Text>
+                            </View>
+
+                            <View style={styles.statItem}>
+                              <Text style={styles.statValue}>
+                                {stats.total_score}
+                              </Text>
+                              <Text style={styles.statLabel}>Total Score</Text>
+                            </View>
+
+                            <View style={styles.statItem}>
+                              <Text style={styles.statValue}>
+                                {selectedUserProfile.experience_points || 0}
+                              </Text>
+                              <Text style={styles.statLabel}>Experience</Text>
+                            </View>
+                          </View>
+
+                          {/* Additional Stats */}
+                          <View style={styles.additionalStats}>
+                            <View style={styles.additionalStatRow}>
+                              <Text style={styles.additionalStatLabel}>
+                                Average Score:
+                              </Text>
+                              <Text style={styles.additionalStatValue}>
+                                {stats.games_played > 0
+                                  ? Math.round(
+                                      stats.total_score / stats.games_played
+                                    )
+                                  : 0}
+                              </Text>
+                            </View>
+
+                            {stats.best_score_time && (
+                              <View style={styles.additionalStatRow}>
+                                <Text style={styles.additionalStatLabel}>
+                                  Best Time:
+                                </Text>
+                                <Text style={styles.additionalStatValue}>
+                                  {stats.best_score_time.toFixed(2)}s
+                                </Text>
+                              </View>
+                            )}
+
+                            <View style={styles.additionalStatRow}>
+                              <Text style={styles.additionalStatLabel}>
+                                Member Since:
+                              </Text>
+                              <Text style={styles.additionalStatValue}>
+                                {selectedUserProfile.created_at
+                                  ? new Date(
+                                      selectedUserProfile.created_at
+                                    ).toLocaleDateString(undefined, {
+                                      month: "short",
+                                      day: "numeric",
+                                      year: "numeric",
+                                    })
+                                  : "N/A"}
+                              </Text>
+                            </View>
+                          </View>
+                        </>
+                      );
+                    })()}
+                  </View>
+                </View>
+              )
+            ) : null}
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1062,5 +1609,198 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: responsiveSpacing(8),
     lineHeight: responsiveSize(20, 22, 24),
+  },
+
+  // Modal Styles
+  modalContainer: {
+    flex: 1,
+    backgroundColor: "#0a0a0a",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: responsiveSpacing(16),
+    paddingTop: responsiveSpacing(20),
+    paddingBottom: responsiveSpacing(16),
+    backgroundColor: "#1a1a1a",
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
+  },
+  modalTitle: {
+    fontSize: responsiveSize(18, 20, 22),
+    fontWeight: "bold",
+    color: "#ffffff",
+    textAlign: "center",
+  },
+  closeButton: {
+    padding: responsiveSpacing(8),
+    borderRadius: 20,
+  },
+  modalContent: {
+    flex: 1,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: responsiveSpacing(40),
+  },
+  errorText: {
+    color: "#FF6B6B",
+    fontSize: responsiveSize(16, 18, 20),
+    marginTop: responsiveSpacing(16),
+    textAlign: "center",
+  },
+  retryButton: {
+    backgroundColor: "#ffd33d",
+    paddingHorizontal: responsiveSpacing(24),
+    paddingVertical: responsiveSpacing(12),
+    borderRadius: 22,
+    marginTop: responsiveSpacing(16),
+  },
+  retryButtonText: {
+    color: "#25292e",
+    fontSize: responsiveSize(14, 15, 16),
+    fontWeight: "600",
+  },
+
+  // Profile Header
+  profileHeader: {
+    alignItems: "center",
+    paddingVertical: responsiveSpacing(24),
+    paddingHorizontal: responsiveSpacing(16),
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
+  },
+  profileAvatar: {
+    width: responsiveSize(100, 120, 140),
+    height: responsiveSize(100, 120, 140),
+    borderRadius: responsiveSize(50, 60, 70),
+    marginBottom: responsiveSpacing(16),
+    borderWidth: 3,
+    borderColor: "#ffd33d",
+  },
+  profileUsername: {
+    fontSize: responsiveSize(22, 24, 26),
+    fontWeight: "bold",
+    color: "#ffffff",
+    marginBottom: responsiveSpacing(8),
+  },
+  profileLevel: {
+    fontSize: responsiveSize(16, 18, 20),
+    color: "#ffd33d",
+    marginBottom: responsiveSpacing(8),
+  },
+  profileCountry: {
+    fontSize: responsiveSize(14, 15, 16),
+    color: "#888",
+  },
+
+  // Social Section
+  socialSection: {
+    paddingVertical: responsiveSpacing(20),
+    paddingHorizontal: responsiveSpacing(16),
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
+  },
+  socialStatsRow: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginBottom: responsiveSpacing(20),
+  },
+  socialStatContainer: {
+    alignItems: "center",
+  },
+  socialStatNumber: {
+    fontSize: responsiveSize(20, 22, 24),
+    fontWeight: "bold",
+    color: "#ffffff",
+  },
+  socialStatLabel: {
+    fontSize: responsiveSize(12, 13, 14),
+    color: "#888",
+    marginTop: responsiveSpacing(4),
+  },
+  followButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ffd33d",
+    paddingHorizontal: responsiveSpacing(24),
+    paddingVertical: responsiveSpacing(12),
+    borderRadius: 22,
+    gap: 8,
+  },
+  followingButton: {
+    backgroundColor: "#333",
+    borderWidth: 1,
+    borderColor: "#666",
+  },
+  followButtonText: {
+    color: "#25292e",
+    fontSize: responsiveSize(14, 15, 16),
+    fontWeight: "600",
+  },
+  followingButtonText: {
+    color: "#888",
+  },
+
+  // Stats Section
+  statsSection: {
+    paddingVertical: responsiveSpacing(20),
+    paddingHorizontal: responsiveSpacing(16),
+  },
+  sectionTitle: {
+    fontSize: responsiveSize(18, 20, 22),
+    fontWeight: "bold",
+    color: "#ffffff",
+    marginBottom: responsiveSpacing(16),
+  },
+  statsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    marginBottom: responsiveSpacing(20),
+  },
+  statItem: {
+    width: "48%",
+    backgroundColor: "#1a1a1a",
+    padding: responsiveSpacing(16),
+    borderRadius: 12,
+    marginBottom: responsiveSpacing(12),
+    alignItems: "center",
+  },
+  statValue: {
+    fontSize: responsiveSize(20, 22, 24),
+    fontWeight: "bold",
+    color: "#ffffff",
+    marginBottom: responsiveSpacing(4),
+  },
+  statLabel: {
+    fontSize: responsiveSize(12, 13, 14),
+    color: "#888",
+  },
+  additionalStats: {
+    backgroundColor: "#1a1a1a",
+    padding: responsiveSpacing(16),
+    borderRadius: 12,
+  },
+  additionalStatRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: responsiveSpacing(8),
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
+  },
+  additionalStatLabel: {
+    fontSize: responsiveSize(14, 15, 16),
+    color: "#888",
+  },
+  additionalStatValue: {
+    fontSize: responsiveSize(14, 15, 16),
+    color: "#ffffff",
+    fontWeight: "500",
   },
 });

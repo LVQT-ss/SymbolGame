@@ -218,6 +218,38 @@ export const userAPI = {
         }
     },
 
+    // 🆕 Update stored user statistics immediately after game completion
+    updateStoredUserStats: async () => {
+        try {
+            const currentUser = await AsyncStorage.getItem("user_profile");
+            if (!currentUser) return null;
+
+            const userData = JSON.parse(currentUser);
+
+            // Check if we have a user ID
+            if (!userData.id) {
+                console.log("⚠️ No user ID found in stored data, skipping statistics update");
+                return userData;
+            }
+
+            console.log("🔄 Fetching fresh statistics after game completion for user ID:", userData.id);
+
+            // Use socialAPI to get comprehensive user stats including statistics array
+            const freshProfile = await socialAPI.getUserStats(userData.id);
+            if (freshProfile && freshProfile.user && freshProfile.user.statistics) {
+                userData.statistics = freshProfile.user.statistics;
+                await AsyncStorage.setItem("user_profile", JSON.stringify(userData));
+                console.log("✅ Updated stored user statistics:", freshProfile.user.statistics);
+                return userData;
+            }
+
+            return userData;
+        } catch (error) {
+            console.error("Error updating stored user statistics:", error);
+            return null;
+        }
+    },
+
     // Debug function to check current user identity
     debugCurrentUser: async () => {
         try {

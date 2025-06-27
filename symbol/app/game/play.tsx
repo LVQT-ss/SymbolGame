@@ -553,6 +553,9 @@ export default function GameScreen() {
       if (result.updatedUserInfo) {
         console.log("🎉 Updating user level info:", result.updatedUserInfo);
         await userAPI.updateStoredUserLevel(result.updatedUserInfo);
+
+        // 🆕 Also update statistics immediately for instant UI refresh
+        await userAPI.updateStoredUserStats();
       }
 
       // Get results data from server response
@@ -628,6 +631,9 @@ export default function GameScreen() {
       if (result.updated_user_info) {
         console.log("🎉 Updating user level info:", result.updated_user_info);
         await userAPI.updateStoredUserLevel(result.updated_user_info);
+
+        // 🆕 Also update statistics immediately for instant UI refresh
+        await userAPI.updateStoredUserStats();
       }
 
       // Get results data from server response
