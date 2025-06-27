@@ -78,6 +78,11 @@ const User = sequelize.define('User', {
         type: DataTypes.BOOLEAN,
         defaultValue: true,
     },
+    last_daily_bonus: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        comment: 'The last time the user claimed their daily bonus',
+    },
 }, {
     tableName: 'users',
     timestamps: true,

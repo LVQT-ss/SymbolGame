@@ -5,6 +5,8 @@ import jwt from 'jsonwebtoken';
 import process from 'process';
 import 'dotenv/config'
 
+const DAILY_BONUS_COINS = 50;
+
 export const getAllUsers = async (req, res) => {
     try {
         const users = await User.findAll({
@@ -198,6 +200,51 @@ export const logout = async (req, res) => {
 
     } catch (err) {
         console.error('Logout error:', err.message);
+        res.status(500).json({ message: 'Server error', error: err.message });
+    }
+};
+
+export const claimDailyBonus = async (req, res) => {
+    const userId = req.userId;
+    try {
+        const user = await User.findByPk(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        const now = new Date();
+        const lastClaim = user.last_daily_bonus;
+        let canClaim = false;
+        if (!lastClaim) {
+            canClaim = true;
+        } else {
+            const last = new Date(lastClaim);
+            const diffMs = now.getTime() - last.getTime();
+            if (diffMs >= 24 * 60 * 60 * 1000) {
+                canClaim = true;
+            }
+        }
+        if (canClaim) {
+            user.coins += DAILY_BONUS_COINS;
+            user.last_daily_bonus = now;
+            await user.save();
+            return res.status(200).json({
+                message: 'Daily bonus claimed!',
+                coins: user.coins,
+                last_daily_bonus: user.last_daily_bonus,
+                bonus: DAILY_BONUS_COINS
+            });
+        } else {
+            const last = new Date(lastClaim);
+            const nextClaim = new Date(last.getTime() + 24 * 60 * 60 * 1000);
+            const msLeft = nextClaim.getTime() - now.getTime();
+            return res.status(400).json({
+                message: 'Daily bonus already claimed. Try again later.',
+                time_left_ms: msLeft,
+                next_claim_time: nextClaim
+            });
+        }
+    } catch (err) {
+        console.error('Error in claimDailyBonus:', err);
         res.status(500).json({ message: 'Server error', error: err.message });
     }
 };

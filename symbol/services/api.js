@@ -261,6 +261,19 @@ export const userAPI = {
         } catch (error) {
             throw new Error(error.response?.data?.message || "Failed to delete account");
         }
+    },
+
+    // Claim daily bonus
+    claimDailyBonus: async () => {
+        try {
+            const response = await api.post('/user/claim-daily-bonus');
+            return { success: true, ...response.data };
+        } catch (error) {
+            if (error.response && error.response.data) {
+                return { success: false, ...error.response.data };
+            }
+            return { success: false, message: 'Failed to claim daily bonus' };
+        }
     }
 };
 

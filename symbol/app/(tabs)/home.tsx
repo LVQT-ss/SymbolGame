@@ -174,6 +174,9 @@ export default function HomeScreen() {
   const celebrationScale = useRef(new Animated.Value(0)).current;
   const progressAnimation = useRef(new Animated.Value(0)).current;
 
+  // Add at the top, after useState for dailyBonus:
+  const [dailyBonusTimer, setDailyBonusTimer] = useState(0);
+
   useEffect(() => {
     checkAuthStatus();
     startAnimations();
@@ -380,6 +383,27 @@ export default function HomeScreen() {
       setUserProfile(mappedProfile);
 
       console.log("Profile successfully mapped and set");
+
+      // --- Daily Bonus Logic ---
+      const lastBonus = profileData.last_daily_bonus
+        ? new Date(profileData.last_daily_bonus)
+        : null;
+      const now = new Date();
+      let canClaim = false;
+      let timer = 0;
+      if (!lastBonus) {
+        canClaim = true;
+      } else {
+        const diffMs = now.getTime() - lastBonus.getTime();
+        if (diffMs >= 24 * 60 * 60 * 1000) {
+          canClaim = true;
+        } else {
+          timer = 24 * 60 * 60 * 1000 - diffMs;
+        }
+      }
+      setDailyBonus({ available: canClaim, claimed: !canClaim });
+      setDailyBonusTimer(timer);
+      // --- End Daily Bonus Logic ---
     } catch (error: any) {
       console.error("Error fetching user profile:", error);
       Alert.alert(
@@ -597,32 +621,66 @@ export default function HomeScreen() {
   };
 
   // 🎉 Interactive Features
-  const handleDailyBonus = () => {
+  const handleDailyBonus = async () => {
     if (!dailyBonus.available || dailyBonus.claimed) return;
-
-    Vibration.vibrate(100);
-    setDailyBonus({ available: true, claimed: true });
-    setShowCelebration(true);
-
-    // Celebration animation
-    Animated.sequence([
-      Animated.timing(celebrationScale, {
-        toValue: 1,
-        duration: 300,
-        easing: Easing.out(Easing.back(2)),
-        useNativeDriver: true,
-      }),
-      Animated.delay(1500),
-      Animated.timing(celebrationScale, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-    ]).start(() => setShowCelebration(false));
-
-    // Update coins
-    setUserProfile((prev) => ({ ...prev, coins: prev.coins + 50 }));
+    setLoading(true);
+    try {
+      const result = await userAPI.claimDailyBonus();
+      if (result.success) {
+        Vibration.vibrate(100);
+        setDailyBonus({ available: false, claimed: true });
+        setShowCelebration(true);
+        setUserProfile((prev) => ({ ...prev, coins: result.coins }));
+        setDailyBonusTimer(24 * 60 * 60 * 1000); // 24h until next claim
+        // Celebration animation
+        Animated.sequence([
+          Animated.timing(celebrationScale, {
+            toValue: 1,
+            duration: 300,
+            easing: Easing.out(Easing.back(2)),
+            useNativeDriver: true,
+          }),
+          Animated.delay(1500),
+          Animated.timing(celebrationScale, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+        ]).start(() => setShowCelebration(false));
+      } else {
+        // Already claimed, show timer
+        if (result.time_left_ms) {
+          setDailyBonus({ available: false, claimed: true });
+          setDailyBonusTimer(result.time_left_ms);
+          Alert.alert("Daily Bonus", result.message || "Already claimed.");
+        } else {
+          Alert.alert(
+            "Daily Bonus",
+            result.message || "Could not claim bonus."
+          );
+        }
+      }
+    } catch (err) {
+      Alert.alert("Daily Bonus", "Could not claim bonus.");
+    } finally {
+      setLoading(false);
+    }
   };
+
+  // Add a useEffect to update the timer countdown every second
+  useEffect(() => {
+    if (!dailyBonus.claimed || dailyBonusTimer <= 0) return;
+    const interval = setInterval(() => {
+      setDailyBonusTimer((prev) => {
+        if (prev <= 1000) {
+          setDailyBonus({ available: true, claimed: false });
+          return 0;
+        }
+        return prev - 1000;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [dailyBonus.claimed, dailyBonusTimer]);
 
   const handleQuickStart = (mode: string) => {
     Vibration.vibrate(50);
@@ -1063,10 +1121,14 @@ export default function HomeScreen() {
                 dailyBonus.claimed && styles.dailyBonusButtonClaimed,
               ]}
               onPress={handleDailyBonus}
-              disabled={dailyBonus.claimed}
+              disabled={dailyBonus.claimed || loading}
             >
               <Text style={styles.dailyBonusButtonText}>
-                {dailyBonus.claimed ? "✅ Claimed" : "50 💰"}
+                {dailyBonus.claimed
+                  ? dailyBonusTimer > 0
+                    ? `⏳ ${Math.ceil(dailyBonusTimer / 1000 / 60)} min`
+                    : "✅ Claimed"
+                  : "50 💰"}
               </Text>
             </TouchableOpacity>
           </View>

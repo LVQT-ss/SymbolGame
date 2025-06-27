@@ -6,9 +6,10 @@ import {
     updateUser,
     deleteUser,
     getAllCustomer,
-    logout
+    logout,
+    claimDailyBonus
 } from '../controllers/user.controller.js';
-
+import { verifyToken } from '../middleware/verifyUser.js';
 const router = express.Router();
 
 /**
@@ -384,5 +385,50 @@ router.get('/:id', getUserById);
  *         description: Server error
  */
 router.post('/logout', logout);
+
+/**
+ * @swagger
+ * /api/user/claim-daily-bonus:
+ *   post:
+ *     tags:
+ *     - User Controller
+ *     summary: Claim the daily bonus for the authenticated user
+ *     description: Claim a daily bonus (e.g., 50 coins) if 24 hours have passed since the last claim. Requires authentication.
+ *     security:
+ *       - Authorization: []
+ *     responses:
+ *       200:
+ *         description: Daily bonus successfully claimed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Daily bonus claimed!
+ *                 coins:
+ *                   type: integer
+ *                   example: 150
+ *                 last_daily_bonus:
+ *                   type: string
+ *                   format: date-time
+ *                   example: 2024-03-20T10:30:00Z
+ *       400:
+ *         description: Cannot claim bonus yet
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: You can claim your next bonus in X hours
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *       500:
+ *         description: Server error
+ */
+router.post('/claim-daily-bonus', verifyToken, claimDailyBonus);
 
 export default router;
