@@ -147,8 +147,13 @@ export default function GameScreen() {
       total_time: 0,
     };
 
+    // 🎲 Shuffle practice rounds for variety
+    const shuffledPracticeRounds = [...practiceRounds].sort(
+      () => Math.random() - 0.5
+    );
+
     setGameSession(practiceSession);
-    setRounds(practiceRounds);
+    setRounds(shuffledPracticeRounds);
     setScore(0);
     setCorrectAnswers(0);
     setCurrentRoundIndex(0);
@@ -183,8 +188,13 @@ export default function GameScreen() {
       total_time: 0,
     };
 
+    // 🎲 Shuffle quick submit rounds for variety
+    const shuffledQuickRounds = [...quickRounds].sort(
+      () => Math.random() - 0.5
+    );
+
     setGameSession(quickSession);
-    setRounds(quickRounds);
+    setRounds(shuffledQuickRounds);
     setScore(0);
     setCorrectAnswers(0);
     setCurrentRoundIndex(0);
@@ -270,17 +280,26 @@ export default function GameScreen() {
           // Clear any pre-existing user_symbol data for fresh gameplay
           // This ensures user can play even if API returns pre-filled data
           const freshRounds =
-            response.rounds?.map((round: any) => ({
-              round_number: round.round_number,
-              first_number: round.first_number,
-              second_number: round.second_number,
-              // Clear user input data for fresh gameplay
-              user_symbol: undefined,
-              response_time: undefined,
-              is_correct: undefined,
-            })) || [];
+            response.rounds
+              ?.map((round: any) => ({
+                round_number: round.round_number,
+                first_number: round.first_number,
+                second_number: round.second_number,
+                // Clear user input data for fresh gameplay
+                user_symbol: undefined,
+                response_time: undefined,
+                is_correct: undefined,
+              }))
+              // CRITICAL: Sort rounds by round_number to ensure correct order
+              .sort((a: any, b: any) => a.round_number - b.round_number) || [];
 
-          setRounds(freshRounds);
+          // 🎲 SHUFFLE rounds for fairness while preserving round_number tracking
+          // This makes each game unique while allowing proper backend validation
+          const shuffledRounds = [...freshRounds].sort(
+            () => Math.random() - 0.5
+          );
+
+          setRounds(shuffledRounds);
           setCurrentRoundIndex(0); // Start from first round
           setScore(0); // Reset score for fresh gameplay
           setCorrectAnswers(0); // Reset correct answers
@@ -501,11 +520,17 @@ export default function GameScreen() {
       const totalTime = (Date.now() - gameStartTime) / 1000; // Convert to seconds
 
       // Prepare game completion data to match expected format
+      // IMPORTANT: Backend expects rounds in database order (by round_number)
+      // Sort rounds by round_number before submitting to match backend validation
+      const sortedRounds = finalRounds
+        .slice() // Create copy to avoid mutating original
+        .sort((a, b) => a.round_number - b.round_number);
+
       const gameResults = {
         game_session_id: parsedSessionId,
         difficulty_level: 2, // Default difficulty level
         total_time: totalTime,
-        rounds: finalRounds.map((round) => ({
+        rounds: sortedRounds.map((round) => ({
           first_number: round.first_number,
           second_number: round.second_number,
           user_symbol: round.user_symbol || "",
@@ -515,6 +540,9 @@ export default function GameScreen() {
       };
 
       console.log("📤 Submitting game completion:", gameResults);
+      console.log(
+        "🎲 Note: Rounds are shuffled during gameplay but sorted back to database order for submission"
+      );
 
       const result = await gameAPI.completeGame(gameResults);
       setGameCompleted(true);

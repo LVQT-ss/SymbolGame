@@ -1,0 +1,96 @@
+{
+  "game_session_id": 1,
+  "total_time": 120.5,
+  "rounds": [
+    {
+      "first_number": 41,
+      "second_number": 7,
+      "user_symbol": ">",
+      "response_time": 3.1
+    },
+    {
+      "first_number": 25,
+      "second_number": 45,
+      "user_symbol": "<",
+      "response_time": 2.8
+    },
+    {
+      "first_number": 50,
+      "second_number": 17,
+      "user_symbol": ">",
+      "response_time": 4.2
+    },
+    {
+      "first_number": 18,
+      "second_number": 25,
+      "user_symbol": "<",
+      "response_time": 5.1
+    },
+    {
+      "first_number": 41,
+      "second_number": 38,
+      "user_symbol": ">",
+      "response_time": 2.9
+    },
+    {
+      "first_number": 41,
+      "second_number": 35,
+      "user_symbol": ">",
+      "response_time": 3.5
+    },
+    {
+      "first_number": 14,
+      "second_number": 12,
+      "user_symbol": ">",
+      "response_time": 4.7
+    },
+    {
+      "first_number": 34,
+      "second_number": 14,
+      "user_symbol": ">",
+      "response_time": 3.3
+    },
+    {
+      "first_number": 20,
+      "second_number": 27,
+      "user_symbol": "<",
+      "response_time": 2.6
+    },
+    {
+      "first_number": 26,
+      "second_number": 23,
+      "user_symbol": ">",
+      "response_time": 4.8
+    },
+    {
+      "first_number": 12,
+      "second_number": 2,
+      "user_symbol": ">",
+      "response_time": 2.2
+    },
+    {
+      "first_number": 46,
+      "second_number": 40,
+      "user_symbol": ">",
+      "response_time": 3.7
+    },
+    {
+      "first_number": 10,
+      "second_number": 35,
+      "user_symbol": "<",
+      "response_time": 5.4
+    },
+    {
+      "first_number": 43,
+      "second_number": 28,
+      "user_symbol": ">",
+      "response_time": 3.9
+    },
+    {
+      "first_number": 29,
+      "second_number": 31,
+      "user_symbol": "<",
+      "response_time": 4.1
+    }
+  ]
+} 

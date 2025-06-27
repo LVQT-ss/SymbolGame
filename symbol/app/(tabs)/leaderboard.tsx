@@ -156,7 +156,13 @@ export default function LeaderboardScreen() {
         total_time: Math.floor(Math.random() * 300) + 60,
         total_games: Math.floor(Math.random() * 50) + 5,
         medal:
-          index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : null,
+          index === 0
+            ? "🥇"
+            : index === 1
+            ? "🥈"
+            : index === 2
+            ? "🥉"
+            : undefined,
         isTopThree: index < 3,
         isCurrentUser: index === 4, // Make 5th player the current user for demo
       }))
@@ -165,7 +171,13 @@ export default function LeaderboardScreen() {
         ...item,
         rank: index + 1,
         medal:
-          index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : null,
+          index === 0
+            ? "🥇"
+            : index === 1
+            ? "🥈"
+            : index === 2
+            ? "🥉"
+            : undefined,
         isTopThree: index < 3,
       }));
 
@@ -582,7 +594,14 @@ export default function LeaderboardScreen() {
         )}
       </View>
 
-      <Image source={{ uri: item.avatar }} style={styles.avatar} />
+      <View style={styles.avatarContainer}>
+        <Image source={{ uri: item.avatar }} style={styles.avatar} />
+        {item.countryFlag && (
+          <View style={styles.flagBadge}>
+            <Text style={styles.flagText}>{item.countryFlag}</Text>
+          </View>
+        )}
+      </View>
 
       <View style={styles.userInfo}>
         <Text
@@ -595,16 +614,11 @@ export default function LeaderboardScreen() {
           {item.username}
           {item.isCurrentUser ? " (You)" : ""}
         </Text>
-        <View style={styles.userDetails}>
-          <Text style={styles.level}>Level {item.level}</Text>
-          {item.total_games && item.total_games > 0 && (
-            <Text style={styles.gamesPlayed}>• {item.total_games} games</Text>
-          )}
-          {item.region && <Text style={styles.region}>• {item.region}</Text>}
-          {item.countryFlag && (
-            <Text style={styles.countryFlag}>{item.countryFlag}</Text>
-          )}
-        </View>
+
+        {/* Only show total time */}
+        {item.total_time && item.total_time > 0 && (
+          <Text style={styles.totalTime}>⏱️ {item.total_time}s</Text>
+        )}
       </View>
 
       <View style={styles.scoreContainer}>
@@ -672,18 +686,9 @@ export default function LeaderboardScreen() {
         </View>
       </View>
 
-      {/* Top 3 Podium */}
-      {!loading && leaderboardData.length > 0 && renderTopThree()}
-
       {/* Leaderboard List */}
       <FlatList
-        data={
-          loading
-            ? []
-            : leaderboardData.length >= 3
-            ? leaderboardData.slice(3)
-            : []
-        } // Skip top 3 users only if we have 3+ players
+        data={loading ? [] : leaderboardData}
         renderItem={renderLeaderboardItem}
         keyExtractor={(item) => item.id}
         refreshControl={
@@ -697,28 +702,16 @@ export default function LeaderboardScreen() {
               <Ionicons name="hourglass-outline" size={32} color="#888" />
               <Text style={styles.loadingText}>Loading leaderboard...</Text>
             </View>
-          ) : leaderboardData.length >= 3 ? (
-            <View style={styles.listHeaderContainer}>
-              <Text style={styles.listHeaderText}>Rest of the Rankings</Text>
-              <Text style={styles.listHeaderSubtext}>
-                Continue scrolling to see ranks 4 and beyond
-              </Text>
-            </View>
           ) : null
         }
         ListEmptyComponent={
           !loading ? (
             <View style={styles.emptyContainer}>
               <Ionicons name="trophy-outline" size={64} color="#444" />
-              <Text style={styles.emptyTitle}>
-                {leaderboardData.length <= 3
-                  ? "Only Top 3 Players"
-                  : "No Players Found"}
-              </Text>
+              <Text style={styles.emptyTitle}>No Players Found</Text>
               <Text style={styles.emptySubtitle}>
-                {leaderboardData.length <= 3
-                  ? "All players are highlighted in the podium above!"
-                  : `Be the first to play and set a record for difficulty ${selectedDifficulty}!`}
+                Be the first to play and set a record for difficulty{" "}
+                {selectedDifficulty}!
               </Text>
             </View>
           ) : null
@@ -922,6 +915,12 @@ const styles = StyleSheet.create({
     fontSize: responsiveSize(11, 12, 13),
     fontWeight: "600",
   },
+  podiumTime: {
+    color: "#888",
+    fontSize: responsiveSize(10, 11, 12),
+    fontWeight: "500",
+    marginTop: responsiveSpacing(2),
+  },
   listContainer: {
     paddingHorizontal: responsiveSpacing(20),
     paddingBottom: responsiveSpacing(20),
@@ -930,11 +929,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#1a1a1a",
-    borderRadius: 16,
-    padding: responsiveSpacing(16),
-    marginBottom: responsiveSpacing(8),
+    borderRadius: 12,
+    padding: responsiveSpacing(12),
+    marginBottom: responsiveSpacing(6),
     borderWidth: 1,
     borderColor: "#333",
+    minHeight: responsiveSize(60, 65, 70),
   },
   currentUserItem: {
     backgroundColor: "#2a2a1a",
@@ -952,11 +952,28 @@ const styles = StyleSheet.create({
     fontSize: responsiveSize(14, 16, 18),
     fontWeight: "bold",
   },
+  avatarContainer: {
+    position: "relative",
+    marginRight: responsiveSpacing(12),
+  },
   avatar: {
-    width: responsiveSize(45, 50, 55),
-    height: responsiveSize(45, 50, 55),
-    borderRadius: responsiveSize(22.5, 25, 27.5),
-    marginRight: responsiveSpacing(16),
+    width: responsiveSize(40, 42, 45),
+    height: responsiveSize(40, 42, 45),
+    borderRadius: responsiveSize(20, 21, 22.5),
+  },
+  flagBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    backgroundColor: "#2a2a2a",
+    borderRadius: 8,
+    paddingHorizontal: 2,
+    paddingVertical: 1,
+    borderWidth: 1,
+    borderColor: "#444",
+  },
+  flagText: {
+    fontSize: responsiveSize(10, 11, 12),
   },
   userInfo: {
     flex: 1,
@@ -964,35 +981,20 @@ const styles = StyleSheet.create({
   },
   username: {
     color: "#fff",
-    fontSize: responsiveSize(16, 17, 18),
+    fontSize: responsiveSize(15, 16, 17),
     fontWeight: "bold",
-    marginBottom: responsiveSpacing(4),
+    marginBottom: responsiveSpacing(2),
   },
   currentUserText: {
     color: "#ffd33d",
   },
-  userDetails: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  level: {
+
+  totalTime: {
     color: "#888",
-    fontSize: responsiveSize(12, 13, 14),
+    fontSize: responsiveSize(11, 12, 13),
+    fontWeight: "500",
   },
-  gamesPlayed: {
-    color: "#666",
-    fontSize: responsiveSize(12, 13, 14),
-    marginLeft: responsiveSpacing(4),
-  },
-  region: {
-    color: "#666",
-    fontSize: responsiveSize(12, 13, 14),
-    marginLeft: responsiveSpacing(4),
-  },
-  countryFlag: {
-    fontSize: responsiveSize(14, 15, 16),
-    marginLeft: responsiveSpacing(4),
-  },
+
   scoreContainer: {
     alignItems: "flex-end",
   },
