@@ -3,7 +3,13 @@ import React from "react";
 
 export default function GameLayout() {
   return (
-    <Stack>
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: "#25292e" },
+        animation: "fade", // Smoother transition
+      }}
+    >
       <Stack.Screen
         name="menu"
         options={{

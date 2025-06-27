@@ -17,6 +17,9 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: "#25292e",
         },
+        // Prevent white flash during tab navigation
+        sceneStyle: { backgroundColor: "#25292e" },
+        animation: "fade",
       }}
     >
       <Tabs.Screen

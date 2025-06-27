@@ -16,6 +16,9 @@ export default function AuthLayout() {
           headerTitleStyle: {
             fontWeight: "bold",
           },
+          // Prevent white flash during navigation
+          contentStyle: { backgroundColor: "#25292e" },
+          animation: "fade",
         }}
       >
         <Stack.Screen
