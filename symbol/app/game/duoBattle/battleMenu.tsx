@@ -13,6 +13,10 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { battleAPI } from "../../../services/api";
+import {
+  filterActiveBattles,
+  BattleSession as BattleSessionType,
+} from "../../../utils/battleUtils";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -31,36 +35,8 @@ const getResponsivePadding = () => {
   return 20;
 };
 
-interface BattleSession {
-  id: number;
-  battle_code: string;
-  number_of_rounds: number;
-  time_limit: number;
-  is_public: boolean;
-  creator: {
-    id: number;
-    username: string;
-    full_name: string;
-    avatar: string;
-    current_level: number;
-  };
-  opponent?: {
-    id: number;
-    username: string;
-    full_name: string;
-    avatar: string;
-    current_level: number;
-  };
-  can_join: boolean;
-  is_active: boolean;
-  created_at: string;
-  time_since_created: number;
-  progress?: {
-    total_rounds: number;
-    completed_rounds: number;
-    progress_percentage: number;
-  };
-}
+// Use the interface from battleUtils
+type BattleSession = BattleSessionType;
 
 export default function BattleMenuScreen() {
   const [loading, setLoading] = useState(false);
@@ -71,6 +47,8 @@ export default function BattleMenuScreen() {
     loadAvailableBattles();
   }, []);
 
+  // Use the utility function for filtering stale battles
+
   const loadAvailableBattles = async () => {
     try {
       setLoading(true);
@@ -79,8 +57,14 @@ export default function BattleMenuScreen() {
       console.log("📡 Battle API response:", response);
 
       if (response && response.battles) {
-        console.log("✅ Found battles:", response.battles.length);
-        setAvailableBattles(response.battles);
+        console.log("✅ Found battles from API:", response.battles.length);
+
+        // Apply frontend filtering to remove stale battles
+        // Use individual time limits (30s battles expire after 30s)
+        const filteredBattles = filterActiveBattles(response.battles, 6, true);
+        console.log("🔍 Battles after filtering:", filteredBattles.length);
+
+        setAvailableBattles(filteredBattles);
       } else {
         console.log("⚠️ No battles in response");
         setAvailableBattles([]);
