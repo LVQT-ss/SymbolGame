@@ -617,11 +617,42 @@ export default function HomeScreen() {
         style: "destructive",
         onPress: async () => {
           try {
-            await authAPI.logout();
-            await userAPI.clearStoredUserData(); // Clear stored user data
+            // Frontend-only logout - clear all local data without API call
+            await userAPI.clearStoredUserData(); // Clear stored user profile data
+            await apiUtils.clearAllData(); // Clear authentication token
             setIsAuthenticated(false);
             setShowProfileModal(false);
-            // Reset user profile to default values
+
+            // Reset user profile to default guest values
+            setUserProfile({
+              username: "Guest",
+              full_name: "Guest User",
+              coins: 0,
+              experience_points: 0,
+              current_level: 1,
+              avatar: "https://i.pravatar.cc/100?img=1",
+              gems: 0,
+              level: 1,
+              experience: 0,
+              maxExperience: 100,
+              joinDate: "Recently",
+              totalWins: 0,
+              totalLosses: 0,
+            });
+
+            // Reset daily bonus state
+            setDailyBonus({
+              available: true,
+              claimed: false,
+            });
+            setDailyBonusTimer(0);
+
+            Alert.alert("Success", "You have been logged out successfully.");
+          } catch (error: any) {
+            console.error("Logout error:", error);
+            // Even if there's an error clearing data, we still want to logout locally
+            setIsAuthenticated(false);
+            setShowProfileModal(false);
             setUserProfile({
               username: "Guest",
               full_name: "Guest User",
@@ -638,9 +669,6 @@ export default function HomeScreen() {
               totalLosses: 0,
             });
             Alert.alert("Success", "You have been logged out successfully.");
-          } catch (error: any) {
-            console.error("Logout error:", error);
-            Alert.alert("Error", "Failed to logout. Please try again.");
           }
         },
       },
@@ -735,7 +763,14 @@ export default function HomeScreen() {
       handlePracticeMode();
     } else if (mode === "battle") {
       handleBattleMode();
+    } else if (mode === "house") {
+      handleHouseBuilding();
     }
+  };
+
+  const handleHouseBuilding = () => {
+    Vibration.vibrate(50);
+    router.push("/game/houseBuilding/House");
   };
 
   const handleNotificationPress = () => {
@@ -1065,6 +1100,37 @@ export default function HomeScreen() {
               </Text>
               <View style={styles.newBadge}>
                 <Text style={styles.newText}>NEW</Text>
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
+
+          {/* House Building */}
+          <Animated.View
+            style={{
+              transform: [
+                {
+                  translateY: floatAnimation.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, 2],
+                  }),
+                },
+              ],
+            }}
+          >
+            <TouchableOpacity
+              style={styles.houseBuildingButton}
+              onPress={() => handleQuickStart("house")}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="home" size={24} color="#fff" />
+              <Text style={styles.houseBuildingButtonText}>
+                🏠 House Building
+              </Text>
+              <Text style={styles.houseBuildingButtonSubtext}>
+                Build your village
+              </Text>
+              <View style={styles.creativeBadge}>
+                <Text style={styles.creativeText}>CREATIVE</Text>
               </View>
             </TouchableOpacity>
           </Animated.View>
@@ -1892,6 +1958,47 @@ const getResponsiveStyles = (dimensions: any) =>
       paddingVertical: 4,
     },
     newText: {
+      color: "#fff",
+      fontSize: getResponsiveFontSize(10),
+      fontWeight: "bold",
+    },
+    houseBuildingButton: {
+      flexDirection: "column",
+      alignItems: "center",
+      backgroundColor: "#8B4513",
+      padding: 20,
+      borderRadius: 15,
+      marginBottom: 16,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+      elevation: 6,
+    },
+    houseBuildingButtonText: {
+      color: "#fff",
+      fontSize: getResponsiveFontSize(18),
+      fontWeight: "bold",
+      marginLeft: 8,
+      textAlign: "center",
+    },
+    houseBuildingButtonSubtext: {
+      color: "#DEB887",
+      fontSize: getResponsiveFontSize(12),
+      marginTop: 5,
+      textAlign: "center",
+      fontStyle: "italic",
+    },
+    creativeBadge: {
+      position: "absolute",
+      top: 8,
+      right: 8,
+      backgroundColor: "#9C27B0",
+      borderRadius: 12,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    creativeText: {
       color: "#fff",
       fontSize: getResponsiveFontSize(10),
       fontWeight: "bold",
