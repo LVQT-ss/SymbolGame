@@ -9,7 +9,8 @@
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.symbol.symbolapp"
     },
     "android": {
       "adaptiveIcon": {
@@ -33,7 +34,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#25292e"
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true

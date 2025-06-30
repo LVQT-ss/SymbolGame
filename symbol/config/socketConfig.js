@@ -1,4 +1,6 @@
 // Socket.IO Configuration
+import { Platform } from 'react-native';
+
 const SOCKET_CONFIG = {
     // Use production server (same as your API)
     production: {
@@ -16,8 +18,11 @@ const SOCKET_CONFIG = {
 
     // Local development server
     local: {
-        url: 'http://10.0.2.2:3000', // Android emulator
-        // url: 'http://localhost:3000', // iOS simulator
+        url: process.env.EXPO_PUBLIC_API_URL || (
+            Platform.OS === 'ios'
+                ? 'http://localhost:3000'  // iOS simulator
+                : 'http://10.0.2.2:3000'   // Android emulator
+        ),
         options: {
             transports: ['polling', 'websocket'],
             upgrade: true,
@@ -31,6 +36,7 @@ const SOCKET_CONFIG = {
 };
 
 // Choose environment (change this to 'local' for local development)
+// Use 'production' when using tunnel for better connectivity
 const ENVIRONMENT = 'production';
 
 export const getSocketConfig = () => {
