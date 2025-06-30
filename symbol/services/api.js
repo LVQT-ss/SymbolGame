@@ -1295,6 +1295,59 @@ export const commentAPI = {
 };
 
 // =============================================================================
+// 💰 TRANSACTION/PAYMENT APIs (PayOS)
+// =============================================================================
+
+export const paymentAPI = {
+    // Get available coin packages
+    getCoinPackages: async () => {
+        try {
+            const response = await api.get("/transactions/coin-packages");
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to get coin packages");
+        }
+    },
+
+    // Create PayOS payment for coins
+    createPayOSPayment: async (userId, packageId) => {
+        try {
+            const response = await api.post("/transactions/payos-coin-payment", {
+                userId,
+                packageId
+            });
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to create PayOS payment");
+        }
+    },
+
+    // Get user's transaction history
+    getUserTransactions: async (userId, page = 1, limit = 10, type = null) => {
+        try {
+            let url = `/transactions/user/${userId}?page=${page}&limit=${limit}`;
+            if (type) {
+                url += `&type=${type}`;
+            }
+            const response = await api.get(url);
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to get user transactions");
+        }
+    },
+
+    // Check transaction status by ID
+    getTransactionById: async (transactionId) => {
+        try {
+            const response = await api.get(`/transactions/${transactionId}`);
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to get transaction details");
+        }
+    }
+};
+
+// =============================================================================
 // 🚨 UTILITY FUNCTIONS
 // =============================================================================
 
@@ -1353,5 +1406,6 @@ export default {
     achievement: achievementAPI,
     notification: notificationAPI,
     comment: commentAPI,
+    payment: paymentAPI,
     utils: apiUtils
 };

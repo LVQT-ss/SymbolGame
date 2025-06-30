@@ -11,8 +11,10 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  ActivityIndicator,
+  Linking,
 } from "react-native";
-import { apiUtils } from "../services/api";
+import { apiUtils, paymentAPI } from "../services/api";
 import { getLevelDisplayInfo } from "../utils/levelUtils";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
@@ -29,6 +31,37 @@ const getResponsivePadding = () => {
   if (screenWidth > 400) return 20;
   return 16;
 };
+
+interface CoinPackage {
+  id: string;
+  coins: number;
+  price: number;
+  description: string;
+  bonus?: number;
+}
+
+interface PaymentData {
+  paymentUrl: string;
+  qrCode: string;
+  qrCodeImageUrl: string;
+  transaction: any;
+  package: CoinPackage;
+  orderCode: number;
+  user: {
+    id: number;
+    username: string;
+    email: string;
+    currentCoins: number;
+    newCoinsAfterPayment: number;
+  };
+  paymentInfo: {
+    description: string;
+    amount: number;
+    currency: string;
+    expiresAt: string;
+    expiresInMinutes: number;
+  };
+}
 
 interface UserProfile {
   id?: number;
@@ -83,10 +116,89 @@ export default function Profile({
   const [tempUsername, setTempUsername] = useState(userProfile.username);
   const [loading, setLoading] = useState(false);
 
+  // Coin purchase states
+  const [coinPackages, setCoinPackages] = useState<CoinPackage[]>([]);
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [qrModalVisible, setQRModalVisible] = useState(false);
+  const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
+  const [loadingPackages, setLoadingPackages] = useState(false);
+  const [creatingPayment, setCreatingPayment] = useState(false);
+
   // Update tempUsername when userProfile.username changes
   useEffect(() => {
     setTempUsername(userProfile.username);
   }, [userProfile.username]);
+
+  // Load coin packages when component mounts
+  useEffect(() => {
+    loadCoinPackages();
+  }, []);
+
+  // Load available coin packages
+  const loadCoinPackages = async () => {
+    try {
+      setLoadingPackages(true);
+      const response = await paymentAPI.getCoinPackages();
+      if (response.success && response.packages) {
+        const packagesArray = Object.entries(response.packages).map(
+          ([id, pkg]: [string, any]) => ({
+            id,
+            ...pkg,
+          })
+        );
+        setCoinPackages(packagesArray);
+      }
+    } catch (error) {
+      console.error("Error loading coin packages:", error);
+      Alert.alert("Error", "Failed to load coin packages. Please try again.");
+    } finally {
+      setLoadingPackages(false);
+    }
+  };
+
+  // Handle coin purchase
+  const handleCoinPurchase = async (packageId: string) => {
+    try {
+      if (!userProfile.id) {
+        Alert.alert("Error", "User ID not available. Please log in again.");
+        return;
+      }
+
+      setCreatingPayment(true);
+      const response = await paymentAPI.createPayOSPayment(
+        userProfile.id,
+        packageId
+      );
+
+      if (response.success) {
+        setPaymentData(response);
+        setPaymentModalVisible(false);
+        setQRModalVisible(true);
+      } else {
+        Alert.alert("Error", "Failed to create payment. Please try again.");
+      }
+    } catch (error) {
+      console.error("Error creating payment:", error);
+      Alert.alert("Error", "Failed to create payment. Please try again.");
+    } finally {
+      setCreatingPayment(false);
+    }
+  };
+
+  // Open web payment
+  const openWebPayment = () => {
+    if (paymentData?.paymentUrl) {
+      Linking.openURL(paymentData.paymentUrl);
+    }
+  };
+
+  // Format currency (VND)
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat("vi-VN", {
+      style: "currency",
+      currency: "VND",
+    }).format(amount);
+  };
 
   const handleUsernameEdit = () => {
     setEditingUsername(true);
@@ -242,7 +354,10 @@ export default function Profile({
                   {formatNumber(userProfile.coins)}
                 </Text>
               </View>
-              <TouchableOpacity style={styles.addButton}>
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={() => setPaymentModalVisible(true)}
+              >
                 <Ionicons
                   name="add"
                   size={getResponsiveFontSize(20)}
@@ -416,6 +531,170 @@ export default function Profile({
             </TouchableOpacity>
           </View>
         </ScrollView>
+
+        {/* Coin Packages Modal */}
+        <Modal
+          visible={paymentModalVisible}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setPaymentModalVisible(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={() => setPaymentModalVisible(false)}
+              >
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>Buy Coins</Text>
+              <View style={styles.closeButton} />
+            </View>
+
+            <ScrollView style={styles.modalContent}>
+              <Text style={styles.sectionTitle}>💰 Choose a coin package</Text>
+
+              {loadingPackages ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#ffd33d" />
+                  <Text style={styles.loadingText}>Loading packages...</Text>
+                </View>
+              ) : (
+                coinPackages.map((pkg) => (
+                  <TouchableOpacity
+                    key={pkg.id}
+                    style={styles.packageCard}
+                    onPress={() => handleCoinPurchase(pkg.id)}
+                    disabled={creatingPayment}
+                  >
+                    <View style={styles.packageHeader}>
+                      <View style={styles.packageIcon}>
+                        <Ionicons name="cash" size={24} color="#FFD700" />
+                      </View>
+                      <View style={styles.packageInfo}>
+                        <Text style={styles.packageCoins}>
+                          {formatNumber(pkg.coins)} Coins
+                        </Text>
+                        <Text style={styles.packagePrice}>
+                          {formatCurrency(pkg.price)}
+                        </Text>
+                      </View>
+                      {pkg.bonus && (
+                        <View style={styles.bonusBadge}>
+                          <Text style={styles.bonusText}>
+                            +{pkg.bonus}% Bonus
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.packageDescription}>
+                      {pkg.description}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              )}
+
+              {creatingPayment && (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#ffd33d" />
+                  <Text style={styles.loadingText}>Creating payment...</Text>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </Modal>
+
+        {/* QR Payment Modal */}
+        <Modal
+          visible={qrModalVisible}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setQRModalVisible(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={() => setQRModalVisible(false)}
+              >
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>PayOS Payment</Text>
+              <View style={styles.closeButton} />
+            </View>
+
+            <ScrollView style={styles.modalContent}>
+              {paymentData && (
+                <>
+                  <View style={styles.paymentInfoCard}>
+                    <Text style={styles.paymentTitle}>Payment Details</Text>
+                    <View style={styles.paymentDetailRow}>
+                      <Text style={styles.paymentLabel}>User:</Text>
+                      <Text style={styles.paymentValue}>
+                        {paymentData.user.username}
+                      </Text>
+                    </View>
+                    <View style={styles.paymentDetailRow}>
+                      <Text style={styles.paymentLabel}>Package:</Text>
+                      <Text style={styles.paymentValue}>
+                        {formatNumber(paymentData.package.coins)} Coins
+                      </Text>
+                    </View>
+                    <View style={styles.paymentDetailRow}>
+                      <Text style={styles.paymentLabel}>Amount:</Text>
+                      <Text style={styles.paymentValue}>
+                        {formatCurrency(paymentData.paymentInfo.amount)}
+                      </Text>
+                    </View>
+                    <View style={styles.paymentDetailRow}>
+                      <Text style={styles.paymentLabel}>Current Coins:</Text>
+                      <Text style={styles.paymentValue}>
+                        {formatNumber(paymentData.user.currentCoins)}
+                      </Text>
+                    </View>
+                    <View style={styles.paymentDetailRow}>
+                      <Text style={styles.paymentLabel}>After Payment:</Text>
+                      <Text
+                        style={[styles.paymentValue, styles.highlightValue]}
+                      >
+                        {formatNumber(paymentData.user.newCoinsAfterPayment)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.qrContainer}>
+                    <Text style={styles.qrTitle}>📱 Scan QR Code to Pay</Text>
+                    <Image
+                      source={{ uri: paymentData.qrCodeImageUrl }}
+                      style={styles.qrImage}
+                      resizeMode="contain"
+                    />
+                    <Text style={styles.qrInstructions}>
+                      Scan this QR code with your banking app or PayOS app
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.webPaymentButton}
+                    onPress={openWebPayment}
+                  >
+                    <Ionicons name="globe" size={20} color="#fff" />
+                    <Text style={styles.webPaymentText}>
+                      Pay via Web Browser
+                    </Text>
+                  </TouchableOpacity>
+
+                  <View style={styles.expiryContainer}>
+                    <Text style={styles.expiryText}>
+                      ⏰ Payment expires in{" "}
+                      {paymentData.paymentInfo.expiresInMinutes} minutes
+                    </Text>
+                  </View>
+                </>
+              )}
+            </ScrollView>
+          </View>
+        </Modal>
       </View>
     </Modal>
   );
@@ -685,6 +964,160 @@ const styles = StyleSheet.create({
   actionButtonText: {
     fontSize: getResponsiveFontSize(16),
     color: "#fff",
+    fontWeight: "600",
+  },
+  // Payment Modal Styles
+  sectionTitle: {
+    fontSize: getResponsiveFontSize(18),
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  loadingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 40,
+  },
+  loadingText: {
+    fontSize: getResponsiveFontSize(14),
+    color: "#888",
+    marginTop: 12,
+  },
+  packageCard: {
+    backgroundColor: "#1a1a1a",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#333",
+  },
+  packageHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  packageIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFD700",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  packageInfo: {
+    flex: 1,
+  },
+  packageCoins: {
+    fontSize: getResponsiveFontSize(16),
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  packagePrice: {
+    fontSize: getResponsiveFontSize(14),
+    color: "#ffd33d",
+    fontWeight: "600",
+  },
+  bonusBadge: {
+    backgroundColor: "#4CAF50",
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  bonusText: {
+    fontSize: getResponsiveFontSize(12),
+    color: "#fff",
+    fontWeight: "600",
+  },
+  packageDescription: {
+    fontSize: getResponsiveFontSize(12),
+    color: "#888",
+    fontStyle: "italic",
+  },
+  // QR Payment Modal Styles
+  paymentInfoCard: {
+    backgroundColor: "#1a1a1a",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+  },
+  paymentTitle: {
+    fontSize: getResponsiveFontSize(16),
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  paymentDetailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  paymentLabel: {
+    fontSize: getResponsiveFontSize(14),
+    color: "#888",
+  },
+  paymentValue: {
+    fontSize: getResponsiveFontSize(14),
+    color: "#fff",
+    fontWeight: "600",
+  },
+  highlightValue: {
+    color: "#ffd33d",
+    fontSize: getResponsiveFontSize(16),
+    fontWeight: "bold",
+  },
+  qrContainer: {
+    alignItems: "center",
+    backgroundColor: "#1a1a1a",
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 20,
+  },
+  qrTitle: {
+    fontSize: getResponsiveFontSize(16),
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  qrImage: {
+    width: 200,
+    height: 200,
+    marginBottom: 16,
+  },
+  qrInstructions: {
+    fontSize: getResponsiveFontSize(12),
+    color: "#888",
+    textAlign: "center",
+  },
+  webPaymentButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ffd33d",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    gap: 8,
+  },
+  webPaymentText: {
+    fontSize: getResponsiveFontSize(16),
+    color: "#25292e",
+    fontWeight: "600",
+  },
+  expiryContainer: {
+    backgroundColor: "#ff4444",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 20,
+  },
+  expiryText: {
+    fontSize: getResponsiveFontSize(12),
+    color: "#fff",
+    textAlign: "center",
     fontWeight: "600",
   },
 });
