@@ -142,7 +142,11 @@ export const createPayOSCoinPayment = async (req, res) => {
 
 export const payOSWebhook = async (req, res) => {
     try {
-        console.log('PayOS Webhook received:', req.body);
+        console.log('PayOS Webhook received:', {
+            method: req.method,
+            headers: req.headers,
+            body: req.body
+        });
 
         // Handle GET request (direct access for testing)
         if (req.method === 'GET') {
@@ -156,10 +160,13 @@ export const payOSWebhook = async (req, res) => {
         // Simplified webhook processing - similar to your working example
         const webhookData = req.body;
 
-        // Basic validation
-        if (!webhookData) {
-            console.log('No webhook data received');
-            return res.status(400).json({ message: "No webhook data" });
+        // Handle empty webhook (PayOS validation test)
+        if (!webhookData || Object.keys(webhookData).length === 0) {
+            console.log('Empty webhook - likely PayOS validation test');
+            return res.status(200).json({
+                status: 'success',
+                message: 'Webhook received successfully'
+            });
         }
 
         // Handle different webhook data structures
@@ -178,6 +185,15 @@ export const payOSWebhook = async (req, res) => {
         }
 
         console.log('Processing webhook:', { orderCode, status, amount });
+
+        // If no orderCode provided, this might be a validation test
+        if (!orderCode) {
+            console.log('No orderCode - treating as validation test');
+            return res.status(200).json({
+                status: 'success',
+                message: 'Webhook validation successful'
+            });
+        }
 
         // Find transaction by order code
         const transaction = await PaymentTransaction.findOne({

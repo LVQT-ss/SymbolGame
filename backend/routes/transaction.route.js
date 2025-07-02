@@ -450,6 +450,9 @@ router.post('/payos-coin-payment', createPayOSCoinPayment);
 router.get('/payos-webhook', payOSWebhook);
 router.post('/payos-webhook', payOSWebhook);
 
+// Also support with different paths that PayOS might test
+router.all('/payos-webhook/*', payOSWebhook);
+
 /**
  * @swagger
  * /api/transactions/payos-return:
@@ -668,6 +671,11 @@ router.get('/payos-return', payOSReturn);
  *                   example: "Database connection failed"
  */
 router.post('/receive-hook', receiveHook);
+
+// Additional webhook endpoints that PayOS might test
+router.post('/webhook', payOSWebhook);
+router.post('/webhook/payos', payOSWebhook);
+router.all('/payos*', payOSWebhook);
 
 // ===================================
 // TRANSACTION MANAGEMENT (ACTIVE)
