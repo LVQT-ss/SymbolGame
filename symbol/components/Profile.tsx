@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Alert,
   Dimensions,
@@ -120,14 +120,34 @@ export default function Profile({
   const [coinPackages, setCoinPackages] = useState<CoinPackage[]>([]);
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [qrModalVisible, setQRModalVisible] = useState(false);
+  const [successModalVisible, setSuccessModalVisible] = useState(false);
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
   const [loadingPackages, setLoadingPackages] = useState(false);
   const [creatingPayment, setCreatingPayment] = useState(false);
+  const [paymentPolling, setPaymentPolling] = useState(false);
+  const [purchaseResult, setPurchaseResult] = useState<{
+    coinsAdded: number;
+    newBalance: number;
+    packageName: string;
+    amount: number;
+  } | null>(null);
+
+  // Polling ref
+  const pollingInterval = useRef<any>(null);
 
   // Update tempUsername when userProfile.username changes
   useEffect(() => {
     setTempUsername(userProfile.username);
   }, [userProfile.username]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingInterval.current) {
+        clearInterval(pollingInterval.current);
+      }
+    };
+  }, []);
 
   // Load coin packages when component mounts
   useEffect(() => {
@@ -174,6 +194,9 @@ export default function Profile({
         setPaymentData(response);
         setPaymentModalVisible(false);
         setQRModalVisible(true);
+
+        // Start polling for payment completion
+        startPaymentPolling(response.transaction.id, response.package);
       } else {
         Alert.alert("Error", "Failed to create payment. Please try again.");
       }
@@ -241,6 +264,103 @@ export default function Profile({
       return (num / 1000).toFixed(1) + "K";
     }
     return num.toString();
+  };
+
+  // Start polling for payment completion
+  const startPaymentPolling = (transactionId: number, packageInfo: any) => {
+    console.log(`🔄 Starting payment polling for transaction ${transactionId}`);
+    setPaymentPolling(true);
+
+    // Clear any existing polling
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+    }
+
+    pollingInterval.current = setInterval(async () => {
+      try {
+        console.log(`🔍 Polling transaction status: ${transactionId}`);
+        const response = await paymentAPI.getTransactionById(transactionId);
+
+        if (response.success && response.transaction) {
+          const transaction = response.transaction;
+
+          if (transaction.status === "completed") {
+            console.log(`✅ Payment completed! Transaction ${transactionId}`);
+
+            // Stop polling
+            clearInterval(pollingInterval.current);
+            pollingInterval.current = null;
+            setPaymentPolling(false);
+
+            // Set purchase result
+            setPurchaseResult({
+              coinsAdded: packageInfo.coins,
+              newBalance: userProfile.coins + packageInfo.coins,
+              packageName: packageInfo.name,
+              amount: packageInfo.price,
+            });
+
+            // Update user profile with new coin balance
+            onUpdateProfile({
+              coins: userProfile.coins + packageInfo.coins,
+            });
+
+            // Close QR modal and show success modal
+            setQRModalVisible(false);
+            setSuccessModalVisible(true);
+          } else if (transaction.status === "failed") {
+            console.log(`❌ Payment failed! Transaction ${transactionId}`);
+
+            // Stop polling
+            clearInterval(pollingInterval.current);
+            pollingInterval.current = null;
+            setPaymentPolling(false);
+
+            // Show error
+            Alert.alert(
+              "Payment Failed",
+              "Your payment was not successful. Please try again."
+            );
+          }
+        }
+      } catch (error) {
+        console.error("Error polling payment status:", error);
+      }
+    }, 3000); // Poll every 3 seconds
+
+    // Stop polling after 15 minutes (payment expiry)
+    setTimeout(() => {
+      if (pollingInterval.current) {
+        console.log(
+          `⏰ Payment polling timeout for transaction ${transactionId}`
+        );
+        clearInterval(pollingInterval.current);
+        pollingInterval.current = null;
+        setPaymentPolling(false);
+      }
+    }, 15 * 60 * 1000); // 15 minutes
+  };
+
+  // Stop polling manually
+  const stopPaymentPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+      setPaymentPolling(false);
+      console.log("🛑 Payment polling stopped manually");
+    }
+  };
+
+  // Close QR modal and stop polling
+  const closeQRModal = () => {
+    setQRModalVisible(false);
+    stopPaymentPolling();
+  };
+
+  // Close success modal
+  const closeSuccessModal = () => {
+    setSuccessModalVisible(false);
+    setPurchaseResult(null);
   };
 
   return (
@@ -609,21 +729,35 @@ export default function Profile({
           visible={qrModalVisible}
           animationType="slide"
           presentationStyle="pageSheet"
-          onRequestClose={() => setQRModalVisible(false)}
+          onRequestClose={closeQRModal}
         >
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
               <TouchableOpacity
                 style={styles.closeButton}
-                onPress={() => setQRModalVisible(false)}
+                onPress={closeQRModal}
               >
                 <Ionicons name="close" size={24} color="#fff" />
               </TouchableOpacity>
-              <Text style={styles.modalTitle}>PayOS Payment</Text>
+              <Text style={styles.modalTitle}>
+                {paymentPolling ? "Checking Payment..." : "PayOS Payment"}
+              </Text>
               <View style={styles.closeButton} />
             </View>
 
             <ScrollView style={styles.modalContent}>
+              {paymentPolling && (
+                <View style={styles.statusCard}>
+                  <ActivityIndicator size="small" color="#ffd33d" />
+                  <Text style={styles.statusText}>
+                    🔄 Waiting for payment confirmation...
+                  </Text>
+                  <Text style={styles.statusSubtext}>
+                    Complete your payment and we will automatically detect it
+                  </Text>
+                </View>
+              )}
+
               {paymentData && (
                 <>
                   <View style={styles.paymentInfoCard}>
@@ -693,6 +827,103 @@ export default function Profile({
                 </>
               )}
             </ScrollView>
+          </View>
+        </Modal>
+
+        {/* Success Modal */}
+        <Modal
+          visible={successModalVisible}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={closeSuccessModal}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <View style={styles.closeButton} />
+              <Text style={styles.modalTitle}>Payment Success!</Text>
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={closeSuccessModal}
+              >
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalContent}>
+              {purchaseResult && (
+                <>
+                  <View style={styles.successContainer}>
+                    <View style={styles.successIcon}>
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={80}
+                        color="#00ff88"
+                      />
+                    </View>
+                    <Text style={styles.successTitle}>
+                      🎉 Payment Successful!
+                    </Text>
+                    <Text style={styles.successMessage}>
+                      Your coin purchase has been completed successfully.
+                    </Text>
+                  </View>
+
+                  <View style={styles.successDetailsCard}>
+                    <Text style={styles.successDetailsTitle}>
+                      Purchase Details
+                    </Text>
+
+                    <View style={styles.successDetailRow}>
+                      <Text style={styles.successDetailLabel}>Package:</Text>
+                      <Text style={styles.successDetailValue}>
+                        {purchaseResult.packageName}
+                      </Text>
+                    </View>
+
+                    <View style={styles.successDetailRow}>
+                      <Text style={styles.successDetailLabel}>
+                        Amount Paid:
+                      </Text>
+                      <Text style={styles.successDetailValue}>
+                        {formatCurrency(purchaseResult.amount)}
+                      </Text>
+                    </View>
+
+                    <View style={styles.successDetailRow}>
+                      <Text style={styles.successDetailLabel}>
+                        Coins Added:
+                      </Text>
+                      <Text
+                        style={[
+                          styles.successDetailValue,
+                          styles.highlightValue,
+                        ]}
+                      >
+                        +{formatNumber(purchaseResult.coinsAdded)}
+                      </Text>
+                    </View>
+
+                    <View style={[styles.successDetailRow, styles.totalRow]}>
+                      <Text style={styles.successDetailLabel}>
+                        New Balance:
+                      </Text>
+                      <Text
+                        style={[styles.successDetailValue, styles.totalValue]}
+                      >
+                        {formatNumber(purchaseResult.newBalance)} Coins
+                      </Text>
+                    </View>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.successButton}
+                    onPress={closeSuccessModal}
+                  >
+                    <Text style={styles.successButtonText}>Continue</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
           </View>
         </Modal>
       </View>
@@ -1119,5 +1350,97 @@ const styles = StyleSheet.create({
     color: "#fff",
     textAlign: "center",
     fontWeight: "600",
+  },
+  // Payment Status Styles
+  statusCard: {
+    backgroundColor: "#1a4b3a",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  statusText: {
+    fontSize: getResponsiveFontSize(14),
+    color: "#fff",
+    fontWeight: "600",
+    flex: 1,
+  },
+  statusSubtext: {
+    fontSize: getResponsiveFontSize(12),
+    color: "#888",
+    marginTop: 4,
+  },
+  // Success Modal Styles
+  successContainer: {
+    alignItems: "center",
+    marginBottom: 30,
+  },
+  successIcon: {
+    marginBottom: 20,
+  },
+  successTitle: {
+    fontSize: getResponsiveFontSize(24),
+    fontWeight: "bold",
+    color: "#fff",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  successMessage: {
+    fontSize: getResponsiveFontSize(16),
+    color: "#888",
+    textAlign: "center",
+    lineHeight: 24,
+  },
+  successDetailsCard: {
+    backgroundColor: "#1a1a1a",
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 30,
+  },
+  successDetailsTitle: {
+    fontSize: getResponsiveFontSize(16),
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  successDetailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  successDetailLabel: {
+    fontSize: getResponsiveFontSize(14),
+    color: "#888",
+  },
+  successDetailValue: {
+    fontSize: getResponsiveFontSize(14),
+    color: "#fff",
+    fontWeight: "600",
+  },
+  totalRow: {
+    borderTopWidth: 1,
+    borderTopColor: "#333",
+    paddingTop: 12,
+    marginTop: 8,
+  },
+  totalValue: {
+    fontSize: getResponsiveFontSize(16),
+    color: "#ffd33d",
+    fontWeight: "bold",
+  },
+  successButton: {
+    backgroundColor: "#ffd33d",
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+  },
+  successButtonText: {
+    fontSize: getResponsiveFontSize(16),
+    color: "#25292e",
+    fontWeight: "bold",
   },
 });
