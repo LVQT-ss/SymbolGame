@@ -1,25 +1,7 @@
 import express from 'express';
 import {
-    // DISABLED: Non-PayOS payment methods
-    // createTransaction,
-    getAllTransactions,
-    getTransactionById,
-    getDailyTransactions,
-    getTransactionsByDateRange,
-    // createVNPayPayment,
-    // vnpayReturn,
-    // checkPaymentStatus,
-    // generateQRCode,
-    // generateVietQR,
-
     // Essential coin system functions
     getCoinPackages,
-    // createCoinPurchase, // DISABLED: Use PayOS only
-    // createVNPayCoinPayment, // DISABLED: VNPay not needed
-    // vnpayCoinReturn, // DISABLED: VNPay not needed
-    // generateVietQRCoin, // DISABLED: VietQR not needed
-    // checkCoinPaymentStatus, // DISABLED: For VietQR/manual only
-    // confirmManualCoinPayment, // DISABLED: Manual confirmation not needed
     getUserTransactions,
 
     // PayOS functions - ONLY ACTIVE PAYMENT METHOD
@@ -28,7 +10,10 @@ import {
     payOSReturn,
 
     // Custom webhook for testing with ngrok
-    receiveHook
+    receiveHook,
+
+    // Transaction management
+    getTransactionById
 } from '../controllers/transaction.controller.js';
 
 const router = express.Router();
@@ -137,7 +122,7 @@ const router = express.Router();
  */
 
 // ===================================
-// PAYOS-ONLY PAYMENT SYSTEM
+// COIN PACKAGES
 // ===================================
 
 /**
@@ -461,6 +446,8 @@ router.post('/payos-coin-payment', createPayOSCoinPayment);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
+// Support both GET (testing) and POST (actual webhook)
+router.get('/payos-webhook', payOSWebhook);
 router.post('/payos-webhook', payOSWebhook);
 
 /**
@@ -683,23 +670,6 @@ router.get('/payos-return', payOSReturn);
 router.post('/receive-hook', receiveHook);
 
 // ===================================
-// DISABLED PAYMENT METHODS
-// ===================================
-// The following payment methods have been disabled - only PayOS is active
-
-// DISABLED: Generic coin purchase (use PayOS directly)
-// router.post('/coin-purchase', createCoinPurchase);
-
-// DISABLED: VNPay payment method
-// router.post('/vnpay-coin-payment', createVNPayCoinPayment);
-// router.get('/vnpay-coin-return', vnpayCoinReturn);
-
-// DISABLED: VietQR payment method  
-// router.post('/vietqr-coin', generateVietQRCoin);
-// router.get('/check-coin-payment', checkCoinPaymentStatus);
-// router.post('/confirm-coin-payment', confirmManualCoinPayment);
-
-// ===================================
 // TRANSACTION MANAGEMENT (ACTIVE)
 // ===================================
 
@@ -829,23 +799,5 @@ router.get('/user/:userId', getUserTransactions);
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.get('/:transactionId', getTransactionById);
-
-// ===================================
-// DISABLED ADMIN ROUTES
-// ===================================
-// The following admin routes have been disabled for security and simplicity
-
-// DISABLED: Admin get all transactions (security risk)
-// router.get('/all', getAllTransactions);
-
-// DISABLED: Daily transactions (not needed)
-// router.get('/daily', getDailyTransactions);
-
-// DISABLED: Date range transactions (not needed)
-// router.get('/range', getTransactionsByDateRange);
-
-// DISABLED: Legacy check status endpoints
-// router.get('/checkStatus', checkPaymentStatus);
-// router.get("/check-payment-status", checkPaymentStatus);
 
 export default router; 
