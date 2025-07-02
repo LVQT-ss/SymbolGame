@@ -328,17 +328,23 @@ export default function Profile({
       }
     }, 3000); // Poll every 3 seconds
 
-    // Stop polling after 15 minutes (payment expiry)
+    // Stop polling after 10 minutes (payment expiry)
     setTimeout(() => {
       if (pollingInterval.current) {
         console.log(
-          `⏰ Payment polling timeout for transaction ${transactionId}`
+          `⏰ Payment polling timeout for transaction ${transactionId} after 10 minutes`
         );
         clearInterval(pollingInterval.current);
         pollingInterval.current = null;
         setPaymentPolling(false);
+
+        // Optional: Show timeout alert to user
+        Alert.alert(
+          "Payment Timeout",
+          "Payment verification has timed out after 10 minutes. Please check your transaction manually or try again."
+        );
       }
-    }, 15 * 60 * 1000); // 15 minutes
+    }, 10 * 60 * 1000); // 10 minutes
   };
 
   // Stop polling manually
@@ -749,12 +755,7 @@ export default function Profile({
               {paymentPolling && (
                 <View style={styles.statusCard}>
                   <ActivityIndicator size="small" color="#ffd33d" />
-                  <Text style={styles.statusText}>
-                    🔄 Waiting for payment confirmation...
-                  </Text>
-                  <Text style={styles.statusSubtext}>
-                    Complete your payment and we will automatically detect it
-                  </Text>
+                  <Text style={styles.statusText}>🔄 Checking Payment...</Text>
                 </View>
               )}
 
@@ -1354,18 +1355,22 @@ const styles = StyleSheet.create({
   // Payment Status Styles
   statusCard: {
     backgroundColor: "#1a4b3a",
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     marginBottom: 20,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 8,
+    width: 280,
+    height: 40,
+    alignSelf: "center",
   },
   statusText: {
-    fontSize: getResponsiveFontSize(14),
+    fontSize: getResponsiveFontSize(12),
     color: "#fff",
     fontWeight: "600",
-    flex: 1,
+    textAlign: "center",
   },
   statusSubtext: {
     fontSize: getResponsiveFontSize(12),
