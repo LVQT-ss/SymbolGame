@@ -961,3 +961,123 @@ export const checkPaymentStatus = async (req, res) => {
         res.status(500).json({ message: "Error checking payment status", error: error.message });
     }
 };
+
+export const receiveHook = async (req, res) => {
+    try {
+        console.log('Received webhook:', req.body);
+
+        const { orderCode, status, transactionId } = req.body;
+
+        // Find transaction by ID or orderCode
+        let transaction;
+
+        if (transactionId) {
+            transaction = await PaymentTransaction.findByPk(transactionId);
+        } else if (orderCode) {
+            transaction = await PaymentTransaction.findOne({
+                where: {
+                    [Op.or]: [
+                        { id: orderCode },
+                        { external_transaction_id: orderCode }
+                    ]
+                }
+            });
+        } else {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Missing transactionId or orderCode'
+            });
+        }
+
+        if (!transaction) {
+            return res.status(404).json({
+                status: 'error',
+                message: 'Transaction not found'
+            });
+        }
+
+        // If status is provided and is 'completed' or 'PAID', update transaction
+        if (status && (status.toLowerCase() === 'completed' || status.toUpperCase() === 'PAID')) {
+            if (transaction.status === 'completed') {
+                return res.status(200).json({
+                    status: 'success',
+                    message: 'Transaction already completed',
+                    transaction: transaction
+                });
+            }
+
+            const dbTransaction = await sequelize.transaction();
+
+            try {
+                // Find the coin package based on transaction amount
+                const packageEntry = Object.entries(COIN_PACKAGES).find(([key, pkg]) => pkg.price === parseFloat(transaction.price));
+
+                if (!packageEntry) {
+                    await dbTransaction.rollback();
+                    return res.status(400).json({
+                        status: 'error',
+                        message: 'Invalid package amount'
+                    });
+                }
+
+                const [packageId, coinPackage] = packageEntry;
+
+                // Update transaction status
+                await transaction.update({
+                    status: "completed",
+                    completed_at: new Date()
+                }, { transaction: dbTransaction });
+
+                // Add coins to user
+                const user = await User.findByPk(transaction.user_id, { transaction: dbTransaction });
+                if (!user) {
+                    await dbTransaction.rollback();
+                    return res.status(404).json({
+                        status: 'error',
+                        message: 'User not found'
+                    });
+                }
+
+                await user.update({
+                    coins: user.coins + coinPackage.coins
+                }, { transaction: dbTransaction });
+
+                await dbTransaction.commit();
+
+                console.log(`Payment completed via webhook for transaction ${transaction.id}. Added ${coinPackage.coins} coins to user ${user.id}`);
+
+                return res.status(200).json({
+                    status: 'success',
+                    message: 'Transaction completed successfully',
+                    transaction: {
+                        id: transaction.id,
+                        status: 'completed',
+                        user_id: transaction.user_id,
+                        coins_added: coinPackage.coins,
+                        new_balance: user.coins + coinPackage.coins
+                    }
+                });
+            } catch (error) {
+                await dbTransaction.rollback();
+                throw error;
+            }
+        } else {
+            // Just log the webhook for other statuses
+            return res.status(200).json({
+                status: 'success',
+                message: 'Webhook received successfully',
+                transaction: {
+                    id: transaction.id,
+                    current_status: transaction.status
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Webhook error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Failed to process webhook',
+            error: error.message
+        });
+    }
+};

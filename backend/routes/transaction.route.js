@@ -25,7 +25,10 @@ import {
     // PayOS functions - ONLY ACTIVE PAYMENT METHOD
     createPayOSCoinPayment,
     payOSWebhook,
-    payOSReturn
+    payOSReturn,
+
+    // Custom webhook for testing with ngrok
+    receiveHook
 } from '../controllers/transaction.controller.js';
 
 const router = express.Router();
@@ -540,6 +543,144 @@ router.post('/payos-webhook', payOSWebhook);
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.get('/payos-return', payOSReturn);
+
+/**
+ * @swagger
+ * /api/transactions/receive-hook:
+ *   post:
+ *     tags:
+ *       - PayOS Payment System
+ *     summary: 🔗 Custom webhook for testing (NGROK)
+ *     description: |
+ *       Custom webhook endpoint for testing payment completion with ngrok.
+ *       This endpoint can manually complete transactions for testing purposes.
+ *       
+ *       **Usage:**
+ *       - Used with ngrok for local testing
+ *       - Can complete pending transactions manually
+ *       - Updates transaction status to 'completed'
+ *       - Adds coins to user account
+ *       
+ *       **Request Body Options:**
+ *       - Use `transactionId` for direct transaction lookup
+ *       - Use `orderCode` for PayOS order code lookup
+ *       - Set `status` to 'completed' or 'PAID' to complete transaction
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               transactionId:
+ *                 type: integer
+ *                 description: Direct transaction ID (preferred)
+ *                 example: 12345
+ *               orderCode:
+ *                 type: string
+ *                 description: PayOS order code or external transaction ID
+ *                 example: "PAYOS-1704567890123-1"
+ *               status:
+ *                 type: string
+ *                 description: Transaction status to set
+ *                 enum: [completed, PAID, pending, failed]
+ *                 example: "completed"
+ *           examples:
+ *             complete_by_id:
+ *               summary: Complete transaction by ID
+ *               value:
+ *                 transactionId: 12345
+ *                 status: "completed"
+ *             complete_by_ordercode:
+ *               summary: Complete transaction by order code
+ *               value:
+ *                 orderCode: "PAYOS-1704567890123-1"
+ *                 status: "PAID"
+ *             webhook_test:
+ *               summary: Test webhook reception
+ *               value:
+ *                 transactionId: 12345
+ *                 status: "pending"
+ *     responses:
+ *       200:
+ *         description: Webhook processed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: "success"
+ *                 message:
+ *                   type: string
+ *                   examples:
+ *                     completed:
+ *                       value: "Transaction completed successfully"
+ *                     received:
+ *                       value: "Webhook received successfully"
+ *                 transaction:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                       example: 12345
+ *                     status:
+ *                       type: string
+ *                       example: "completed"
+ *                     user_id:
+ *                       type: integer
+ *                       example: 1
+ *                     coins_added:
+ *                       type: integer
+ *                       example: 2500
+ *                     new_balance:
+ *                       type: integer
+ *                       example: 3250
+ *       400:
+ *         description: Bad request (missing required fields)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: "error"
+ *                 message:
+ *                   type: string
+ *                   example: "Missing transactionId or orderCode"
+ *       404:
+ *         description: Transaction not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: "error"
+ *                 message:
+ *                   type: string
+ *                   example: "Transaction not found"
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: "error"
+ *                 message:
+ *                   type: string
+ *                   example: "Failed to process webhook"
+ *                 error:
+ *                   type: string
+ *                   example: "Database connection failed"
+ */
+router.post('/receive-hook', receiveHook);
 
 // ===================================
 // DISABLED PAYMENT METHODS
