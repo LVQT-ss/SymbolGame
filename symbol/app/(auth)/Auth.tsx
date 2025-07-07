@@ -118,8 +118,39 @@ export default function Auth() {
 
   const uploadImage = async (uri: string) => {
     try {
-      const response = await userAPI.uploadProfilePicture(uri);
-      return response.imageUrl;
+      // Create form data
+      const formData = new FormData();
+
+      // Get the file name and type from the URI
+      const filename = uri.split("/").pop() || "profile.jpg";
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : "image/jpeg";
+
+      // Append the image to form data
+      formData.append("image", {
+        uri: uri,
+        type: type,
+        name: filename,
+      } as any);
+
+      // Upload to your server
+      const response = await fetch(
+        "https://symbolgame.onrender.com/api/user/upload-profile-picture",
+        {
+          method: "POST",
+          body: formData,
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to upload image");
+      }
+
+      const data = await response.json();
+      return data.imageUrl;
     } catch (error) {
       console.error("Error uploading image:", error);
       throw error;
@@ -198,16 +229,24 @@ export default function Auth() {
           ]
         );
       } else {
-        // Registration API call with all required fields
-        let avatarUrl = profileImage;
+        // First upload the profile picture if one was selected
+        let avatarUrl =
+          "https://i.pravatar.cc/100?img=" + Math.floor(Math.random() * 70 + 1);
 
-        // If no profile image is selected, use random avatar
-        if (!avatarUrl) {
-          avatarUrl =
-            "https://i.pravatar.cc/100?img=" +
-            Math.floor(Math.random() * 70 + 1);
+        if (profileImage) {
+          try {
+            avatarUrl = await uploadImage(profileImage);
+          } catch (error) {
+            console.error("Failed to upload profile picture:", error);
+            Alert.alert(
+              "Warning",
+              "Failed to upload profile picture. Proceeding with default avatar.",
+              [{ text: "OK" }]
+            );
+          }
         }
 
+        // Registration API call with all required fields
         const registrationData = {
           usertype: "Customer",
           username: username.toLowerCase().trim(),

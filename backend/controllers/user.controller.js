@@ -7,13 +7,18 @@ import 'dotenv/config'
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const DAILY_BONUS_COINS = 50;
 
 // Configure multer for image upload
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        const uploadDir = 'uploads/profile-pictures';
+        const uploadDir = path.join(__dirname, '..', 'uploads', 'profile-pictures');
         // Create directory if it doesn't exist
         if (!fs.existsSync(uploadDir)) {
             fs.mkdirSync(uploadDir, { recursive: true });
@@ -21,14 +26,16 @@ const storage = multer.diskStorage({
         cb(null, uploadDir);
     },
     filename: function (req, file, cb) {
-        // Generate unique filename with timestamp
+        // Generate unique filename with timestamp and preserve original extension
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, 'profile-' + uniqueSuffix + path.extname(file.originalname));
+        const ext = path.extname(file.originalname);
+        cb(null, 'profile-' + uniqueSuffix + ext);
     }
 });
 
 // File filter for images
 const fileFilter = (req, file, cb) => {
+    // Accept only image files
     if (file.mimetype.startsWith('image/')) {
         cb(null, true);
     } else {
@@ -292,12 +299,15 @@ export const uploadProfilePicture = async (req, res) => {
             return res.status(400).json({ message: 'No image file provided' });
         }
 
-        // Get the file path
-        const filePath = req.file.path;
+        // Get the file path relative to the uploads directory
+        const relativePath = path.relative(
+            path.join(__dirname, '..'),
+            req.file.path
+        ).replace(/\\/g, '/');
 
-        // Convert file path to URL
-        const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
-        const imageUrl = `${baseUrl}/${filePath.replace(/\\/g, '/')}`;
+        // Construct the full URL for the image
+        const baseUrl = process.env.BASE_URL || 'https://symbolgame.onrender.com';
+        const imageUrl = `${baseUrl}/${relativePath}`;
 
         res.status(200).json({
             message: 'Profile picture uploaded successfully',

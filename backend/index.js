@@ -20,6 +20,10 @@ import socketService from './services/socketService.js';
 import dotenv from 'dotenv';
 import process from 'process';
 import setupAssociations from './model/associations.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import fs from 'fs';
 
 // Call this before starting your server
 setupAssociations();
@@ -27,6 +31,9 @@ dotenv.config();
 const app = express();
 const server = createServer(app);
 const port = process.env.PORT || 3000;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Security and performance middleware
 app.use(helmet()); // Security headers
@@ -37,8 +44,14 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
+// Ensure uploads directory exists
+const uploadDir = path.join(__dirname, 'uploads', 'profile-pictures');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
 // Serve static files from the uploads directory
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Register the routes
 app.use('/api/auth', authRoutes);
