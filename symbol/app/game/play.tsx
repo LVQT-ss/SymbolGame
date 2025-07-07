@@ -12,7 +12,10 @@ import {
   FlatList,
   ScrollView,
 } from "react-native";
+import { useSharedValue } from "react-native-reanimated";
 import { gameAPI, userAPI } from "../../services/api";
+import Canvas from "../../components/canvas";
+import { Point, recognizeSymbol } from "../../utils/symbolUtils";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -92,6 +95,12 @@ export default function GameScreen() {
   const [showGamesList, setShowGamesList] = useState<boolean>(false);
   const [availableGames, setAvailableGames] = useState<any[]>([]);
   const [gamesLoading, setGamesLoading] = useState<boolean>(false);
+
+  // Canvas state for symbol recognition
+  const currentPath = useSharedValue<Point[]>([]);
+  const [paths, setPaths] = useState<Point[][]>([]);
+  const [recognizedSymbol, setRecognizedSymbol] = useState<string>("");
+  const [showSymbolFeedback, setShowSymbolFeedback] = useState<boolean>(false);
 
   useEffect(() => {
     if (parsedSessionId === "practice") {
@@ -482,6 +491,8 @@ export default function GameScreen() {
         // Next round
         setCurrentRoundIndex((prev) => prev + 1);
         setRoundStartTime(Date.now());
+        // Clear canvas for next round
+        clearCanvas();
       }
     } catch (error) {
       console.error("Error submitting round:", error);
@@ -857,6 +868,36 @@ export default function GameScreen() {
 
   const getCurrentRound = () => {
     return rounds[currentRoundIndex];
+  };
+
+  // Canvas gesture handlers
+  const handleGestureStart = () => {
+    setShowSymbolFeedback(false);
+    setRecognizedSymbol("");
+  };
+
+  const handleGestureEnd = (path: Point[]) => {
+    if (path && path.length > 0) {
+      // Add the path to completed paths for visual feedback
+      setPaths((prev) => [...prev, path]);
+
+      // Recognize the symbol
+      const result = recognizeSymbol(path);
+      setRecognizedSymbol(result.symbol);
+      setShowSymbolFeedback(true);
+
+      // Auto-submit the recognized symbol after a short delay
+      setTimeout(() => {
+        handleSymbolChoice(result.symbol);
+      }, 1000); // 1 second delay to show recognition feedback
+    }
+  };
+
+  const clearCanvas = () => {
+    setPaths([]);
+    currentPath.value = [];
+    setRecognizedSymbol("");
+    setShowSymbolFeedback(false);
   };
 
   const renderWaitingScreen = () => {
@@ -1242,35 +1283,54 @@ export default function GameScreen() {
             </View>
           </View>
 
-          <Text style={styles.questionText}>Which symbol is correct?</Text>
+          <Text style={styles.questionText}>
+            Draw the correct symbol below:
+          </Text>
 
-          <View style={styles.symbolButtons}>
-            <TouchableOpacity
-              style={styles.symbolButton}
-              onPress={() => handleSymbolChoice("<")}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.symbolButtonText}>{"<"}</Text>
-              <Text style={styles.symbolLabel}>Less Than</Text>
-            </TouchableOpacity>
+          <View style={styles.canvasSection}>
+            <View style={styles.canvasContainer}>
+              <Canvas
+                currentPath={currentPath}
+                paths={paths}
+                onGestureStart={handleGestureStart}
+                onGestureEnd={handleGestureEnd}
+              />
 
-            <TouchableOpacity
-              style={styles.symbolButton}
-              onPress={() => handleSymbolChoice("=")}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.symbolButtonText}>{"="}</Text>
-              <Text style={styles.symbolLabel}>Equal To</Text>
-            </TouchableOpacity>
+              {showSymbolFeedback && (
+                <View style={styles.recognitionFeedback}>
+                  <Text style={styles.recognizedSymbolText}>
+                    Recognized: {recognizedSymbol}
+                  </Text>
+                </View>
+              )}
+            </View>
 
-            <TouchableOpacity
-              style={styles.symbolButton}
-              onPress={() => handleSymbolChoice(">")}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.symbolButtonText}>{">"}</Text>
-              <Text style={styles.symbolLabel}>Greater Than</Text>
-            </TouchableOpacity>
+            <View style={styles.canvasControls}>
+              <TouchableOpacity
+                style={styles.clearButton}
+                onPress={clearCanvas}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="refresh" size={20} color="#fff" />
+                <Text style={styles.clearButtonText}>Clear</Text>
+              </TouchableOpacity>
+
+              <View style={styles.symbolHints}>
+                <Text style={styles.hintsTitle}>Draw:</Text>
+                <View style={styles.hintSymbols}>
+                  <Text style={styles.hintSymbol}>{"<"}</Text>
+                  <Text style={styles.hintLabel}>Less</Text>
+                </View>
+                <View style={styles.hintSymbols}>
+                  <Text style={styles.hintSymbol}>{"="}</Text>
+                  <Text style={styles.hintLabel}>Equal</Text>
+                </View>
+                <View style={styles.hintSymbols}>
+                  <Text style={styles.hintSymbol}>{">"}</Text>
+                  <Text style={styles.hintLabel}>Greater</Text>
+                </View>
+              </View>
+            </View>
           </View>
         </View>
 
@@ -1993,5 +2053,77 @@ const styles = StyleSheet.create({
     paddingHorizontal: getResponsivePadding(),
     paddingVertical: 16,
     paddingBottom: 32,
+  },
+  // Canvas styles
+  canvasSection: {
+    alignItems: "center",
+    paddingVertical: 20,
+  },
+  canvasContainer: {
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  recognitionFeedback: {
+    marginTop: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: "rgba(76, 175, 80, 0.2)",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#4CAF50",
+  },
+  recognizedSymbolText: {
+    color: "#4CAF50",
+    fontSize: getResponsiveFontSize(16),
+    fontWeight: "bold",
+    textAlign: "center",
+  },
+  canvasControls: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    width: "100%",
+    paddingHorizontal: 20,
+  },
+  clearButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#ff6b6b",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  clearButtonText: {
+    color: "#fff",
+    fontSize: getResponsiveFontSize(14),
+    fontWeight: "600",
+    marginLeft: 4,
+  },
+  symbolHints: {
+    alignItems: "center",
+  },
+  hintsTitle: {
+    color: "#888",
+    fontSize: getResponsiveFontSize(12),
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+  hintSymbols: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 2,
+  },
+  hintSymbol: {
+    color: "#ffd33d",
+    fontSize: getResponsiveFontSize(20),
+    fontWeight: "bold",
+    marginRight: 6,
+    minWidth: 24,
+    textAlign: "center",
+  },
+  hintLabel: {
+    color: "#ccc",
+    fontSize: getResponsiveFontSize(12),
+    fontWeight: "500",
   },
 });

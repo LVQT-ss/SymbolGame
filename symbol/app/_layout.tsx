@@ -1,11 +1,11 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import React from "react";
-import { View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 export default function RootLayout() {
   return (
-    <View style={{ flex: 1, backgroundColor: "#25292e" }}>
+    <GestureHandlerRootView style={{ flex: 1 }}>
       {/* StatusBar configuration for edge-to-edge mode */}
       <StatusBar
         style="light" // Light content for dark theme
@@ -24,6 +24,6 @@ export default function RootLayout() {
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="game" options={{ headerShown: false }} />
       </Stack>
-    </View>
+    </GestureHandlerRootView>
   );
 }
