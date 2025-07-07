@@ -661,6 +661,7 @@ export const completeGame = async (req, res) => {
         total_time,
         rounds,
         recording_url,
+        recording_duration = 5,
         difficulty_level = 1
     } = req.body;
 
@@ -669,6 +670,13 @@ export const completeGame = async (req, res) => {
         if (!total_time || !rounds || !Array.isArray(rounds)) {
             return res.status(400).json({
                 message: 'total_time and rounds array are required.'
+            });
+        }
+
+        // Validate recording duration if provided
+        if (recording_duration && (recording_duration < 1 || recording_duration > 60)) {
+            return res.status(400).json({
+                message: 'Recording duration must be between 1 and 60 seconds.'
             });
         }
 
@@ -918,9 +926,14 @@ export const completeGame = async (req, res) => {
             score: finalScore,
             completed: true,
             started_at: new Date(Date.now() - (total_time * 1000)), // Estimate start time
-            completed_at: new Date()
+            completed_at: new Date(),
+            recording_url: recording_url || null,
+            recording_duration: recording_duration || 5
         });
         console.log(`📝 Created NEW GameHistory record ${gameHistory.id} for GameSession ${gameSession.id} (User: ${user.username})`);
+        if (recording_url) {
+            console.log(`🎥 Game recording saved: ${recording_url} (Duration: ${recording_duration}s)`);
+        }
 
         // CREATE USER ROUND RESPONSES for detailed tracking (for both new and existing sessions)
         console.log(`📝 Creating UserRoundResponse records for GameHistory ${gameHistory.id}...`);

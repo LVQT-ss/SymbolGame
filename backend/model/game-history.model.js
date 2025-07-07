@@ -49,6 +49,16 @@ const GameHistory = sequelize.define('GameHistory', {
         type: DataTypes.DATE,
         allowNull: true,
         comment: 'When user completed the game session'
+    },
+    recording_url: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+        comment: 'URL to game recording'
+    },
+    recording_duration: {
+        type: DataTypes.INTEGER,
+        defaultValue: 5,
+        comment: 'Recording duration in seconds'
     }
 }, {
     tableName: 'game_history',

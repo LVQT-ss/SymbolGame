@@ -666,8 +666,8 @@ router.post('/admin/create-custom', verifyToken, createGameWithCustomRounds);
  *   post:
  *     tags:
  *     - Game Controller
- *     summary: Complete a game session or create a new one
- *     description: Submit game results and calculate score/rewards. Can complete existing sessions OR create new sessions. Anyone can complete any available game session.
+ *     summary: Complete a game session with results
+ *     description: Submit final results for a game session, including optional recording data
  *     security:
  *       - Authorization: []
  *     requestBody:
@@ -683,71 +683,51 @@ router.post('/admin/create-custom', verifyToken, createGameWithCustomRounds);
  *               game_session_id:
  *                 type: integer
  *                 example: 123
- *                 description: Optional - ID of existing game session to complete. If not provided, creates new session.
+ *                 description: ID of existing game session (optional - if not provided, creates new session)
+ *               total_time:
+ *                 type: number
+ *                 format: float
+ *                 example: 45.5
+ *                 description: Total time taken to complete the game in seconds
+ *               rounds:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - user_symbol
+ *                     - response_time
+ *                   properties:
+ *                     user_symbol:
+ *                       type: string
+ *                       enum: ['>', '<', '=']
+ *                       example: ">"
+ *                       description: Symbol chosen by user
+ *                     response_time:
+ *                       type: number
+ *                       format: float
+ *                       example: 2.5
+ *                       description: Time taken to answer in seconds
+ *               recording_url:
+ *                 type: string
+ *                 example: "https://example.com/recordings/game123.mp4"
+ *                 description: URL to the game recording (optional)
+ *               recording_duration:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 60
+ *                 default: 5
+ *                 example: 10
+ *                 description: Duration of the game recording in seconds (optional)
  *               difficulty_level:
  *                 type: integer
  *                 minimum: 1
  *                 maximum: 3
  *                 default: 1
  *                 example: 2
- *                 description: Game difficulty level (1=Easy, 2=Medium, 3=Hard) - only used when creating new session
- *               total_time:
- *                 type: number
- *                 format: float
- *                 example: 180.5
- *                 description: Total time taken in seconds
- *               rounds:
- *                 type: array
- *                 description: Array of round data (format depends on whether completing existing session or creating new one)
- *                 items:
- *                   oneOf:
- *                     - type: object
- *                       title: Existing Session Round
- *                       required:
- *                         - first_number
- *                         - second_number
- *                         - user_symbol
- *                         - response_time
- *                       properties:
- *                         first_number:
- *                           type: integer
- *                           example: 15
- *                           description: Must match existing round numbers
- *                         second_number:
- *                           type: integer
- *                           example: 8
- *                           description: Must match existing round numbers
- *                         user_symbol:
- *                           type: string
- *                           enum: [">", "<", "="]
- *                           example: ">"
- *                         response_time:
- *                           type: number
- *                           format: float
- *                           example: 2.5
- *                     - type: object
- *                       title: New Session Round
- *                       required:
- *                         - user_symbol
- *                         - response_time
- *                       properties:
- *                         user_symbol:
- *                           type: string
- *                           enum: [">", "<", "="]
- *                           example: ">"
- *                           description: Your answer to the comparison
- *                         response_time:
- *                           type: number
- *                           format: float
- *                           example: 2.5
- *                           description: Time taken for this round
- *               recording_url:
- *                 type: string
- *                 example: "https://example.com/recording.mp4"
- *                 description: Optional video recording URL
+ *                 description: Game difficulty level for new sessions (1=Easy, 2=Medium, 3=Hard)
  *     responses:
  *       200:
- *         description: Existing game session completed successfully
+ *         description: Game completed successfully
  *         content:
  *           application/json:
  *             schema:
@@ -756,89 +736,22 @@ router.post('/admin/create-custom', verifyToken, createGameWithCustomRounds);
  *                 message:
  *                   type: string
  *                   example: Game completed successfully!
- *                 session_info:
+ *                 game_session:
  *                   type: object
  *                   properties:
- *                     mode:
- *                       type: string
- *                       example: existing_session
- *                     game_id:
+ *                     id:
  *                       type: integer
- *                       example: 123
- *                     completed_by:
- *                       type: string
- *                       example: username
- *                 game_result:
- *                   type: object
- *                   properties:
- *                     game_id:
+ *                     score:
  *                       type: integer
- *                       example: 123
- *                     player:
- *                       type: object
- *                       properties:
- *                         username:
- *                           type: string
- *                         level_before:
- *                           type: integer
- *                         level_after:
- *                           type: integer
- *                         level_up:
- *                           type: boolean
- *                     performance:
- *                       type: object
- *                       properties:
- *                         total_rounds:
- *                           type: integer
- *                         correct_answers:
- *                           type: integer
- *                         accuracy:
- *                           type: integer
- *                         total_time:
- *                           type: number
- *                     scoring:
- *                       type: object
- *                       properties:
- *                         final_score:
- *                           type: integer
- *                         experience_gained:
- *                           type: integer
- *                         coins_earned:
- *                           type: integer
- *       201:
- *         description: New game session created and completed successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: Game created and completed successfully!
- *                 session_info:
- *                   type: object
- *                   properties:
- *                     mode:
- *                       type: string
- *                       example: new_session
- *                     game_id:
+ *                     correct_answers:
  *                       type: integer
- *                       example: 456
- *                     completed_by:
+ *                     total_time:
+ *                       type: number
+ *                     recording_url:
  *                       type: string
- *                       example: username
- *                 game_result:
- *                   type: object
- *                   properties:
- *                     game_id:
+ *                     recording_duration:
  *                       type: integer
- *                     player:
- *                       type: object
- *                     performance:
- *                       type: object
- *                     scoring:
- *                       type: object
- *                 detailed_rounds:
+ *                 rounds:
  *                   type: array
  *                   items:
  *                     type: object
@@ -847,17 +760,27 @@ router.post('/admin/create-custom', verifyToken, createGameWithCustomRounds);
  *                         type: integer
  *                       question:
  *                         type: string
- *                         example: "25 ? 17"
  *                       your_answer:
  *                         type: string
  *                       correct_answer:
  *                         type: string
  *                       is_correct:
  *                         type: boolean
+ *                       response_time:
+ *                         type: number
+ *                 rewards:
+ *                   type: object
+ *                   properties:
+ *                     experience_gained:
+ *                       type: integer
+ *                     coins_earned:
+ *                       type: integer
  *       400:
- *         description: Bad request - missing required fields or validation error
+ *         description: Invalid input or missing required fields
+ *       401:
+ *         description: Unauthorized - Authentication required
  *       404:
- *         description: Game session not found (when game_session_id is provided)
+ *         description: Game session or user not found
  *       409:
  *         description: Game session already completed
  *       500:
