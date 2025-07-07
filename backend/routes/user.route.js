@@ -474,6 +474,6 @@ router.post('/claim-daily-bonus', verifyToken, claimDailyBonus);
  *       500:
  *         description: Server error
  */
-router.post('/upload-profile-picture', verifyToken, upload.single('image'), uploadProfilePicture);
+router.post('/upload-profile-picture', upload.single('image'), uploadProfilePicture);
 
 export default router;
