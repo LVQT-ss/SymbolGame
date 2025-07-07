@@ -21,7 +21,8 @@ export const useAuth = () => {
 
   const loadAuthState = async () => {
     try {
-      const token = await AsyncStorage.getItem('auth_token');
+      // Use 'token' key to match api.js service
+      const token = await AsyncStorage.getItem('token');
       const userId = await AsyncStorage.getItem('user_id');
       
       setAuthState({
@@ -36,7 +37,8 @@ export const useAuth = () => {
 
   const login = async (token: string, userId: number) => {
     try {
-      await AsyncStorage.setItem('auth_token', token);
+      // Use 'token' key to match api.js service
+      await AsyncStorage.setItem('token', token);
       await AsyncStorage.setItem('user_id', userId.toString());
       
       setAuthState({
@@ -51,7 +53,8 @@ export const useAuth = () => {
 
   const logout = async () => {
     try {
-      await AsyncStorage.removeItem('auth_token');
+      // Use 'token' key to match api.js service
+      await AsyncStorage.removeItem('token');
       await AsyncStorage.removeItem('user_id');
       
       setAuthState({

@@ -10,14 +10,22 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.symbol.symbolapp"
+      "bundleIdentifier": "com.symbol.symbolapp",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow Symbol to access your camera to record gameplay",
+        "NSMicrophoneUsageDescription": "Allow Symbol to access your microphone to record audio during gameplay"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#25292e"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -33,6 +41,14 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#25292e"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Symbol to access your camera to record gameplay",
+          "microphonePermission": "Allow Symbol to access your microphone to record audio during gameplay",
+          "recordAudioAndroid": true
         }
       ],
       "expo-web-browser",

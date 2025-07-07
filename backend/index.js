@@ -4,6 +4,11 @@ import cookieParser from 'cookie-parser';
 import compression from 'compression';
 import helmet from 'helmet';
 import { createServer } from 'http';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 import initDB, { checkDatabaseHealth, closeDatabaseConnection } from './database/init.js';
 import swaggerDocs from './utils/swagger.js';
 import userRoutes from './routes/user.route.js';
@@ -16,14 +21,11 @@ import transactionRoutes from './routes/transaction.route.js';
 import battleRoutes from './routes/battle.route.js';
 import leaderboardRoutes from './routes/leaderboard.route.js';
 import { getCacheStats } from './middleware/cache.js';
+import { verifyToken } from './middleware/verifyUser.js';
 import socketService from './services/socketService.js';
 import dotenv from 'dotenv';
 import process from 'process';
 import setupAssociations from './model/associations.js';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-import fs from 'fs';
 
 // Call this before starting your server
 setupAssociations();
@@ -46,9 +48,47 @@ app.use(cors());
 
 // Ensure uploads directory exists
 const uploadDir = path.join(__dirname, 'uploads', 'profile-pictures');
+const videoUploadDir = path.join(__dirname, 'uploads', 'game-recordings');
+
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
 }
+
+if (!fs.existsSync(videoUploadDir)) {
+    fs.mkdirSync(videoUploadDir, { recursive: true });
+}
+
+// Configure multer for video recording uploads
+const videoStorage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, videoUploadDir);
+    },
+    filename: function (req, file, cb) {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, `game-recording-${uniqueSuffix}${path.extname(file.originalname)}`);
+    }
+});
+
+const videoUpload = multer({
+    storage: videoStorage,
+    limits: {
+        fileSize: 50 * 1024 * 1024, // 50MB max file size
+    },
+    fileFilter: (req, file, cb) => {
+        // Accept only video files
+        if (!file.mimetype.startsWith('video/')) {
+            return cb(new Error('Only video files are allowed!'));
+        }
+
+        // Get duration from request body
+        const duration = parseInt(req.body.duration) || 5;
+        if (duration > 10) {
+            return cb(new Error('Video duration cannot exceed 10 seconds!'));
+        }
+
+        cb(null, true);
+    }
+});
 
 // Serve static files from the uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -62,6 +102,60 @@ app.use('/api/battle', battleRoutes);
 app.use('/api/comments', commentRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
+
+// Direct video recording upload route in index.js
+app.post('/api/record-video', verifyToken, videoUpload.single('video'), async (req, res) => {
+    try {
+        console.log('📹 Video upload request received');
+        console.log('📄 File:', req.file);
+        console.log('📝 Body:', req.body);
+        console.log('👤 User ID:', req.userId);
+
+        if (!req.file) {
+            return res.status(400).json({ message: 'No video file uploaded' });
+        }
+
+        const duration = parseInt(req.body.duration) || 5;
+        if (duration > 10) {
+            // Delete the uploaded file
+            fs.unlinkSync(req.file.path);
+            return res.status(400).json({
+                message: 'Video duration cannot exceed 10 seconds'
+            });
+        }
+
+        // Get the file path relative to the uploads directory
+        const relativePath = path.relative(
+            path.join(__dirname),
+            req.file.path
+        );
+
+        console.log('✅ Video uploaded successfully:', relativePath);
+
+        // Return the file path that can be stored in the database
+        return res.status(200).json({
+            message: 'Video uploaded successfully',
+            recording_url: relativePath,
+            recording_duration: duration,
+            file_size: req.file.size,
+            original_name: req.file.originalname
+        });
+    } catch (error) {
+        // Clean up uploaded file if there's an error
+        if (req.file) {
+            try {
+                fs.unlinkSync(req.file.path);
+            } catch (unlinkError) {
+                console.error('Error cleaning up file:', unlinkError);
+            }
+        }
+        console.error('Error uploading video:', error);
+        return res.status(500).json({
+            message: 'Failed to upload video',
+            error: error.message
+        });
+    }
+});
 
 // Health check endpoint with system stats
 app.get('/api/health', async (req, res) => {

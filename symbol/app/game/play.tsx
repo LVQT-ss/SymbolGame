@@ -17,7 +17,6 @@ import { gameAPI, userAPI } from "../../services/api";
 import Canvas from "../../components/canvas";
 import { Point, recognizeSymbol } from "../../utils/symbolUtils";
 import { GameRecorder } from "../../components/GameRecorder";
-import { API_URL } from "../../config/constants";
 import { useAuth } from "../../hooks/useAuth";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
@@ -506,36 +505,116 @@ export default function GameScreen() {
     }
   };
 
-  const handleRecordingComplete = async (localUri: string) => {
+  const uploadVideoToDatabase = async (uri: string) => {
     try {
-      // Create form data for video upload
+      console.log("📹 Uploading video to database...");
+      console.log("🔑 Token available:", !!token);
+
+      // Check if we have a valid token
+      if (!token) {
+        throw new Error("Authentication required. Please log in again.");
+      }
+
+      // Create form data similar to image upload in Auth.tsx
       const formData = new FormData();
+
+      // Get the file name and type from the URI
+      const filename = uri.split("/").pop() || "game-recording.mp4";
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `video/${match[1]}` : "video/mp4";
+
+      // Append the video to form data
       formData.append("video", {
-        uri: localUri,
-        type: "video/mp4",
-        name: "game-recording.mp4",
-      } as any); // Type assertion needed for React Native's FormData
+        uri: uri,
+        type: type,
+        name: filename,
+      } as any);
 
       formData.append("duration", "5");
 
-      // Upload video to backend
-      const response = await fetch(`${API_URL}/api/game/upload-recording`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      });
+      // Upload to the new record-video endpoint in index.js
+      const response = await fetch(
+        "https://symbolgame.onrender.com/api/record-video",
+        {
+          method: "POST",
+          body: formData,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            // Don't set Content-Type header - let the browser set it automatically for multipart/form-data
+          },
+        }
+      );
+
+      console.log("📡 Upload response status:", response.status);
 
       if (!response.ok) {
-        throw new Error("Failed to upload video");
+        const errorText = await response.text();
+        console.error(
+          "❌ Database upload failed with status:",
+          response.status
+        );
+        console.error("❌ Error response:", errorText);
+
+        // Handle specific error cases
+        if (response.status === 401) {
+          throw new Error("Authentication failed. Please log in again.");
+        } else if (response.status === 413) {
+          throw new Error("Video file is too large. Please try again.");
+        } else if (response.status === 400) {
+          throw new Error(
+            "Invalid video format or duration exceeded 10 seconds."
+          );
+        } else {
+          throw new Error(
+            `Database upload failed: ${response.status} - ${errorText}`
+          );
+        }
       }
 
       const data = await response.json();
-      setRecordingUrl(data.recording_url);
+      console.log("✅ Video uploaded to database successfully:", data);
+      return data.recording_url;
     } catch (error) {
-      console.error("Error uploading video:", error);
-      // Handle error appropriately
+      console.error("❌ Error uploading video to database:", error);
+      throw error;
+    }
+  };
+
+  const handleRecordingComplete = async (localUri: string) => {
+    try {
+      console.log("📹 Starting video upload to database...");
+      console.log("📁 Local video URI:", localUri);
+
+      // Upload video directly to database (like image upload in Auth.tsx)
+      const databaseVideoUrl = await uploadVideoToDatabase(localUri);
+      setRecordingUrl(databaseVideoUrl);
+
+      Alert.alert(
+        "Success",
+        "Video recording uploaded to database successfully!"
+      );
+    } catch (error: any) {
+      console.error("❌ Error uploading video:", error);
+
+      // Provide more specific error messages
+      let errorMessage = "Failed to upload video to database. ";
+      if (error.message?.includes("Network request failed")) {
+        errorMessage +=
+          "Please check your internet connection and ensure the backend server is running.";
+      } else if (error.message?.includes("400")) {
+        errorMessage += "Invalid video file or format.";
+      } else if (error.message?.includes("401")) {
+        errorMessage += "Authentication failed. Please log in again.";
+      } else if (error.message?.includes("413")) {
+        errorMessage += "Video file is too large.";
+      } else {
+        errorMessage += error.message || "Unknown error occurred.";
+      }
+
+      Alert.alert("Upload Failed", errorMessage, [
+        { text: "Continue without video", style: "default" },
+        { text: "Try again", onPress: () => handleRecordingComplete(localUri) },
+      ]);
     }
   };
 
@@ -564,20 +643,23 @@ export default function GameScreen() {
         return;
       }
 
-      const response = await fetch(`${API_URL}/api/game/complete`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          game_session_id: parsedSessionId,
-          total_time: (Date.now() - gameStartTime) / 1000,
-          rounds: finalRounds,
-          recording_url: recordingUrl,
-          recording_duration: 5,
-        }),
-      });
+      const response = await fetch(
+        `https://symbolgame.onrender.com/api/game/complete`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            game_session_id: parsedSessionId,
+            total_time: (Date.now() - gameStartTime) / 1000,
+            rounds: finalRounds,
+            recording_url: recordingUrl,
+            recording_duration: 5,
+          }),
+        }
+      );
 
       if (!response.ok) {
         throw new Error("Failed to complete game");
@@ -1380,11 +1462,13 @@ export default function GameScreen() {
           </View>
         </View>
 
-        {/* Add GameRecorder component */}
+        {/* Add GameRecorder component with automatic recording */}
         {!gameCompleted && (
           <GameRecorder
             onRecordingComplete={handleRecordingComplete}
             maxDuration={5}
+            autoStart={true}
+            gameStarted={gameStarted && countdown === 0}
           />
         )}
       </View>
