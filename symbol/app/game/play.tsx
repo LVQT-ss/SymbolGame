@@ -589,10 +589,13 @@ export default function GameScreen() {
       const databaseVideoUrl = await uploadVideoToDatabase(localUri);
       setRecordingUrl(databaseVideoUrl);
 
-      Alert.alert(
-        "Success",
-        "Video recording uploaded to database successfully!"
-      );
+      console.log("✅ Video recording uploaded and URL set:", databaseVideoUrl);
+
+      // Don't show alert for successful upload - let the game flow continue
+      // Alert.alert(
+      //   "Success",
+      //   "Video recording uploaded to database successfully!"
+      // );
     } catch (error: any) {
       console.error("❌ Error uploading video:", error);
 
@@ -616,6 +619,37 @@ export default function GameScreen() {
         { text: "Try again", onPress: () => handleRecordingComplete(localUri) },
       ]);
     }
+  };
+
+  const waitForRecordingToComplete = async (): Promise<void> => {
+    return new Promise((resolve) => {
+      // Give some time for recording to finish and upload
+      console.log("⏳ Waiting for recording to complete...");
+
+      let attempts = 0;
+      const maxAttempts = 30; // Wait up to 15 seconds (30 * 500ms)
+
+      const checkRecording = () => {
+        attempts++;
+
+        // If we have a recording URL or we've waited long enough, proceed
+        if (recordingUrl || attempts >= maxAttempts) {
+          console.log(
+            `✅ Recording complete. URL: ${
+              recordingUrl || "None"
+            }, Attempts: ${attempts}`
+          );
+          resolve();
+        } else {
+          console.log(
+            `🔄 Still waiting for recording... Attempt ${attempts}/${maxAttempts}`
+          );
+          setTimeout(checkRecording, 500);
+        }
+      };
+
+      checkRecording();
+    });
   };
 
   const completeGame = async (finalRounds: Round[]) => {
@@ -642,6 +676,11 @@ export default function GameScreen() {
         });
         return;
       }
+
+      // Wait for recording to complete before finishing the game
+      await waitForRecordingToComplete();
+
+      console.log("🎥 Final recording URL:", recordingUrl);
 
       const response = await fetch(
         `https://symbolgame.onrender.com/api/game/complete`,
@@ -719,6 +758,11 @@ export default function GameScreen() {
       setLoading(true);
       console.log("🚀 Submitting whole game...");
 
+      // Wait for recording to complete before submitting
+      await waitForRecordingToComplete();
+
+      console.log("🎥 Final recording URL for submit:", recordingUrl);
+
       // Calculate final scores
       const finalScore =
         score + (rounds.length - currentRoundIndex > 0 ? 100 : 0);
@@ -732,12 +776,14 @@ export default function GameScreen() {
         response_time: round.response_time || 0,
       }));
 
-      // Submit to backend
+      // Submit to backend with recording URL
       const result = await gameAPI.submitWholeGame({
         difficulty_level: 2,
         number_of_rounds: rounds.length,
         total_time: totalTime / 1000, // Convert to seconds
         rounds: roundsData,
+        recording_url: recordingUrl,
+        recording_duration: 5,
       });
 
       setGameCompleted(true);
@@ -779,9 +825,13 @@ export default function GameScreen() {
           coinsEarned: coinsEarned.toString(),
         },
       });
-    } catch (error) {
-      console.error("❌ Failed to submit whole game:", error);
-      Alert.alert("Error", "Failed to submit game. Please try again.");
+    } catch (error: any) {
+      console.error("❌ Error in submitWholeGame:", error);
+      Alert.alert(
+        "Submit Error",
+        `Failed to submit game: ${error.message || "Unknown error"}`,
+        [{ text: "Back to Menu", onPress: () => router.replace("/game/menu") }]
+      );
     } finally {
       setLoading(false);
     }

@@ -1623,7 +1623,9 @@ export const submitWholeGame = async (req, res) => {
         difficulty_level = 1,
         number_of_rounds = 10,
         total_time,
-        rounds // Array of user answers
+        rounds, // Array of user answers
+        recording_url = null,
+        recording_duration = null
     } = req.body;
 
     try {
@@ -1679,7 +1681,9 @@ export const submitWholeGame = async (req, res) => {
             completed: true, // Game is completed immediately
             is_public: true,
             created_by_admin: null,
-            admin_instructions: null
+            admin_instructions: null,
+            recording_url: recording_url,
+            recording_duration: recording_duration
         });
 
         console.log(`🎮 Created whole game session ${gameSession.id} for user ${user.username}`);
