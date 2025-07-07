@@ -199,16 +199,22 @@ export default function Auth() {
         );
       } else {
         // Registration API call with all required fields
+        let avatarUrl = profileImage;
+
+        // If no profile image is selected, use random avatar
+        if (!avatarUrl) {
+          avatarUrl =
+            "https://i.pravatar.cc/100?img=" +
+            Math.floor(Math.random() * 70 + 1);
+        }
+
         const registrationData = {
           usertype: "Customer",
           username: username.toLowerCase().trim(),
           email: email.toLowerCase().trim(),
           password: password,
           full_name: fullName.trim(),
-          avatar:
-            profileImage ||
-            "https://i.pravatar.cc/100?img=" +
-              Math.floor(Math.random() * 70 + 1),
+          avatar: avatarUrl,
           age: age.trim(),
           country: countryCode,
           country_flag: selectedCountry?.flag,

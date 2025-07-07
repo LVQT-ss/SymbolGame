@@ -439,10 +439,8 @@ router.post('/claim-daily-bonus', verifyToken, claimDailyBonus);
  *   post:
  *     tags:
  *     - User Controller
- *     summary: Upload user profile picture
- *     description: Upload and update user's profile picture
- *     security:
- *       - bearerAuth: []
+ *     summary: Upload profile picture
+ *     description: Upload a profile picture and get back the URL
  *     requestBody:
  *       required: true
  *       content:
@@ -469,8 +467,6 @@ router.post('/claim-daily-bonus', verifyToken, claimDailyBonus);
  *                   example: http://localhost:3000/uploads/profile-pictures/profile-123456.jpg
  *       400:
  *         description: No image file provided or invalid file type
- *       401:
- *         description: Unauthorized - Invalid or missing token
  *       500:
  *         description: Server error
  */

@@ -292,34 +292,12 @@ export const uploadProfilePicture = async (req, res) => {
             return res.status(400).json({ message: 'No image file provided' });
         }
 
-        // Get user ID from token
-        const userId = req.user.id;
-
         // Get the file path
         const filePath = req.file.path;
 
         // Convert file path to URL
         const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
         const imageUrl = `${baseUrl}/${filePath.replace(/\\/g, '/')}`;
-
-        // Update user's avatar in database
-        const user = await User.findByPk(userId);
-        if (!user) {
-            // Delete uploaded file if user not found
-            fs.unlinkSync(filePath);
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        // Delete old profile picture if it exists
-        if (user.avatar && user.avatar.startsWith(baseUrl)) {
-            const oldFilePath = user.avatar.replace(baseUrl, '').substring(1);
-            if (fs.existsSync(oldFilePath)) {
-                fs.unlinkSync(oldFilePath);
-            }
-        }
-
-        // Update user's avatar URL
-        await user.update({ avatar: imageUrl });
 
         res.status(200).json({
             message: 'Profile picture uploaded successfully',
