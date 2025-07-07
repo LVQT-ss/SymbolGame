@@ -276,12 +276,31 @@ export const userAPI = {
         }
     },
 
-    updateProfile: async (userId, userData) => {
+    updateProfile: async (userId, updateData) => {
         try {
-            const response = await api.put(`/user/update/${userId}`, userData);
+            // Get the last update timestamp from storage
+            const lastUpdateKey = `last_profile_update_${userId}`;
+            const lastUpdate = await AsyncStorage.getItem(lastUpdateKey);
+
+            if (lastUpdate) {
+                const lastUpdateDate = new Date(lastUpdate);
+                const currentDate = new Date();
+                const monthsDiff = (currentDate.getFullYear() - lastUpdateDate.getFullYear()) * 12 +
+                    (currentDate.getMonth() - lastUpdateDate.getMonth());
+
+                if (monthsDiff < 1) {
+                    throw new Error('Profile can only be updated once per month');
+                }
+            }
+
+            const response = await api.put(`/user/update/${userId}`, updateData);
+
+            // Store the update timestamp
+            await AsyncStorage.setItem(lastUpdateKey, new Date().toISOString());
+
             return response.data;
         } catch (error) {
-            throw new Error(error.response?.data?.message || "Failed to update profile");
+            throw new Error(error.response?.data?.message || 'Failed to update profile');
         }
     },
 

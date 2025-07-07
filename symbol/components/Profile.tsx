@@ -1,5 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import DateTimePicker, {
+  DateTimePickerAndroid,
+} from "@react-native-community/datetimepicker";
+import * as ImagePicker from "expo-image-picker";
 import {
   Alert,
   Dimensions,
@@ -13,8 +18,9 @@ import {
   View,
   ActivityIndicator,
   Linking,
+  Platform,
 } from "react-native";
-import { apiUtils, paymentAPI } from "../services/api";
+import { apiUtils, paymentAPI, userAPI } from "../services/api";
 import { getLevelDisplayInfo } from "../utils/levelUtils";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
@@ -105,6 +111,15 @@ interface ProfileProps {
   onLogout: () => void;
 }
 
+const formatNumber = (num: number) => {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1) + "M";
+  } else if (num >= 1000) {
+    return (num / 1000).toFixed(1) + "K";
+  }
+  return num.toString();
+};
+
 export default function Profile({
   visible,
   onClose,
@@ -112,9 +127,18 @@ export default function Profile({
   onUpdateProfile,
   onLogout,
 }: ProfileProps) {
-  const [editingUsername, setEditingUsername] = useState(false);
-  const [tempUsername, setTempUsername] = useState(userProfile.username);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [editingAge, setEditingAge] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [tempEmail, setTempEmail] = useState(userProfile.email || "");
+  const [tempAge, setTempAge] = useState(userProfile.age || "");
+  const [tempAvatar, setTempAvatar] = useState(userProfile.avatar);
+  const [tempFullName, setTempFullName] = useState(userProfile.full_name || "");
   const [loading, setLoading] = useState(false);
+  const [lastUpdateDate, setLastUpdateDate] = useState<Date | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // Coin purchase states
   const [coinPackages, setCoinPackages] = useState<CoinPackage[]>([]);
@@ -135,10 +159,28 @@ export default function Profile({
   // Polling ref
   const pollingInterval = useRef<any>(null);
 
-  // Update tempUsername when userProfile.username changes
+  const [changedFields, setChangedFields] = useState<{ [key: string]: any }>(
+    {}
+  );
+
   useEffect(() => {
-    setTempUsername(userProfile.username);
-  }, [userProfile.username]);
+    setTempEmail(userProfile.email || "");
+    setTempAge(userProfile.age || "");
+    setTempAvatar(userProfile.avatar);
+    setTempFullName(userProfile.full_name || "");
+    checkLastUpdate();
+  }, [userProfile]);
+
+  useEffect(() => {
+    // Check for unsaved changes
+    const hasChanges =
+      tempEmail !== userProfile.email ||
+      tempAge !== userProfile.age ||
+      tempAvatar !== userProfile.avatar ||
+      tempFullName !== userProfile.full_name;
+
+    setHasUnsavedChanges(hasChanges);
+  }, [tempEmail, tempAge, tempAvatar, tempFullName, userProfile]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -223,47 +265,121 @@ export default function Profile({
     }).format(amount);
   };
 
-  const handleUsernameEdit = () => {
-    setEditingUsername(true);
-    setTempUsername(userProfile.username);
-  };
-
-  const saveUsername = async () => {
-    if (tempUsername.trim().length >= 3) {
-      try {
-        setLoading(true);
-        // Update the username in the parent component
-        onUpdateProfile({ username: tempUsername.trim() });
-        setEditingUsername(false);
-
-        // Here you could also make an API call to update the username on the backend
-        // await userAPI.updateUsername(tempUsername.trim());
-      } catch (error) {
-        console.error("Error updating username:", error);
-        Alert.alert("Error", "Failed to update username. Please try again.");
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      Alert.alert(
-        "Invalid Username",
-        "Username must be at least 3 characters long."
+  const checkLastUpdate = async () => {
+    try {
+      const lastUpdate = await AsyncStorage.getItem(
+        `last_profile_update_${userProfile.id}`
       );
+      if (lastUpdate) {
+        setLastUpdateDate(new Date(lastUpdate));
+      }
+    } catch (error) {
+      console.error("Error checking last update:", error);
     }
   };
 
-  const cancelUsernameEdit = () => {
-    setEditingUsername(false);
-    setTempUsername(userProfile.username);
+  const canUpdateProfile = () => {
+    if (!lastUpdateDate) return true;
+
+    const currentDate = new Date();
+    const monthsDiff =
+      (currentDate.getFullYear() - lastUpdateDate.getFullYear()) * 12 +
+      (currentDate.getMonth() - lastUpdateDate.getMonth());
+    return monthsDiff >= 1;
   };
 
-  const formatNumber = (num: number) => {
-    if (num >= 1000000) {
-      return (num / 1000000).toFixed(1) + "M";
-    } else if (num >= 1000) {
-      return (num / 1000).toFixed(1) + "K";
+  const getNextUpdateDate = () => {
+    if (!lastUpdateDate) return null;
+
+    const nextUpdate = new Date(lastUpdateDate);
+    nextUpdate.setMonth(nextUpdate.getMonth() + 1);
+    return nextUpdate.toLocaleDateString();
+  };
+
+  const handleEditProfile = () => {
+    setIsEditMode(true);
+    setTempEmail(userProfile.email || "");
+    setTempAge(userProfile.age || "");
+    setTempAvatar(userProfile.avatar);
+    setTempFullName(userProfile.full_name || "");
+    setShowSettingsMenu(false);
+    setChangedFields({});
+  };
+
+  const handleFieldChange = (field: string, value: string) => {
+    switch (field) {
+      case "full_name":
+        setTempFullName(value);
+        if (value !== userProfile.full_name) {
+          setChangedFields((prev) => ({ ...prev, full_name: value }));
+        } else {
+          setChangedFields((prev) => {
+            const { full_name, ...rest } = prev;
+            return rest;
+          });
+        }
+        break;
+      case "email":
+        setTempEmail(value);
+        if (value !== userProfile.email) {
+          setChangedFields((prev) => ({ ...prev, email: value }));
+        } else {
+          setChangedFields((prev) => {
+            const { email, ...rest } = prev;
+            return rest;
+          });
+        }
+        break;
+      case "age":
+        setTempAge(value);
+        if (value !== userProfile.age) {
+          setChangedFields((prev) => ({ ...prev, age: value }));
+        } else {
+          setChangedFields((prev) => {
+            const { age, ...rest } = prev;
+            return rest;
+          });
+        }
+        break;
+      case "avatar_url":
+        setTempAvatar(value);
+        if (value !== userProfile.avatar) {
+          setChangedFields((prev) => ({ ...prev, avatar: value }));
+        } else {
+          setChangedFields((prev) => {
+            const { avatar, ...rest } = prev;
+            return rest;
+          });
+        }
+        break;
     }
-    return num.toString();
+  };
+
+  const handleSaveChanges = async () => {
+    if (!canUpdateProfile()) {
+      Alert.alert(
+        "Update Not Available",
+        "You can only update your profile once per month."
+      );
+      return;
+    }
+
+    if (Object.keys(changedFields).length === 0) {
+      Alert.alert("No Changes", "No changes have been made to save.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await onUpdateProfile(changedFields);
+      setIsEditMode(false);
+      setChangedFields({});
+      Alert.alert("Success", "Profile updated successfully!");
+    } catch (error) {
+      Alert.alert("Error", "Failed to update profile. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Start polling for payment completion
@@ -369,292 +485,491 @@ export default function Profile({
     setPurchaseResult(null);
   };
 
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  };
+
+  const toggleSettingsMenu = () => {
+    setShowSettingsMenu(!showSettingsMenu);
+    if (isEditMode) {
+      setIsEditMode(false);
+    }
+  };
+
+  const handleLogout = () => {
+    setShowSettingsMenu(false);
+    onLogout();
+  };
+
+  const openDatePicker = () => {
+    if (Platform.OS === "android") {
+      DateTimePickerAndroid.open({
+        value: tempAge ? new Date(tempAge) : new Date(),
+        mode: "date",
+        is24Hour: true,
+        display: "spinner",
+        maximumDate: new Date(),
+        onChange: (_event, selectedDate) => {
+          if (selectedDate) {
+            const isoDate = selectedDate.toISOString().split("T")[0];
+            setTempAge(isoDate);
+            handleFieldChange("age", isoDate);
+          }
+        },
+      });
+    } else {
+      setShowDatePicker(true);
+    }
+  };
+
+  const pickImage = async () => {
+    try {
+      const { status } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission needed",
+          "Please grant permission to access your photos"
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled) {
+        setLoading(true);
+        try {
+          const formData = new FormData();
+          const filename =
+            result.assets[0].uri.split("/").pop() || "profile.jpg";
+          const match = /\.(\w+)$/.exec(filename);
+          const type = match ? `image/${match[1]}` : "image/jpeg";
+
+          formData.append("image", {
+            uri: result.assets[0].uri,
+            type,
+            name: filename,
+          } as any);
+
+          const response = await fetch(
+            "https://symbolgame.onrender.com/api/user/upload-profile-picture",
+            {
+              method: "POST",
+              body: formData,
+              headers: {
+                "Content-Type": "multipart/form-data",
+              },
+            }
+          );
+
+          if (!response.ok) {
+            throw new Error("Failed to upload image");
+          }
+
+          const data = await response.json();
+          setTempAvatar(data.imageUrl);
+        } catch (error) {
+          Alert.alert("Error", "Failed to upload image. Please try again.");
+        } finally {
+          setLoading(false);
+        }
+      }
+    } catch (error) {
+      console.error("Error picking image:", error);
+      Alert.alert("Error", "Failed to pick image. Please try again.");
+    }
+  };
+
   return (
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="pageSheet"
+      transparent={true}
       onRequestClose={onClose}
     >
       <View style={styles.modalContainer}>
-        <View style={styles.modalHeader}>
-          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-            <Ionicons
-              name="close"
-              size={getResponsiveFontSize(24)}
-              color="#fff"
-            />
-          </TouchableOpacity>
-          <Text style={styles.modalTitle}>Profile</Text>
-          <TouchableOpacity style={styles.settingsButton}>
-            <Ionicons
-              name="settings"
-              size={getResponsiveFontSize(24)}
-              color="#ffd33d"
-            />
-          </TouchableOpacity>
-        </View>
-
         <ScrollView
-          style={styles.modalContent}
+          style={styles.scrollView}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.profileSection}>
-            <Image
-              source={{ uri: userProfile.avatar }}
-              style={styles.profileModalImage}
-            />
-
-            <View style={styles.usernameContainer}>
-              {editingUsername ? (
-                <View style={styles.usernameEditContainer}>
-                  <TextInput
-                    style={styles.usernameInput}
-                    value={tempUsername}
-                    onChangeText={setTempUsername}
-                    placeholder="Enter username"
-                    placeholderTextColor="#888"
-                    maxLength={20}
-                    editable={!loading}
-                  />
-                  <View style={styles.usernameEditButtons}>
-                    <TouchableOpacity
-                      style={[
-                        styles.cancelButton,
-                        loading && styles.disabledButton,
-                      ]}
-                      onPress={cancelUsernameEdit}
-                      disabled={loading}
-                    >
-                      <Text style={styles.cancelButtonText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.saveButton,
-                        loading && styles.disabledButton,
-                      ]}
-                      onPress={saveUsername}
-                      disabled={loading}
-                    >
-                      <Text style={styles.saveButtonText}>
-                        {loading ? "Saving..." : "Save"}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
+          <View style={styles.header}>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Profile</Text>
+            <View>
+              <TouchableOpacity
+                onPress={toggleSettingsMenu}
+                style={styles.settingsButton}
+              >
+                <Ionicons name="settings-outline" size={24} color="#ffd33d" />
+              </TouchableOpacity>
+              {showSettingsMenu && (
+                <View style={styles.settingsMenu}>
+                  <TouchableOpacity
+                    style={styles.settingsMenuItem}
+                    onPress={handleEditProfile}
+                  >
+                    <Ionicons name="create-outline" size={20} color="#fff" />
+                    <Text style={styles.settingsMenuText}>Edit Profile</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.settingsMenuItem}
+                    onPress={handleLogout}
+                  >
+                    <Ionicons name="log-out-outline" srize={20} color="#fff" />
+                    <Text style={styles.settingsMenuText}>Logout</Text>
+                  </TouchableOpacity>
                 </View>
-              ) : (
-                <TouchableOpacity
-                  style={styles.usernameDisplay}
-                  onPress={handleUsernameEdit}
-                >
-                  <Text style={styles.profileUsername}>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.profileSection}>
+            <TouchableOpacity
+              style={styles.avatarContainer}
+              onPress={isEditMode ? pickImage : undefined}
+              disabled={!isEditMode || loading}
+            >
+              <Image source={{ uri: tempAvatar }} style={styles.avatar} />
+              {isEditMode && (
+                <View style={styles.avatarOverlay}>
+                  <Ionicons name="camera" size={24} color="#fff" />
+                  <Text style={styles.avatarOverlayText}>Change Photo</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <View style={styles.levelInfoContainer}>
+              <Text style={styles.profileLevel}>Level {userProfile.level}</Text>
+              {lastUpdateDate && (
+                <Text style={styles.nextUpdateText}>
+                  {canUpdateProfile()
+                    ? "Profile update available"
+                    : `Next update: ${getNextUpdateDate()}`}
+                </Text>
+              )}
+            </View>
+
+            <View style={styles.updateLimitInfo}>
+              <Ionicons
+                name="information-circle-outline"
+                size={16}
+                color="#888"
+              />
+              <Text style={styles.updateLimitText}>
+                You can only update your profile once per month
+              </Text>
+            </View>
+
+            <View style={styles.profileInfo}>
+              <View style={styles.infoRow}>
+                <Text style={styles.label}>Username</Text>
+                <View style={styles.valueContainer}>
+                  <Text style={[styles.value, styles.usernameText]}>
                     {userProfile.username}
                   </Text>
-                  <Ionicons
-                    name="pencil"
-                    size={getResponsiveFontSize(16)}
-                    color="#ffd33d"
-                  />
+                </View>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Text style={styles.label}>Full Name</Text>
+                <View style={styles.valueContainer}>
+                  {isEditMode ? (
+                    <TextInput
+                      style={styles.input}
+                      value={tempFullName}
+                      onChangeText={(value) =>
+                        handleFieldChange("full_name", value)
+                      }
+                      placeholder="Enter full name"
+                      placeholderTextColor="#888"
+                      autoCapitalize="words"
+                    />
+                  ) : (
+                    <Text style={styles.value}>
+                      {userProfile.full_name || "Not set"}
+                    </Text>
+                  )}
+                </View>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Text style={styles.label}>Email</Text>
+                <View style={styles.valueContainer}>
+                  {isEditMode ? (
+                    <TextInput
+                      style={styles.input}
+                      value={tempEmail}
+                      onChangeText={(value) =>
+                        handleFieldChange("email", value)
+                      }
+                      placeholder="Enter email"
+                      placeholderTextColor="#888"
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                    />
+                  ) : (
+                    <Text style={styles.value}>
+                      {userProfile.email || "Not set"}
+                    </Text>
+                  )}
+                </View>
+              </View>
+
+              <View style={[styles.infoRow, { borderBottomWidth: 0 }]}>
+                <Text style={styles.label}>Age</Text>
+                <View style={styles.valueContainer}>
+                  {isEditMode ? (
+                    <TouchableOpacity
+                      style={styles.datePickerButton}
+                      onPress={openDatePicker}
+                    >
+                      <Text style={styles.datePickerText}>
+                        {tempAge ? formatDate(tempAge) : "Select Birth Date"}
+                      </Text>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={20}
+                        color="#ffd33d"
+                      />
+                    </TouchableOpacity>
+                  ) : (
+                    <Text style={styles.value}>
+                      {userProfile.age
+                        ? formatDate(userProfile.age)
+                        : "Not set"}
+                    </Text>
+                  )}
+                </View>
+              </View>
+
+              {isEditMode && (
+                <TouchableOpacity
+                  style={[
+                    styles.saveAllButton,
+                    (Object.keys(changedFields).length === 0 || loading) &&
+                      styles.disabledButton,
+                  ]}
+                  onPress={handleSaveChanges}
+                  disabled={Object.keys(changedFields).length === 0 || loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator size="small" color="#25292e" />
+                  ) : (
+                    <>
+                      <Ionicons name="save-outline" size={24} color="#25292e" />
+                      <Text style={styles.saveAllButtonText}>
+                        Save Changes ({Object.keys(changedFields).length})
+                      </Text>
+                    </>
+                  )}
                 </TouchableOpacity>
               )}
             </View>
 
-            <Text style={styles.profileLevel}>Level {userProfile.level}</Text>
-            <Text style={styles.joinDate}>
-              Member since {userProfile.joinDate}
-            </Text>
-          </View>
-
-          <View style={styles.currencySection}>
-            <View style={styles.currencyItem}>
-              <View style={styles.currencyIcon}>
-                <Ionicons
-                  name="cash"
-                  size={getResponsiveFontSize(24)}
-                  color="#FFD700"
-                />
+            <View style={styles.currencySection}>
+              <View style={styles.currencyItem}>
+                <View style={styles.currencyIcon}>
+                  <Ionicons
+                    name="cash"
+                    size={getResponsiveFontSize(24)}
+                    color="#FFD700"
+                  />
+                </View>
+                <View style={styles.currencyInfo}>
+                  <Text style={styles.currencyLabel}>Coins</Text>
+                  <Text style={styles.currencyValue}>
+                    {formatNumber(userProfile.coins)}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.addButton}
+                  onPress={() => setPaymentModalVisible(true)}
+                >
+                  <Ionicons
+                    name="add"
+                    size={getResponsiveFontSize(20)}
+                    color="#ffd33d"
+                  />
+                </TouchableOpacity>
               </View>
-              <View style={styles.currencyInfo}>
-                <Text style={styles.currencyLabel}>Coins</Text>
-                <Text style={styles.currencyValue}>
-                  {formatNumber(userProfile.coins)}
+
+              <View style={styles.currencyItem}>
+                <View
+                  style={[styles.currencyIcon, { backgroundColor: "#9C27B0" }]}
+                >
+                  <Ionicons
+                    name="diamond"
+                    size={getResponsiveFontSize(24)}
+                    color="#fff"
+                  />
+                </View>
+                <View style={styles.currencyInfo}>
+                  <Text style={styles.currencyLabel}>Gems</Text>
+                  <Text style={styles.currencyValue}>{userProfile.gems}</Text>
+                </View>
+                <TouchableOpacity style={styles.addButton}>
+                  <Ionicons
+                    name="add"
+                    size={getResponsiveFontSize(20)}
+                    color="#ffd33d"
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.socialSection}>
+              <Text style={styles.profileSectionTitle}>Social</Text>
+
+              <View style={styles.socialStatsContainer}>
+                <TouchableOpacity style={styles.socialStatItem}>
+                  <View
+                    style={[styles.socialIcon, { backgroundColor: "#4ECDC4" }]}
+                  >
+                    <Ionicons
+                      name="people"
+                      size={getResponsiveFontSize(20)}
+                      color="#fff"
+                    />
+                  </View>
+                  <View style={styles.socialInfo}>
+                    <Text style={styles.socialStatLabel}>Followers</Text>
+                    <Text style={styles.socialStatValue}>
+                      {formatNumber(userProfile.followers_count || 0)}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.socialStatItem}>
+                  <View
+                    style={[styles.socialIcon, { backgroundColor: "#FF6B6B" }]}
+                  >
+                    <Ionicons
+                      name="person-add"
+                      size={getResponsiveFontSize(20)}
+                      color="#fff"
+                    />
+                  </View>
+                  <View style={styles.socialInfo}>
+                    <Text style={styles.socialStatLabel}>Following</Text>
+                    <Text style={styles.socialStatValue}>
+                      {formatNumber(userProfile.following_count || 0)}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.experienceSection}>
+              <Text style={styles.profileSectionTitle}>
+                Experience Progress
+              </Text>
+              <View style={styles.expProgressContainer}>
+                <View style={styles.expProgressBar}>
+                  <View
+                    style={[
+                      styles.expProgressFill,
+                      {
+                        width: `${(() => {
+                          const levelInfo = getLevelDisplayInfo(userProfile);
+                          return levelInfo.isMaxLevel
+                            ? 100
+                            : levelInfo.progressPercent;
+                        })()}%`,
+                      },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.expText}>
+                  {(() => {
+                    const levelInfo = getLevelDisplayInfo(userProfile);
+                    if (levelInfo.isMaxLevel) {
+                      return `🏆 Max Level! ${levelInfo.formattedCurrentXP} XP`;
+                    }
+                    return `${levelInfo.formattedCurrentXP} / ${levelInfo.formattedNextLevelXP} XP`;
+                  })()}
                 </Text>
               </View>
-              <TouchableOpacity
-                style={styles.addButton}
-                onPress={() => setPaymentModalVisible(true)}
-              >
-                <Ionicons
-                  name="add"
-                  size={getResponsiveFontSize(20)}
-                  color="#ffd33d"
-                />
-              </TouchableOpacity>
-            </View>
 
-            <View style={styles.currencyItem}>
-              <View
-                style={[styles.currencyIcon, { backgroundColor: "#9C27B0" }]}
-              >
-                <Ionicons
-                  name="diamond"
-                  size={getResponsiveFontSize(24)}
-                  color="#fff"
-                />
-              </View>
-              <View style={styles.currencyInfo}>
-                <Text style={styles.currencyLabel}>Gems</Text>
-                <Text style={styles.currencyValue}>{userProfile.gems}</Text>
-              </View>
-              <TouchableOpacity style={styles.addButton}>
-                <Ionicons
-                  name="add"
-                  size={getResponsiveFontSize(20)}
-                  color="#ffd33d"
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={styles.socialSection}>
-            <Text style={styles.profileSectionTitle}>Social</Text>
-
-            <View style={styles.socialStatsContainer}>
-              <TouchableOpacity style={styles.socialStatItem}>
-                <View
-                  style={[styles.socialIcon, { backgroundColor: "#4ECDC4" }]}
-                >
-                  <Ionicons
-                    name="people"
-                    size={getResponsiveFontSize(20)}
-                    color="#fff"
-                  />
-                </View>
-                <View style={styles.socialInfo}>
-                  <Text style={styles.socialStatLabel}>Followers</Text>
-                  <Text style={styles.socialStatValue}>
-                    {formatNumber(userProfile.followers_count || 0)}
+              <View style={styles.levelDetailsContainer}>
+                <View style={styles.levelDetailRow}>
+                  <Text style={styles.levelDetailLabel}>Current Level:</Text>
+                  <Text style={styles.levelDetailValue}>
+                    {(() => {
+                      const levelInfo = getLevelDisplayInfo(userProfile);
+                      return levelInfo.currentLevel;
+                    })()}
                   </Text>
                 </View>
-              </TouchableOpacity>
 
-              <TouchableOpacity style={styles.socialStatItem}>
-                <View
-                  style={[styles.socialIcon, { backgroundColor: "#FF6B6B" }]}
-                >
-                  <Ionicons
-                    name="person-add"
-                    size={getResponsiveFontSize(20)}
-                    color="#fff"
-                  />
-                </View>
-                <View style={styles.socialInfo}>
-                  <Text style={styles.socialStatLabel}>Following</Text>
-                  <Text style={styles.socialStatValue}>
-                    {formatNumber(userProfile.following_count || 0)}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={styles.experienceSection}>
-            <Text style={styles.profileSectionTitle}>Experience Progress</Text>
-            <View style={styles.expProgressContainer}>
-              <View style={styles.expProgressBar}>
-                <View
-                  style={[
-                    styles.expProgressFill,
-                    {
-                      width: `${(() => {
-                        const levelInfo = getLevelDisplayInfo(userProfile);
-                        return levelInfo.isMaxLevel
-                          ? 100
-                          : levelInfo.progressPercent;
-                      })()}%`,
-                    },
-                  ]}
-                />
-              </View>
-              <Text style={styles.expText}>
                 {(() => {
                   const levelInfo = getLevelDisplayInfo(userProfile);
-                  if (levelInfo.isMaxLevel) {
-                    return `🏆 Max Level! ${levelInfo.formattedCurrentXP} XP`;
+                  if (!levelInfo.isMaxLevel) {
+                    return (
+                      <View style={styles.levelDetailRow}>
+                        <Text style={styles.levelDetailLabel}>XP Needed:</Text>
+                        <Text style={styles.levelDetailValue}>
+                          {levelInfo.formattedXPNeeded}
+                        </Text>
+                      </View>
+                    );
                   }
-                  return `${levelInfo.formattedCurrentXP} / ${levelInfo.formattedNextLevelXP} XP`;
+                  return null;
                 })()}
-              </Text>
-            </View>
 
-            {/* 🆕 Additional Level Info */}
-            <View style={styles.levelDetailsContainer}>
-              <View style={styles.levelDetailRow}>
-                <Text style={styles.levelDetailLabel}>Current Level:</Text>
-                <Text style={styles.levelDetailValue}>
-                  {(() => {
-                    const levelInfo = getLevelDisplayInfo(userProfile);
-                    return levelInfo.currentLevel;
-                  })()}
-                </Text>
-              </View>
-
-              {(() => {
-                const levelInfo = getLevelDisplayInfo(userProfile);
-                if (!levelInfo.isMaxLevel) {
-                  return (
-                    <View style={styles.levelDetailRow}>
-                      <Text style={styles.levelDetailLabel}>XP Needed:</Text>
-                      <Text style={styles.levelDetailValue}>
-                        {levelInfo.formattedXPNeeded}
-                      </Text>
-                    </View>
-                  );
-                }
-                return null;
-              })()}
-
-              <View style={styles.levelDetailRow}>
-                <Text style={styles.levelDetailLabel}>Total XP:</Text>
-                <Text style={styles.levelDetailValue}>
-                  {(() => {
-                    const levelInfo = getLevelDisplayInfo(userProfile);
-                    return levelInfo.formattedCurrentXP;
-                  })()}
-                </Text>
+                <View style={styles.levelDetailRow}>
+                  <Text style={styles.levelDetailLabel}>Total XP:</Text>
+                  <Text style={styles.levelDetailValue}>
+                    {(() => {
+                      const levelInfo = getLevelDisplayInfo(userProfile);
+                      return levelInfo.formattedCurrentXP;
+                    })()}
+                  </Text>
+                </View>
               </View>
             </View>
-          </View>
 
-          <View style={styles.actionButtonsSection}>
-            <TouchableOpacity style={styles.actionButton}>
-              <Ionicons
-                name="camera"
-                size={getResponsiveFontSize(20)}
-                color="#fff"
-              />
-              <Text style={styles.actionButtonText}>Change Avatar</Text>
-            </TouchableOpacity>
+            <View style={styles.actionButtonsSection}>
+              <TouchableOpacity style={styles.actionButton}>
+                <Ionicons
+                  name="camera"
+                  size={getResponsiveFontSize(20)}
+                  color="#fff"
+                />
+                <Text style={styles.actionButtonText}>Change Avatar</Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity style={styles.actionButton}>
-              <Ionicons
-                name="share-social"
-                size={getResponsiveFontSize(20)}
-                color="#fff"
-              />
-              <Text style={styles.actionButtonText}>Share Profile</Text>
-            </TouchableOpacity>
+              <TouchableOpacity style={styles.actionButton}>
+                <Ionicons
+                  name="share-social"
+                  size={getResponsiveFontSize(20)}
+                  color="#fff"
+                />
+                <Text style={styles.actionButtonText}>Share Profile</Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity style={styles.actionButton} onPress={onLogout}>
-              <Ionicons
-                name="log-out"
-                size={getResponsiveFontSize(20)}
-                color="#FF6B6B"
-              />
-              <Text style={[styles.actionButtonText, { color: "#FF6B6B" }]}>
-                Logout
-              </Text>
-            </TouchableOpacity>
+              <TouchableOpacity style={styles.actionButton} onPress={onLogout}>
+                <Ionicons
+                  name="log-out"
+                  size={getResponsiveFontSize(20)}
+                  color="#FF6B6B"
+                />
+                <Text style={[styles.actionButtonText, { color: "#FF6B6B" }]}>
+                  Delete Account
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </ScrollView>
 
@@ -927,6 +1242,36 @@ export default function Profile({
             </View>
           </View>
         </Modal>
+
+        {/* Date Picker Modal */}
+        {showDatePicker && Platform.OS === "ios" && (
+          <Modal transparent animationType="slide">
+            <View style={styles.modalOverlay}>
+              <View style={styles.datePickerContainer}>
+                <DateTimePicker
+                  value={tempAge ? new Date(tempAge) : new Date()}
+                  mode="date"
+                  display="spinner"
+                  maximumDate={new Date()}
+                  onChange={(event, selectedDate) => {
+                    if (event.type === "set" && selectedDate) {
+                      const isoDate = selectedDate.toISOString().split("T")[0];
+                      setTempAge(isoDate);
+                    }
+                    setShowDatePicker(false);
+                  }}
+                  style={{ backgroundColor: "#25292e" }}
+                />
+                <TouchableOpacity
+                  style={styles.doneButton}
+                  onPress={() => setShowDatePicker(false)}
+                >
+                  <Text style={styles.doneButtonText}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        )}
       </View>
     </Modal>
   );
@@ -936,6 +1281,173 @@ const styles = StyleSheet.create({
   modalContainer: {
     flex: 1,
     backgroundColor: "#0a0a0a",
+  },
+  scrollView: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "#25292e",
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#333",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "bold",
+  },
+  settingsButton: {
+    padding: 8,
+  },
+  profileSection: {
+    padding: 16,
+  },
+  avatarContainer: {
+    position: "relative",
+    width: 120,
+    height: 120,
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  avatar: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 60,
+    borderWidth: 3,
+    borderColor: "#ffd33d",
+  },
+  avatarOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 60,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarOverlayText: {
+    color: "#fff",
+    fontSize: 12,
+    marginTop: 4,
+  },
+  levelInfoContainer: {
+    alignItems: "center",
+    marginBottom: 16,
+    padding: 12,
+    backgroundColor: "#2a2e35",
+    borderRadius: 12,
+  },
+  profileLevel: {
+    color: "#ffd33d",
+    fontSize: 24,
+    fontWeight: "bold",
+    marginBottom: 4,
+  },
+  nextUpdateText: {
+    color: "#888",
+    fontSize: 14,
+    textAlign: "center",
+  },
+  updateLimitInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#2a2e35",
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  updateLimitText: {
+    color: "#888",
+    fontSize: 14,
+    marginLeft: 8,
+  },
+  profileInfo: {
+    backgroundColor: "#2a2e35",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#3a3e45",
+  },
+  label: {
+    color: "#888",
+    fontSize: 16,
+    width: 100,
+  },
+  valueContainer: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  value: {
+    color: "#fff",
+    fontSize: 16,
+    flex: 1,
+    marginRight: 8,
+  },
+  input: {
+    flex: 1,
+    color: "#fff",
+    fontSize: 16,
+    backgroundColor: "#3a3e45",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  datePickerButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#3a3e45",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  datePickerText: {
+    color: "#fff",
+    fontSize: 16,
+  },
+  editButton: {
+    padding: 8,
+    backgroundColor: "#3a3e45",
+    borderRadius: 8,
+  },
+  saveAllButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ffd33d",
+    borderRadius: 12,
+    paddingVertical: 16,
+    marginTop: 16,
+    gap: 8,
+  },
+  saveAllButtonText: {
+    color: "#25292e",
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
   modalHeader: {
     flexDirection: "row",
@@ -948,108 +1460,325 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#333",
   },
-  closeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#333",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   modalTitle: {
     fontSize: getResponsiveFontSize(20),
     fontWeight: "bold",
     color: "#fff",
   },
-  settingsButton: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   modalContent: {
     flex: 1,
     padding: getResponsivePadding(),
   },
-  profileSection: {
-    alignItems: "center",
-    marginBottom: 30,
-  },
-  profileModalImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    marginBottom: 16,
-    borderWidth: 4,
-    borderColor: "#ffd33d",
-  },
-  usernameContainer: {
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  usernameEditContainer: {
-    alignItems: "center",
-    width: "100%",
-  },
-  usernameInput: {
-    backgroundColor: "#333",
+  sectionTitle: {
+    fontSize: getResponsiveFontSize(18),
+    fontWeight: "bold",
     color: "#fff",
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: getResponsiveFontSize(16),
+    marginBottom: 20,
     textAlign: "center",
+  },
+  loadingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 40,
+  },
+  loadingText: {
+    fontSize: getResponsiveFontSize(14),
+    color: "#888",
+    marginTop: 12,
+  },
+  packageCard: {
+    backgroundColor: "#1a1a1a",
+    borderRadius: 12,
+    padding: 16,
     marginBottom: 12,
-    width: "80%",
+    borderWidth: 1,
+    borderColor: "#333",
   },
-  usernameEditButtons: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  cancelButton: {
-    backgroundColor: "#666",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  saveButton: {
-    backgroundColor: "#ffd33d",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  disabledButton: {
-    opacity: 0.5,
-  },
-  cancelButtonText: {
-    color: "#fff",
-    fontSize: getResponsiveFontSize(14),
-    fontWeight: "600",
-  },
-  saveButtonText: {
-    color: "#25292e",
-    fontSize: getResponsiveFontSize(14),
-    fontWeight: "600",
-  },
-  usernameDisplay: {
+  packageHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    marginBottom: 8,
   },
-  profileUsername: {
-    fontSize: getResponsiveFontSize(24),
+  packageIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFD700",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  packageInfo: {
+    flex: 1,
+  },
+  packageCoins: {
+    fontSize: getResponsiveFontSize(16),
     fontWeight: "bold",
     color: "#fff",
   },
-  profileLevel: {
-    fontSize: getResponsiveFontSize(16),
+  packagePrice: {
+    fontSize: getResponsiveFontSize(14),
     color: "#ffd33d",
     fontWeight: "600",
   },
-  joinDate: {
+  bonusBadge: {
+    backgroundColor: "#4CAF50",
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  bonusText: {
+    fontSize: getResponsiveFontSize(12),
+    color: "#fff",
+    fontWeight: "600",
+  },
+  packageDescription: {
+    fontSize: getResponsiveFontSize(12),
+    color: "#888",
+    fontStyle: "italic",
+  },
+  paymentInfoCard: {
+    backgroundColor: "#1a1a1a",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+  },
+  paymentTitle: {
+    fontSize: getResponsiveFontSize(16),
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  paymentDetailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  paymentLabel: {
     fontSize: getResponsiveFontSize(14),
     color: "#888",
+  },
+  paymentValue: {
+    fontSize: getResponsiveFontSize(14),
+    color: "#fff",
+    fontWeight: "600",
+  },
+  highlightValue: {
+    color: "#ffd33d",
+    fontSize: getResponsiveFontSize(16),
+    fontWeight: "bold",
+  },
+  qrContainer: {
+    alignItems: "center",
+    backgroundColor: "#1a1a1a",
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 20,
+  },
+  qrTitle: {
+    fontSize: getResponsiveFontSize(16),
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  qrImage: {
+    width: 200,
+    height: 200,
+    marginBottom: 16,
+  },
+  qrInstructions: {
+    fontSize: getResponsiveFontSize(12),
+    color: "#888",
+    textAlign: "center",
+  },
+  webPaymentButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ffd33d",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    gap: 8,
+  },
+  webPaymentText: {
+    fontSize: getResponsiveFontSize(16),
+    color: "#25292e",
+    fontWeight: "600",
+  },
+  expiryContainer: {
+    backgroundColor: "#ff4444",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 20,
+  },
+  expiryText: {
+    fontSize: getResponsiveFontSize(12),
+    color: "#fff",
+    textAlign: "center",
+    fontWeight: "600",
+  },
+  expiryTime: {
+    fontSize: getResponsiveFontSize(18),
+    color: "#ffd33d",
+    fontWeight: "bold",
+  },
+  statusCard: {
+    backgroundColor: "#1a4b3a",
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    width: 280,
+    height: 40,
+    alignSelf: "center",
+  },
+  statusText: {
+    fontSize: getResponsiveFontSize(12),
+    color: "#fff",
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  statusSubtext: {
+    fontSize: getResponsiveFontSize(12),
+    color: "#888",
     marginTop: 4,
+  },
+  successContainer: {
+    backgroundColor: "#1a1a1a",
+    borderRadius: 12,
+    padding: 20,
+    alignItems: "center",
+  },
+  successIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#4CAF50",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  successTitle: {
+    fontSize: getResponsiveFontSize(20),
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  successMessage: {
+    fontSize: getResponsiveFontSize(14),
+    color: "#888",
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  successDetailsCard: {
+    backgroundColor: "#222",
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 20,
+  },
+  successDetailsTitle: {
+    fontSize: getResponsiveFontSize(16),
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  successDetailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  successDetailLabel: {
+    fontSize: getResponsiveFontSize(14),
+    color: "#888",
+  },
+  successDetailValue: {
+    fontSize: getResponsiveFontSize(14),
+    color: "#fff",
+    fontWeight: "600",
+  },
+  totalRow: {
+    borderTopWidth: 1,
+    borderTopColor: "#333",
+    paddingTop: 12,
+    marginTop: 8,
+  },
+  totalValue: {
+    fontSize: getResponsiveFontSize(16),
+    color: "#ffd33d",
+    fontWeight: "bold",
+  },
+  successButton: {
+    backgroundColor: "#ffd33d",
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+  },
+  successButtonText: {
+    fontSize: getResponsiveFontSize(16),
+    color: "#25292e",
+    fontWeight: "bold",
+  },
+  settingsMenu: {
+    position: "absolute",
+    top: 45,
+    right: 10,
+    backgroundColor: "#2a2e35",
+    borderRadius: 8,
+    padding: 8,
+    minWidth: 150,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    zIndex: 1000,
+  },
+  settingsMenuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderRadius: 4,
+  },
+  settingsMenuText: {
+    color: "#fff",
+    fontSize: 16,
+    marginLeft: 8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  datePickerContainer: {
+    backgroundColor: "#25292e",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 16,
+  },
+  doneButton: {
+    backgroundColor: "#ffd33d",
+    borderRadius: 8,
+    padding: 12,
+    alignItems: "center",
+    marginTop: 16,
+  },
+  doneButtonText: {
+    color: "#25292e",
+    fontSize: 16,
+    fontWeight: "bold",
   },
   currencySection: {
     marginBottom: 30,
@@ -1198,254 +1927,8 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "600",
   },
-  // Payment Modal Styles
-  sectionTitle: {
-    fontSize: getResponsiveFontSize(18),
-    fontWeight: "bold",
-    color: "#fff",
-    marginBottom: 20,
-    textAlign: "center",
-  },
-  loadingContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 40,
-  },
-  loadingText: {
-    fontSize: getResponsiveFontSize(14),
-    color: "#888",
-    marginTop: 12,
-  },
-  packageCard: {
-    backgroundColor: "#1a1a1a",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#333",
-  },
-  packageHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  packageIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#FFD700",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  packageInfo: {
-    flex: 1,
-  },
-  packageCoins: {
-    fontSize: getResponsiveFontSize(16),
-    fontWeight: "bold",
-    color: "#fff",
-  },
-  packagePrice: {
-    fontSize: getResponsiveFontSize(14),
-    color: "#ffd33d",
-    fontWeight: "600",
-  },
-  bonusBadge: {
-    backgroundColor: "#4CAF50",
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  bonusText: {
-    fontSize: getResponsiveFontSize(12),
-    color: "#fff",
-    fontWeight: "600",
-  },
-  packageDescription: {
-    fontSize: getResponsiveFontSize(12),
-    color: "#888",
+  usernameText: {
+    color: "#888", // Slightly dimmed to indicate it's not editable
     fontStyle: "italic",
-  },
-  // QR Payment Modal Styles
-  paymentInfoCard: {
-    backgroundColor: "#1a1a1a",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-  },
-  paymentTitle: {
-    fontSize: getResponsiveFontSize(16),
-    fontWeight: "bold",
-    color: "#fff",
-    marginBottom: 16,
-    textAlign: "center",
-  },
-  paymentDetailRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  paymentLabel: {
-    fontSize: getResponsiveFontSize(14),
-    color: "#888",
-  },
-  paymentValue: {
-    fontSize: getResponsiveFontSize(14),
-    color: "#fff",
-    fontWeight: "600",
-  },
-  highlightValue: {
-    color: "#ffd33d",
-    fontSize: getResponsiveFontSize(16),
-    fontWeight: "bold",
-  },
-  qrContainer: {
-    alignItems: "center",
-    backgroundColor: "#1a1a1a",
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 20,
-  },
-  qrTitle: {
-    fontSize: getResponsiveFontSize(16),
-    fontWeight: "bold",
-    color: "#fff",
-    marginBottom: 16,
-    textAlign: "center",
-  },
-  qrImage: {
-    width: 200,
-    height: 200,
-    marginBottom: 16,
-  },
-  qrInstructions: {
-    fontSize: getResponsiveFontSize(12),
-    color: "#888",
-    textAlign: "center",
-  },
-  webPaymentButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#ffd33d",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-    gap: 8,
-  },
-  webPaymentText: {
-    fontSize: getResponsiveFontSize(16),
-    color: "#25292e",
-    fontWeight: "600",
-  },
-  expiryContainer: {
-    backgroundColor: "#ff4444",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 20,
-  },
-  expiryText: {
-    fontSize: getResponsiveFontSize(12),
-    color: "#fff",
-    textAlign: "center",
-    fontWeight: "600",
-  },
-  // Payment Status Styles
-  statusCard: {
-    backgroundColor: "#1a4b3a",
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginBottom: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    width: 280,
-    height: 40,
-    alignSelf: "center",
-  },
-  statusText: {
-    fontSize: getResponsiveFontSize(12),
-    color: "#fff",
-    fontWeight: "600",
-    textAlign: "center",
-  },
-  statusSubtext: {
-    fontSize: getResponsiveFontSize(12),
-    color: "#888",
-    marginTop: 4,
-  },
-  // Success Modal Styles
-  successContainer: {
-    alignItems: "center",
-    marginBottom: 30,
-  },
-  successIcon: {
-    marginBottom: 20,
-  },
-  successTitle: {
-    fontSize: getResponsiveFontSize(24),
-    fontWeight: "bold",
-    color: "#fff",
-    textAlign: "center",
-    marginBottom: 8,
-  },
-  successMessage: {
-    fontSize: getResponsiveFontSize(16),
-    color: "#888",
-    textAlign: "center",
-    lineHeight: 24,
-  },
-  successDetailsCard: {
-    backgroundColor: "#1a1a1a",
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 30,
-  },
-  successDetailsTitle: {
-    fontSize: getResponsiveFontSize(16),
-    fontWeight: "bold",
-    color: "#fff",
-    marginBottom: 16,
-    textAlign: "center",
-  },
-  successDetailRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  successDetailLabel: {
-    fontSize: getResponsiveFontSize(14),
-    color: "#888",
-  },
-  successDetailValue: {
-    fontSize: getResponsiveFontSize(14),
-    color: "#fff",
-    fontWeight: "600",
-  },
-  totalRow: {
-    borderTopWidth: 1,
-    borderTopColor: "#333",
-    paddingTop: 12,
-    marginTop: 8,
-  },
-  totalValue: {
-    fontSize: getResponsiveFontSize(16),
-    color: "#ffd33d",
-    fontWeight: "bold",
-  },
-  successButton: {
-    backgroundColor: "#ffd33d",
-    borderRadius: 12,
-    padding: 16,
-    alignItems: "center",
-  },
-  successButtonText: {
-    fontSize: getResponsiveFontSize(16),
-    color: "#25292e",
-    fontWeight: "bold",
   },
 });
