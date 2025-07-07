@@ -7,6 +7,52 @@ import UserStatistics from '../model/user-statistics.model.js';
 import sequelize from '../database/db.js';
 import { Op } from 'sequelize';
 import { updateUserLevelAfterGame } from '../services/levelService.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import multer from 'multer';
+
+// Get current directory
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Configure multer for video upload
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        // Create uploads directory if it doesn't exist
+        const uploadDir = path.join(__dirname, '../uploads/game-recordings');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
+    },
+    filename: function (req, file, cb) {
+        // Generate unique filename with timestamp
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, `game-recording-${uniqueSuffix}${path.extname(file.originalname)}`);
+    }
+});
+
+export const upload = multer({
+    storage: storage,
+    limits: {
+        fileSize: 50 * 1024 * 1024, // 50MB max file size
+    },
+    fileFilter: (req, file, cb) => {
+        // Accept only video files
+        if (!file.mimetype.startsWith('video/')) {
+            return cb(new Error('Only video files are allowed!'));
+        }
+
+        // Get duration from request body
+        const duration = parseInt(req.body.duration) || 5;
+        if (duration > 10) {
+            return cb(new Error('Video duration cannot exceed 10 seconds!'));
+        }
+
+        cb(null, true);
+    }
+});
 
 // POST /api/game/start - Create new game session (ADMIN ONLY)
 export const startGame = async (req, res) => {
@@ -1898,6 +1944,47 @@ export const submitWholeGame = async (req, res) => {
         res.status(500).json({
             message: 'Server error while processing game',
             error: err.message
+        });
+    }
+};
+
+// POST /api/game/upload-recording - Upload game recording
+export const uploadGameRecording = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: 'No video file uploaded' });
+        }
+
+        const duration = parseInt(req.body.duration) || 5;
+        if (duration > 10) {
+            // Delete the uploaded file
+            fs.unlinkSync(req.file.path);
+            return res.status(400).json({
+                message: 'Video duration cannot exceed 10 seconds'
+            });
+        }
+
+        // Get the file path relative to the uploads directory
+        const relativePath = path.relative(
+            path.join(__dirname, '..'),
+            req.file.path
+        );
+
+        // Return the file path that can be stored in the database
+        return res.status(200).json({
+            message: 'Video uploaded successfully',
+            recording_url: relativePath,
+            recording_duration: duration
+        });
+    } catch (error) {
+        // Clean up uploaded file if there's an error
+        if (req.file) {
+            fs.unlinkSync(req.file.path);
+        }
+        console.error('Error uploading video:', error);
+        return res.status(500).json({
+            message: 'Failed to upload video',
+            error: error.message
         });
     }
 };

@@ -16,6 +16,9 @@ import { useSharedValue } from "react-native-reanimated";
 import { gameAPI, userAPI } from "../../services/api";
 import Canvas from "../../components/canvas";
 import { Point, recognizeSymbol } from "../../utils/symbolUtils";
+import { GameRecorder } from "../../components/GameRecorder";
+import { API_URL } from "../../config/constants";
+import { useAuth } from "../../hooks/useAuth";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -55,6 +58,7 @@ interface GameSession {
 export default function GameScreen() {
   const params = useLocalSearchParams();
   const { sessionId, gameType, title } = params;
+  const { token } = useAuth();
 
   // Validate and parse sessionId
   const parsedSessionId = useMemo(() => {
@@ -95,6 +99,8 @@ export default function GameScreen() {
   const [showGamesList, setShowGamesList] = useState<boolean>(false);
   const [availableGames, setAvailableGames] = useState<any[]>([]);
   const [gamesLoading, setGamesLoading] = useState<boolean>(false);
+  const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
 
   // Canvas state for symbol recognition
   const currentPath = useSharedValue<Point[]>([]);
@@ -500,6 +506,39 @@ export default function GameScreen() {
     }
   };
 
+  const handleRecordingComplete = async (localUri: string) => {
+    try {
+      // Create form data for video upload
+      const formData = new FormData();
+      formData.append("video", {
+        uri: localUri,
+        type: "video/mp4",
+        name: "game-recording.mp4",
+      } as any); // Type assertion needed for React Native's FormData
+
+      formData.append("duration", "5");
+
+      // Upload video to backend
+      const response = await fetch(`${API_URL}/api/game/upload-recording`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to upload video");
+      }
+
+      const data = await response.json();
+      setRecordingUrl(data.recording_url);
+    } catch (error) {
+      console.error("Error uploading video:", error);
+      // Handle error appropriately
+    }
+  };
+
   const completeGame = async (finalRounds: Round[]) => {
     try {
       console.log("🎮 Completing game with session ID:", parsedSessionId);
@@ -507,8 +546,6 @@ export default function GameScreen() {
       // Skip completion for practice mode
       if (parsedSessionId === "practice") {
         setGameCompleted(true);
-
-        // Redirect to gameResult.tsx for practice mode
         router.push({
           pathname: "/game/gameResult",
           params: {
@@ -521,66 +558,54 @@ export default function GameScreen() {
             ).toString(),
             totalTime: ((Date.now() - gameStartTime) / 1000).toString(),
             xpGained: "0",
-            coinsEarned: "0",
+            coinsGained: "0",
           },
         });
         return;
       }
 
-      // Calculate total time from actual gameplay
-      const totalTime = (Date.now() - gameStartTime) / 1000; // Convert to seconds
+      const response = await fetch(`${API_URL}/api/game/complete`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          game_session_id: parsedSessionId,
+          total_time: (Date.now() - gameStartTime) / 1000,
+          rounds: finalRounds,
+          recording_url: recordingUrl,
+          recording_duration: 5,
+        }),
+      });
 
-      // Prepare game completion data to match expected format
-      // IMPORTANT: Backend expects rounds in database order (by round_number)
-      // Sort rounds by round_number before submitting to match backend validation
-      const sortedRounds = finalRounds
-        .slice() // Create copy to avoid mutating original
-        .sort((a, b) => a.round_number - b.round_number);
+      if (!response.ok) {
+        throw new Error("Failed to complete game");
+      }
 
-      const gameResults = {
-        game_session_id: parsedSessionId,
-        difficulty_level: 2, // Default difficulty level
-        total_time: totalTime,
-        rounds: sortedRounds.map((round) => ({
-          first_number: round.first_number,
-          second_number: round.second_number,
-          user_symbol: round.user_symbol || "",
-          response_time: round.response_time || 0,
-        })),
-        recording_url: null, // Optional field
-      };
-
-      console.log("📤 Submitting game completion:", gameResults);
-      console.log(
-        "🎲 Note: Rounds are shuffled during gameplay but sorted back to database order for submission"
-      );
-
-      const result = await gameAPI.completeGame(gameResults);
+      const data = await response.json();
       setGameCompleted(true);
 
-      console.log("✅ Game completed successfully:", result);
+      console.log("✅ Game completed successfully:", data);
 
       // 🆕 Update stored user profile with new level/XP info if available
-      if (result.updatedUserInfo) {
-        console.log("🎉 Updating user level info:", result.updatedUserInfo);
-        await userAPI.updateStoredUserLevel(result.updatedUserInfo);
+      if (data.updatedUserInfo) {
+        console.log("🎉 Updating user level info:", data.updatedUserInfo);
+        await userAPI.updateStoredUserLevel(data.updatedUserInfo);
 
         // 🆕 Also update statistics immediately for instant UI refresh
         await userAPI.updateStoredUserStats();
       }
 
       // Get results data from server response
-      const finalScore =
-        result.data?.game_result?.scoring?.final_score || score;
+      const finalScore = data.data?.game_result?.scoring?.final_score || score;
       const finalCorrect =
-        result.data?.game_result?.performance?.correct_answers ||
-        correctAnswers;
+        data.data?.game_result?.performance?.correct_answers || correctAnswers;
       const accuracy =
-        result.data?.game_result?.performance?.accuracy ||
+        data.data?.game_result?.performance?.accuracy ||
         Math.round((correctAnswers / rounds.length) * 100);
-      const xpGained =
-        result.data?.game_result?.scoring?.experience_gained || 0;
-      const coinsEarned = result.data?.game_result?.scoring?.coins_earned || 0;
+      const xpGained = data.data?.game_result?.scoring?.experience_gained || 0;
+      const coinsEarned = data.data?.game_result?.scoring?.coins_earned || 0;
 
       // Redirect to gameResult.tsx instead of showing alert
       router.push({
@@ -592,7 +617,7 @@ export default function GameScreen() {
           correctAnswers: finalCorrect.toString(),
           totalRounds: rounds.length.toString(),
           accuracy: accuracy.toString(),
-          totalTime: totalTime.toString(),
+          totalTime: (Date.now() - gameStartTime) / 1000,
           xpGained: xpGained.toString(),
           coinsEarned: coinsEarned.toString(),
         },
@@ -1354,6 +1379,14 @@ export default function GameScreen() {
             </Text>
           </View>
         </View>
+
+        {/* Add GameRecorder component */}
+        {!gameCompleted && (
+          <GameRecorder
+            onRecordingComplete={handleRecordingComplete}
+            maxDuration={5}
+          />
+        )}
       </View>
     );
   };

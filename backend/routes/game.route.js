@@ -11,10 +11,8 @@ import {
     submitRound,
     createInstantGame,
     // submitWholeGame,
-
-
-
-
+    uploadGameRecording,
+    upload
 } from '../controllers/game.controller.js';
 import { verifyToken } from '../middleware/verifyUser.js';
 
@@ -903,5 +901,57 @@ router.get('/history', verifyToken, getGameHistory);
 // Game statistics routes - both /stats and /stats/summary supported for compatibility
 router.get('/stats/summary', verifyToken, getGameStatsSummary);
 
+/**
+ * @swagger
+ * /api/game/upload-recording:
+ *   post:
+ *     tags:
+ *     - Game Controller
+ *     summary: Upload game recording video
+ *     description: Upload a video recording of the game session (maximum 10 seconds)
+ *     security:
+ *       - Authorization: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - video
+ *             properties:
+ *               video:
+ *                 type: string
+ *                 format: binary
+ *                 description: Video file of the game recording (max 10 seconds)
+ *               duration:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 10
+ *                 default: 5
+ *                 description: Duration of the recording in seconds (max 10 seconds)
+ *     responses:
+ *       200:
+ *         description: Video uploaded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Video uploaded successfully
+ *                 recording_url:
+ *                   type: string
+ *                   example: uploads/game-recordings/game-recording-123456.mp4
+ *                 recording_duration:
+ *                   type: integer
+ *                   example: 5
+ *       400:
+ *         description: No video file uploaded, invalid file type, or duration exceeds 10 seconds
+ *       500:
+ *         description: Server error
+ */
+router.post('/upload-recording', verifyToken, upload.single('video'), uploadGameRecording);
 
 export default router; 
