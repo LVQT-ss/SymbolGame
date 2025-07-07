@@ -306,6 +306,34 @@ export const userAPI = {
             }
             return { success: false, message: 'Failed to claim daily bonus' };
         }
+    },
+
+    uploadProfilePicture: async (imageUri) => {
+        try {
+            // Create form data
+            const formData = new FormData();
+
+            // Get the file name from the URI
+            const filename = imageUri.split('/').pop();
+            const match = /\.(\w+)$/.exec(filename);
+            const type = match ? `image/${match[1]}` : 'image/jpeg';
+
+            formData.append('image', {
+                uri: imageUri,
+                name: filename || 'profile.jpg',
+                type
+            });
+
+            const response = await api.post('/user/upload-profile-picture', formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                },
+            });
+
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || 'Failed to upload profile picture');
+        }
     }
 };
 

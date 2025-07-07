@@ -7,7 +7,9 @@ import {
     deleteUser,
     getAllCustomer,
     logout,
-    claimDailyBonus
+    claimDailyBonus,
+    upload,
+    uploadProfilePicture
 } from '../controllers/user.controller.js';
 import { verifyToken } from '../middleware/verifyUser.js';
 const router = express.Router();
@@ -430,5 +432,48 @@ router.post('/logout', logout);
  *         description: Server error
  */
 router.post('/claim-daily-bonus', verifyToken, claimDailyBonus);
+
+/**
+ * @swagger
+ * /api/user/upload-profile-picture:
+ *   post:
+ *     tags:
+ *     - User Controller
+ *     summary: Upload user profile picture
+ *     description: Upload and update user's profile picture
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Profile picture uploaded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Profile picture uploaded successfully
+ *                 imageUrl:
+ *                   type: string
+ *                   example: http://localhost:3000/uploads/profile-pictures/profile-123456.jpg
+ *       400:
+ *         description: No image file provided or invalid file type
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *       500:
+ *         description: Server error
+ */
+router.post('/upload-profile-picture', verifyToken, upload.single('image'), uploadProfilePicture);
 
 export default router;

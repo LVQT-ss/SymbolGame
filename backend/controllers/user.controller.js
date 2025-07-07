@@ -4,8 +4,45 @@ import UserStatistics from '../model/user-statistics.model.js';
 import jwt from 'jsonwebtoken';
 import process from 'process';
 import 'dotenv/config'
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 
 const DAILY_BONUS_COINS = 50;
+
+// Configure multer for image upload
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        const uploadDir = 'uploads/profile-pictures';
+        // Create directory if it doesn't exist
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
+    },
+    filename: function (req, file, cb) {
+        // Generate unique filename with timestamp
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, 'profile-' + uniqueSuffix + path.extname(file.originalname));
+    }
+});
+
+// File filter for images
+const fileFilter = (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+        cb(null, true);
+    } else {
+        cb(new Error('Not an image! Please upload an image.'), false);
+    }
+};
+
+export const upload = multer({
+    storage: storage,
+    fileFilter: fileFilter,
+    limits: {
+        fileSize: 5 * 1024 * 1024 // 5MB limit
+    }
+});
 
 export const getAllUsers = async (req, res) => {
     try {
@@ -246,5 +283,57 @@ export const claimDailyBonus = async (req, res) => {
     } catch (err) {
         console.error('Error in claimDailyBonus:', err);
         res.status(500).json({ message: 'Server error', error: err.message });
+    }
+};
+
+export const uploadProfilePicture = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: 'No image file provided' });
+        }
+
+        // Get user ID from token
+        const userId = req.user.id;
+
+        // Get the file path
+        const filePath = req.file.path;
+
+        // Convert file path to URL
+        const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+        const imageUrl = `${baseUrl}/${filePath.replace(/\\/g, '/')}`;
+
+        // Update user's avatar in database
+        const user = await User.findByPk(userId);
+        if (!user) {
+            // Delete uploaded file if user not found
+            fs.unlinkSync(filePath);
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        // Delete old profile picture if it exists
+        if (user.avatar && user.avatar.startsWith(baseUrl)) {
+            const oldFilePath = user.avatar.replace(baseUrl, '').substring(1);
+            if (fs.existsSync(oldFilePath)) {
+                fs.unlinkSync(oldFilePath);
+            }
+        }
+
+        // Update user's avatar URL
+        await user.update({ avatar: imageUrl });
+
+        res.status(200).json({
+            message: 'Profile picture uploaded successfully',
+            imageUrl: imageUrl
+        });
+    } catch (error) {
+        console.error('Error uploading profile picture:', error);
+        // Delete uploaded file if there's an error
+        if (req.file) {
+            fs.unlinkSync(req.file.path);
+        }
+        res.status(500).json({
+            message: 'Error uploading profile picture',
+            error: error.message
+        });
     }
 };

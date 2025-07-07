@@ -3,6 +3,8 @@ import { Picker } from "@react-native-picker/picker";
 import DateTimePicker, {
   DateTimePickerAndroid,
 } from "@react-native-community/datetimepicker";
+import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system";
 import React, { useState } from "react";
 import {
   Alert,
@@ -15,6 +17,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Image,
 } from "react-native";
 import { router } from "expo-router";
 import { authAPI, userAPI } from "../../services/api";
@@ -35,6 +38,7 @@ export default function Auth() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [profileImage, setProfileImage] = useState<string | null>(null);
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -112,6 +116,52 @@ export default function Auth() {
     }
   };
 
+  const uploadImage = async (uri: string) => {
+    try {
+      const response = await userAPI.uploadProfilePicture(uri);
+      return response.imageUrl;
+    } catch (error) {
+      console.error("Error uploading image:", error);
+      throw error;
+    }
+  };
+
+  const pickImage = async () => {
+    try {
+      const { status } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission needed",
+          "Please grant permission to access your photos"
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled) {
+        setIsLoading(true);
+        try {
+          const imageUrl = await uploadImage(result.assets[0].uri);
+          setProfileImage(imageUrl); // Now storing the remote URL instead of local URI
+        } catch (error) {
+          Alert.alert("Error", "Failed to upload image. Please try again.");
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    } catch (error) {
+      console.error("Error picking image:", error);
+      Alert.alert("Error", "Failed to pick image. Please try again.");
+    }
+  };
+
   const handleSubmit = async () => {
     if (!validateForm()) return;
 
@@ -142,7 +192,6 @@ export default function Auth() {
             {
               text: "Continue",
               onPress: () => {
-                // Navigate to main app
                 router.replace("/(tabs)/home");
               },
             },
@@ -157,8 +206,9 @@ export default function Auth() {
           password: password,
           full_name: fullName.trim(),
           avatar:
+            profileImage ||
             "https://i.pravatar.cc/100?img=" +
-            Math.floor(Math.random() * 70 + 1), // Random avatar
+              Math.floor(Math.random() * 70 + 1),
           age: age.trim(),
           country: countryCode,
           country_flag: selectedCountry?.flag,
@@ -181,7 +231,6 @@ export default function Auth() {
               text: "Sign In",
               onPress: () => {
                 setIsLogin(true);
-                // Keep username filled for easy login
                 setPassword("");
                 setConfirmPassword("");
                 setFullName("");
@@ -189,6 +238,7 @@ export default function Auth() {
                 setAge("");
                 setCountryCode("US");
                 setSelectedCountry(null);
+                setProfileImage(null);
               },
             },
           ]
@@ -323,6 +373,27 @@ export default function Auth() {
         <View style={styles.formContainer}>
           {!isLogin && (
             <>
+              <View style={styles.profileImageContainer}>
+                <TouchableOpacity
+                  onPress={pickImage}
+                  style={styles.imagePickerButton}
+                >
+                  {profileImage ? (
+                    <Image
+                      source={{ uri: profileImage }}
+                      style={styles.profileImage}
+                    />
+                  ) : (
+                    <>
+                      <Ionicons name="camera-outline" size={32} color="#888" />
+                      <Text style={styles.imagePickerText}>
+                        Add Profile Picture
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+
               <View style={styles.inputContainer}>
                 <Ionicons
                   name="person-outline"
@@ -750,5 +821,30 @@ const styles = StyleSheet.create({
     color: "#ffd33d",
     fontSize: 16,
     fontWeight: "bold",
+  },
+  profileImageContainer: {
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  imagePickerButton: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "#333",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#444",
+    overflow: "hidden",
+  },
+  profileImage: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
+  imagePickerText: {
+    color: "#888",
+    marginTop: 8,
+    fontSize: 14,
   },
 });

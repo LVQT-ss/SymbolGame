@@ -37,6 +37,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
+// Serve static files from the uploads directory
+app.use('/uploads', express.static('uploads'));
+
 // Register the routes
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
