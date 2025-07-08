@@ -12,6 +12,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Modal,
 } from "react-native";
 import { gameAPI, userAPI } from "../../services/api";
 
@@ -83,6 +84,29 @@ interface GameStats {
   favoriteCategory: string;
 }
 
+interface GameHistoryDetails {
+  id: number;
+  user_id: number;
+  difficulty_level: number;
+  number_of_rounds: number;
+  total_time: number;
+  correct_answers: number;
+  score: number;
+  completed: boolean;
+  completed_at: string;
+  created_at: string;
+  rounds: Array<{
+    round_number: number;
+    first_number: number;
+    second_number: number;
+    correct_symbol: string;
+    user_symbol: string;
+    response_time: number;
+    is_correct: boolean;
+  }>;
+  accuracy: number;
+}
+
 export default function GameMenuScreen() {
   const [dimensions, setDimensions] = useState(getResponsiveDimensions());
   const [refreshing, setRefreshing] = useState(false);
@@ -112,6 +136,14 @@ export default function GameMenuScreen() {
     coins: 0,
     experience: 0,
   });
+
+  // Game History Modal states
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [selectedGameHistory, setSelectedGameHistory] = useState<
+    GameHistoryDetails[]
+  >([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [selectedGameId, setSelectedGameId] = useState<number | null>(null);
 
   useEffect(() => {
     loadAllData();
@@ -289,6 +321,98 @@ export default function GameMenuScreen() {
     } catch (error) {
       console.error("Error loading game stats:", error);
     }
+  };
+
+  const loadGameHistory = async (gameId: number) => {
+    setLoadingHistory(true);
+    try {
+      console.log(`Loading history for game ${gameId}...`);
+
+      // First, get the general game history to see if this user has played this game before
+      const historyResponse = await gameAPI.getGameHistory(1, 50);
+
+      if (historyResponse && historyResponse.games) {
+        // Filter games that match the selected game session ID
+        const userGameSessions = historyResponse.games.filter(
+          (game: any) => game.id === gameId || game.game_session_id === gameId
+        );
+
+        if (userGameSessions.length > 0) {
+          // Get detailed information for each game session
+          const detailedHistory: GameHistoryDetails[] = [];
+
+          for (const gameSession of userGameSessions) {
+            try {
+              const detailsResponse = await gameAPI.getGameDetails(
+                gameSession.id
+              );
+              if (detailsResponse) {
+                detailedHistory.push({
+                  id: gameSession.id,
+                  user_id: gameSession.user_id || 0,
+                  difficulty_level: gameSession.difficulty_level || 1,
+                  number_of_rounds: gameSession.number_of_rounds || 0,
+                  total_time: gameSession.total_time || 0,
+                  correct_answers: gameSession.correct_answers || 0,
+                  score: gameSession.score || 0,
+                  completed: gameSession.completed || false,
+                  completed_at:
+                    gameSession.completed_at || gameSession.updatedAt,
+                  created_at: gameSession.created_at || gameSession.createdAt,
+                  rounds: gameSession.rounds || [],
+                  accuracy: gameSession.accuracy || 0,
+                });
+              }
+            } catch (detailError) {
+              console.warn(
+                `Could not load details for game ${gameSession.id}:`,
+                detailError
+              );
+              // Still add basic info even if details fail
+              detailedHistory.push({
+                id: gameSession.id,
+                user_id: gameSession.user_id || 0,
+                difficulty_level: gameSession.difficulty_level || 1,
+                number_of_rounds: gameSession.number_of_rounds || 0,
+                total_time: gameSession.total_time || 0,
+                correct_answers: gameSession.correct_answers || 0,
+                score: gameSession.score || 0,
+                completed: gameSession.completed || false,
+                completed_at: gameSession.completed_at || gameSession.updatedAt,
+                created_at: gameSession.created_at || gameSession.createdAt,
+                rounds: [],
+                accuracy: gameSession.accuracy || 0,
+              });
+            }
+          }
+
+          setSelectedGameHistory(detailedHistory);
+        } else {
+          // No history found for this game
+          setSelectedGameHistory([]);
+        }
+      } else {
+        setSelectedGameHistory([]);
+      }
+    } catch (error) {
+      console.error("Error loading game history:", error);
+      Alert.alert("Error", "Failed to load game history. Please try again.");
+      setSelectedGameHistory([]);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const handleShowGameHistory = async (gameId: number, gameTitle: string) => {
+    setSelectedGameId(gameId);
+    setShowHistoryModal(true);
+    await loadGameHistory(gameId);
+  };
+
+  const handleCloseHistoryModal = () => {
+    setShowHistoryModal(false);
+    setSelectedGameId(null);
+    setSelectedGameHistory([]);
   };
 
   const onRefresh = async () => {
@@ -567,6 +691,13 @@ export default function GameMenuScreen() {
 
       <View style={styles.gameActions}>
         <TouchableOpacity
+          style={styles.historyButton}
+          onPress={() => handleShowGameHistory(item.id, item.title)}
+        >
+          <Ionicons name="time-outline" size={16} color="#ffd33d" />
+          <Text style={styles.historyButtonText}>History</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           style={styles.joinButton}
           onPress={() => handleJoinGame(item)}
         >
@@ -726,6 +857,130 @@ export default function GameMenuScreen() {
     );
   }
 
+  const renderGameHistoryModal = () => (
+    <Modal
+      visible={showHistoryModal}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={handleCloseHistoryModal}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Game History</Text>
+          <TouchableOpacity
+            style={styles.modalCloseButton}
+            onPress={handleCloseHistoryModal}
+          >
+            <Ionicons name="close" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
+
+        {loadingHistory ? (
+          <View style={styles.modalLoadingContainer}>
+            <Ionicons name="time" size={48} color="#ffd33d" />
+            <Text style={styles.modalLoadingText}>
+              Loading your game history...
+            </Text>
+          </View>
+        ) : selectedGameHistory.length === 0 ? (
+          <View style={styles.modalEmptyContainer}>
+            <Ionicons name="document-outline" size={48} color="#666" />
+            <Text style={styles.modalEmptyText}>No History Found</Text>
+            <Text style={styles.modalEmptySubtext}>
+              You haven&apos;t played this game session yet.{"\n"}
+              Join the game to start creating your history!
+            </Text>
+          </View>
+        ) : (
+          <ScrollView
+            style={styles.modalContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={styles.historyCount}>
+              {selectedGameHistory.length} game
+              {selectedGameHistory.length !== 1 ? "s" : ""} played
+            </Text>
+            {selectedGameHistory.map((historyItem, index) => (
+              <View key={historyItem.id} style={styles.historyCard}>
+                <View style={styles.historyHeader}>
+                  <Text style={styles.historyTitle}>
+                    Game #{historyItem.id}
+                  </Text>
+                  <View style={styles.historyResult}>
+                    <Text
+                      style={[
+                        styles.historyStatValue,
+                        {
+                          color: historyItem.completed ? "#4CAF50" : "#FF9800",
+                        },
+                      ]}
+                    >
+                      {historyItem.completed ? "COMPLETED" : "INCOMPLETE"}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.historyStats}>
+                  <View style={styles.historyStatItem}>
+                    <Text style={styles.historyStatLabel}>Score</Text>
+                    <Text style={styles.historyStatValue}>
+                      {historyItem.score}
+                    </Text>
+                  </View>
+                  <View style={styles.historyStatItem}>
+                    <Text style={styles.historyStatLabel}>Accuracy</Text>
+                    <Text style={styles.historyStatValue}>
+                      {historyItem.accuracy}%
+                    </Text>
+                  </View>
+                  <View style={styles.historyStatItem}>
+                    <Text style={styles.historyStatLabel}>Rounds</Text>
+                    <Text style={styles.historyStatValue}>
+                      {historyItem.correct_answers}/
+                      {historyItem.number_of_rounds}
+                    </Text>
+                  </View>
+                  <View style={styles.historyStatItem}>
+                    <Text style={styles.historyStatLabel}>Time</Text>
+                    <Text style={styles.historyStatValue}>
+                      {Math.floor(historyItem.total_time / 60)}:
+                      {(historyItem.total_time % 60)
+                        .toString()
+                        .padStart(2, "0")}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.historyFooter}>
+                  <Text style={styles.historyDate}>
+                    {formatDate(
+                      historyItem.completed_at || historyItem.created_at
+                    )}
+                  </Text>
+                  <View style={styles.historyRewards}>
+                    <Ionicons name="diamond" size={14} color="#ffd33d" />
+                    <Text style={styles.historyRewardText}>
+                      +{Math.floor(historyItem.score / 10)} coins
+                    </Text>
+                    <Ionicons
+                      name="star"
+                      size={14}
+                      color="#4CAF50"
+                      style={{ marginLeft: 8 }}
+                    />
+                    <Text style={styles.historyRewardText}>
+                      +{Math.floor(historyItem.score / 20)} XP
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        )}
+      </View>
+    </Modal>
+  );
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -756,6 +1011,9 @@ export default function GameMenuScreen() {
 
       {/* Content */}
       {renderContent()}
+
+      {/* Game History Modal */}
+      {renderGameHistoryModal()}
     </View>
   );
 }
@@ -993,6 +1251,7 @@ const getResponsiveStyles = (dimensions: any) =>
     },
     gameActions: {
       flexDirection: "row",
+      gap: 8,
     },
     joinButton: {
       flex: 1,
@@ -1014,6 +1273,22 @@ const getResponsiveStyles = (dimensions: any) =>
     },
     joinedButtonText: {
       color: "#fff",
+    },
+    historyButton: {
+      backgroundColor: "#333",
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderRadius: 8,
+      flexDirection: "row",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: "#ffd33d",
+    },
+    historyButtonText: {
+      color: "#ffd33d",
+      fontSize: getResponsiveFontSize(12),
+      fontWeight: "600",
+      marginLeft: 4,
     },
     startButton: {
       flex: 1,
@@ -1166,5 +1441,76 @@ const getResponsiveStyles = (dimensions: any) =>
       justifyContent: "center",
       alignItems: "center",
       paddingTop: 100,
+    },
+    // Modal styles
+    modalContainer: {
+      flex: 1,
+      backgroundColor: "#25292e",
+    },
+    modalHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      paddingHorizontal: 20,
+      paddingTop: 20,
+      paddingBottom: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: "#333",
+    },
+    modalTitle: {
+      fontSize: getResponsiveFontSize(20),
+      fontWeight: "bold",
+      color: "#fff",
+    },
+    modalCloseButton: {
+      padding: 8,
+    },
+    modalLoadingContainer: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    modalLoadingText: {
+      color: "#fff",
+      fontSize: getResponsiveFontSize(16),
+      marginTop: 16,
+      textAlign: "center",
+    },
+    modalEmptyContainer: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      paddingHorizontal: 40,
+    },
+    modalEmptyText: {
+      fontSize: getResponsiveFontSize(18),
+      fontWeight: "bold",
+      color: "#fff",
+      marginTop: 16,
+      textAlign: "center",
+    },
+    modalEmptySubtext: {
+      fontSize: getResponsiveFontSize(14),
+      color: "#888",
+      marginTop: 8,
+      textAlign: "center",
+      lineHeight: 20,
+    },
+    modalContent: {
+      flex: 1,
+      paddingHorizontal: 20,
+    },
+    historyCount: {
+      fontSize: getResponsiveFontSize(16),
+      color: "#ffd33d",
+      fontWeight: "600",
+      marginVertical: 16,
+      textAlign: "center",
+    },
+    historyFooter: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginTop: 12,
     },
   });

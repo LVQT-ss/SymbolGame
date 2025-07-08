@@ -426,6 +426,57 @@ router.get('/available', verifyToken, getAvailableGames);
 
 /**
  * @swagger
+ * /api/game/history:
+ *   get:
+ *     tags:
+ *     - Game Controller
+ *     summary: Get game history
+ *     description: Retrieve user's completed games. Customers only see admin-assigned sessions.
+ *     security:
+ *       - Authorization: []
+ *     parameters:
+ *       - name: page
+ *         in: query
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - name: limit
+ *         in: query
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *     responses:
+ *       200:
+ *         description: Game history retrieved successfully
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.get('/history', verifyToken, getGameHistory);
+
+/**
+ * @swagger
+ * /api/game/stats/summary:
+ *   get:
+ *     tags:
+ *     - Game Controller
+ *     summary: Get game statistics summary
+ *     description: Get comprehensive performance analytics and statistics. Customers only see stats from admin-assigned sessions.
+ *     security:
+ *       - Authorization: []
+ *     responses:
+ *       200:
+ *         description: Game statistics retrieved successfully
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.get('/stats/summary', verifyToken, getGameStatsSummary);
+
+/**
+ * @swagger
  * /api/game/{id}:
  *   get:
  *     tags:
@@ -786,120 +837,7 @@ router.post('/admin/create-custom', verifyToken, createGameWithCustomRounds);
  */
 router.post('/complete', verifyToken, completeGame);
 
-/**
- * @swagger
- * /api/game/history:
- *   get:
- *     tags:
- *     - Game Controller
- *     summary: Get game history
- *     description: Retrieve user's completed games. Customers only see admin-assigned sessions.
- *     security:
- *       - Authorization: []
- *     parameters:
- *       - name: page
- *         in: query
- *         schema:
- *           type: integer
- *           default: 1
- *       - name: limit
- *         in: query
- *         schema:
- *           type: integer
- *           default: 10
- *     responses:
- *       200:
- *         description: Game history retrieved successfully
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Server error
- */
-router.get('/history', verifyToken, getGameHistory);
 
-/**
- * @swagger
- * /api/game/stats/summary:
- *   get:
- *     tags:
- *     - Game Controller
- *     summary: Get game statistics summary
- *     description: Get comprehensive performance analytics and statistics. Customers only see stats from admin-assigned sessions.
- *     security:
- *       - Authorization: []
- *     responses:
- *       200:
- *         description: Game statistics retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: Game statistics summary retrieved successfully
- *                 summary:
- *                   type: object
- *                   properties:
- *                     overall:
- *                       type: object
- *                       properties:
- *                         games_played:
- *                           type: integer
- *                           example: 15
- *                         best_score:
- *                           type: integer
- *                           example: 950
- *                         total_score:
- *                           type: integer
- *                           example: 12500
- *                         current_level:
- *                           type: integer
- *                           example: 5
- *                         experience_points:
- *                           type: integer
- *                           example: 4250
- *                         level_progress:
- *                           type: number
- *                           format: float
- *                           example: 0.25
- *                         coins:
- *                           type: integer
- *                           example: 125
- *                     recent_performance:
- *                       type: object
- *                       properties:
- *                         average_score:
- *                           type: integer
- *                           example: 775
- *                         average_accuracy:
- *                           type: integer
- *                           example: 78
- *                         average_time:
- *                           type: integer
- *                           example: 165
- *                         games_analyzed:
- *                           type: integer
- *                           example: 10
- *                     recent_games:
- *                       type: array
- *                       items:
- *                         type: object
- *                     user_type:
- *                       type: string
- *                       enum: [Admin, Customer]
- *                       example: Customer
- *                     access_level:
- *                       type: string
- *                       enum: [admin_assigned_only, full_access]
- *                       example: admin_assigned_only
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Server error
- */
-// Game statistics routes - both /stats and /stats/summary supported for compatibility
-router.get('/stats/summary', verifyToken, getGameStatsSummary);
 
 /**
  * @swagger
