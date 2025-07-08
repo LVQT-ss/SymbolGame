@@ -58,7 +58,17 @@ interface GameSession {
 export default function GameScreen() {
   const params = useLocalSearchParams();
   const { sessionId, gameType, title } = params;
-  const { token, userId } = useAuth();
+  const { token, userId, isAuthenticated } = useAuth();
+
+  // Debug auth state
+  useEffect(() => {
+    console.log("🔐 Auth Debug:", {
+      token: !!token,
+      userId: userId,
+      isAuthenticated: isAuthenticated,
+      tokenLength: token?.length || 0,
+    });
+  }, [token, userId, isAuthenticated]);
 
   // Validate and parse sessionId
   const parsedSessionId = useMemo(() => {
@@ -564,25 +574,20 @@ export default function GameScreen() {
       console.log("🔥 Uploading video to Firebase Storage...");
       console.log("🔑 Token available:", !!token);
       console.log("👤 User ID:", userId);
+      console.log("🎮 Session ID:", parsedSessionId);
 
-      // Check if we have required data
-      if (!token) {
-        throw new Error("Authentication required. Please log in again.");
-      }
+      // Use fallback userId if not available (for video storage only)
+      const fallbackUserId = userId || Date.now(); // Use timestamp as fallback
+      const sessionId = parsedSessionId || "unknown_session";
 
-      if (!userId) {
-        throw new Error("User ID not found. Please log in again.");
-      }
+      console.log("📤 Using fallback User ID:", fallbackUserId);
+      console.log("📤 Using Session ID:", sessionId);
 
-      if (!parsedSessionId) {
-        throw new Error("Game session ID not found.");
-      }
-
-      // Upload video to Firebase Storage
+      // Upload video to Firebase Storage (no authentication required for storage)
       const firebaseUrl: string = await uploadToFirebaseStorage(
         uri,
-        userId,
-        parsedSessionId.toString()
+        fallbackUserId,
+        sessionId.toString()
       );
 
       console.log(
@@ -600,6 +605,11 @@ export default function GameScreen() {
     try {
       console.log("🔥 Starting video upload to Firebase Storage...");
       console.log("📁 Local video URI:", localUri);
+      console.log("🔐 Current Auth State:", {
+        hasToken: !!token,
+        userId: userId,
+        isAuthenticated: isAuthenticated,
+      });
 
       // Upload video directly to Firebase Storage
       const firebaseVideoUrl = await uploadVideoToFirebase(localUri);

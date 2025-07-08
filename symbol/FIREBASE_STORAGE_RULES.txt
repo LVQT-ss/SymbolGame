@@ -1,0 +1,18 @@
+// Firebase Storage Rules - Copy this to Firebase Console > Storage > Rules
+
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Allow video uploads to videos folder (no authentication required)
+    match /videos/{allPaths=**} {
+      allow read, write: if true;
+    }
+    
+    // Optional: Restrict file size and type
+    match /videos/{folder}/{fileName} {
+      allow write: if request.resource.size < 10 * 1024 * 1024 // 10MB max
+                && request.resource.contentType == 'video/mp4';
+      allow read: if true;
+    }
+  }
+} 

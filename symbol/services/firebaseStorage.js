@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 /**
  * Upload video to Firebase Storage
  * @param {string} localUri - Local file URI from video recording
- * @param {number} userId - User ID for folder organization
+ * @param {number|string} userId - User ID for folder organization (can be fallback timestamp)
  * @param {string} gameSessionId - Game session ID for naming
  * @returns {Promise<string>} - Firebase Storage download URL
  */
@@ -20,8 +20,9 @@ export const uploadVideoToFirebase = async (localUri, userId, gameSessionId) => 
         const timestamp = Date.now();
         const filename = `game_recording_${gameSessionId}_${timestamp}.mp4`;
 
-        // Create storage path: videos/userId/filename
-        const storagePath = `videos/${userId}/${filename}`;
+        // Create storage path: videos/userId/filename (userId can be actual ID or timestamp)
+        const userFolder = userId ? userId.toString() : `guest_${timestamp}`;
+        const storagePath = `videos/${userFolder}/${filename}`;
 
         console.log("📤 Upload path:", storagePath);
 
@@ -38,10 +39,11 @@ export const uploadVideoToFirebase = async (localUri, userId, gameSessionId) => 
         const uploadResult = await uploadBytes(storageRef, blob, {
             contentType: 'video/mp4',
             customMetadata: {
-                userId: userId.toString(),
-                gameSessionId: gameSessionId.toString(),
+                userId: userId ? userId.toString() : 'anonymous',
+                gameSessionId: gameSessionId ? gameSessionId.toString() : 'unknown',
                 uploadedAt: new Date().toISOString(),
-                platform: Platform.OS
+                platform: Platform.OS,
+                uploadType: 'game_recording'
             }
         });
 
