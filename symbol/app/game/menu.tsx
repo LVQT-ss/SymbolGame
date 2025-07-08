@@ -326,77 +326,61 @@ export default function GameMenuScreen() {
   const loadGameHistory = async (gameId: number) => {
     setLoadingHistory(true);
     try {
-      console.log(`Loading history for game ${gameId}...`);
+      console.log(`Loading play history for game session ${gameId}...`);
 
-      // First, get the general game history to see if this user has played this game before
-      const historyResponse = await gameAPI.getGameHistory(1, 50);
+      // Use the new API to get user's play history for this specific game session
+      const historyResponse = await gameAPI.getGameSessionHistory(
+        gameId,
+        1,
+        50
+      );
 
-      if (historyResponse && historyResponse.games) {
-        // Filter games that match the selected game session ID
-        const userGameSessions = historyResponse.games.filter(
-          (game: any) => game.id === gameId || game.game_session_id === gameId
+      if (historyResponse && historyResponse.plays) {
+        console.log(
+          `Found ${historyResponse.plays.length} plays for session ${gameId}`
         );
 
-        if (userGameSessions.length > 0) {
-          // Get detailed information for each game session
-          const detailedHistory: GameHistoryDetails[] = [];
+        // Map the API response to our interface
+        const detailedHistory: GameHistoryDetails[] = historyResponse.plays.map(
+          (play: any) => ({
+            id: play.id,
+            user_id: play.user_id || 0,
+            difficulty_level:
+              historyResponse.game_session?.difficulty_level || 1,
+            number_of_rounds:
+              historyResponse.game_session?.number_of_rounds || 0,
+            total_time: play.total_time || 0,
+            correct_answers: play.correct_answers || 0,
+            score: play.score || 0,
+            completed: play.completed || false,
+            completed_at: play.completed_at || play.created_at,
+            created_at: play.created_at,
+            rounds: play.rounds_details || [],
+            accuracy: play.accuracy || 0,
+          })
+        );
 
-          for (const gameSession of userGameSessions) {
-            try {
-              const detailsResponse = await gameAPI.getGameDetails(
-                gameSession.id
-              );
-              if (detailsResponse) {
-                detailedHistory.push({
-                  id: gameSession.id,
-                  user_id: gameSession.user_id || 0,
-                  difficulty_level: gameSession.difficulty_level || 1,
-                  number_of_rounds: gameSession.number_of_rounds || 0,
-                  total_time: gameSession.total_time || 0,
-                  correct_answers: gameSession.correct_answers || 0,
-                  score: gameSession.score || 0,
-                  completed: gameSession.completed || false,
-                  completed_at:
-                    gameSession.completed_at || gameSession.updatedAt,
-                  created_at: gameSession.created_at || gameSession.createdAt,
-                  rounds: gameSession.rounds || [],
-                  accuracy: gameSession.accuracy || 0,
-                });
-              }
-            } catch (detailError) {
-              console.warn(
-                `Could not load details for game ${gameSession.id}:`,
-                detailError
-              );
-              // Still add basic info even if details fail
-              detailedHistory.push({
-                id: gameSession.id,
-                user_id: gameSession.user_id || 0,
-                difficulty_level: gameSession.difficulty_level || 1,
-                number_of_rounds: gameSession.number_of_rounds || 0,
-                total_time: gameSession.total_time || 0,
-                correct_answers: gameSession.correct_answers || 0,
-                score: gameSession.score || 0,
-                completed: gameSession.completed || false,
-                completed_at: gameSession.completed_at || gameSession.updatedAt,
-                created_at: gameSession.created_at || gameSession.createdAt,
-                rounds: [],
-                accuracy: gameSession.accuracy || 0,
-              });
-            }
-          }
+        setSelectedGameHistory(detailedHistory);
 
-          setSelectedGameHistory(detailedHistory);
-        } else {
-          // No history found for this game
-          setSelectedGameHistory([]);
+        // Log statistics for debugging
+        if (historyResponse.statistics) {
+          console.log(`Session statistics:`, historyResponse.statistics);
         }
       } else {
+        // No history found for this game session
+        console.log(`No play history found for session ${gameId}`);
         setSelectedGameHistory([]);
       }
-    } catch (error) {
-      console.error("Error loading game history:", error);
-      Alert.alert("Error", "Failed to load game history. Please try again.");
+    } catch (error: any) {
+      console.error("Error loading game session history:", error);
+
+      // Check if it's a 404 (game session not found) vs other errors
+      if (error.message?.includes("not found")) {
+        Alert.alert("Game Not Found", "This game session could not be found.");
+      } else {
+        Alert.alert("Error", "Failed to load game history. Please try again.");
+      }
+
       setSelectedGameHistory([]);
     } finally {
       setLoadingHistory(false);

@@ -1102,6 +1102,15 @@ export const gameAPI = {
         }
     },
 
+    getGameSessionHistory: async (sessionId, page = 1, limit = 20) => {
+        try {
+            const response = await api.get(`/game/session/${sessionId}/history?page=${page}&limit=${limit}`);
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to get game session history");
+        }
+    },
+
     // 🛠️ UTILITY: Enhanced Game Session Fetcher
     // This method ensures we always get complete round data when fetching a game session
     getGameSessionWithRounds: async (gameSessionId, maxRetries = 3) => {

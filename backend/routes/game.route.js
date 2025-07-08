@@ -3,6 +3,7 @@ import {
     startGame,
     completeGame,
     getGameHistory,
+    getGameSessionHistory,
     getGameStatsSummary,
     createGameWithCustomRounds,
     getAvailableGames,
@@ -474,6 +475,93 @@ router.get('/history', verifyToken, getGameHistory);
  *         description: Server error
  */
 router.get('/stats/summary', verifyToken, getGameStatsSummary);
+
+/**
+ * @swagger
+ * /api/game/session/{sessionId}/history:
+ *   get:
+ *     tags:
+ *     - Game Controller
+ *     summary: Get user's play history for a specific game session
+ *     description: Retrieve all times the current user has played a specific game session, with detailed performance data
+ *     security:
+ *       - Authorization: []
+ *     parameters:
+ *       - name: sessionId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Game session ID
+ *       - name: page
+ *         in: query
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - name: limit
+ *         in: query
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *     responses:
+ *       200:
+ *         description: Game session history retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 game_session:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     number_of_rounds:
+ *                       type: integer
+ *                     difficulty_level:
+ *                       type: integer
+ *                     admin_instructions:
+ *                       type: string
+ *                 statistics:
+ *                   type: object
+ *                   properties:
+ *                     times_played:
+ *                       type: integer
+ *                     best_score:
+ *                       type: integer
+ *                     average_score:
+ *                       type: number
+ *                     completion_rate:
+ *                       type: number
+ *                 plays:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       score:
+ *                         type: integer
+ *                       accuracy:
+ *                         type: integer
+ *                       completed:
+ *                         type: boolean
+ *                       total_time:
+ *                         type: number
+ *                       started_at:
+ *                         type: string
+ *                       completed_at:
+ *                         type: string
+ *       404:
+ *         description: Game session not found
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.get('/session/:sessionId/history', verifyToken, getGameSessionHistory);
 
 /**
  * @swagger

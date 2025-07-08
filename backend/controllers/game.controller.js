@@ -546,6 +546,139 @@ export const getGameHistory = async (req, res) => {
     }
 };
 
+// NEW: Get user's play history for a specific game session
+export const getGameSessionHistory = async (req, res) => {
+    const userId = req.userId;
+    const { sessionId } = req.params;
+    const { page = 1, limit = 20 } = req.query;
+
+    try {
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        const offset = (pageNum - 1) * limitNum;
+
+        // First, verify the game session exists
+        const gameSession = await GameSession.findByPk(sessionId, {
+            attributes: ['id', 'number_of_rounds', 'difficulty_level', 'admin_instructions'],
+            include: [
+                {
+                    model: User,
+                    as: 'adminCreator',
+                    attributes: ['id', 'username', 'full_name'],
+                    required: false
+                }
+            ]
+        });
+
+        if (!gameSession) {
+            return res.status(404).json({
+                message: 'Game session not found'
+            });
+        }
+
+        // Get total count of user's plays for this session
+        const totalPlays = await GameHistory.count({
+            where: {
+                user_id: userId,
+                game_session_id: sessionId
+            }
+        });
+
+        // Get the user's play history for this specific game session
+        const gameHistoryRecords = await GameHistory.findAll({
+            where: {
+                user_id: userId,
+                game_session_id: sessionId
+            },
+            include: [
+                {
+                    model: GameSession,
+                    as: 'gameSession',
+                    attributes: ['id', 'number_of_rounds', 'difficulty_level'],
+                    include: [
+                        {
+                            model: RoundDetail,
+                            as: 'rounds',
+                            attributes: [
+                                'round_number',
+                                'first_number',
+                                'second_number',
+                                'correct_symbol'
+                            ]
+                        }
+                    ]
+                },
+                {
+                    model: UserRoundResponse,
+                    as: 'roundResponses',
+                    attributes: [
+                        'round_number',
+                        'user_symbol',
+                        'response_time',
+                        'is_correct'
+                    ],
+                    required: false
+                }
+            ],
+            order: [['createdAt', 'DESC']],
+            limit: limitNum,
+            offset: offset
+        });
+
+        // Calculate statistics for this specific game session
+        const sessionStats = {
+            times_played: totalPlays,
+            best_score: await GameHistory.max('score', {
+                where: { user_id: userId, game_session_id: sessionId, completed: true }
+            }) || 0,
+            average_score: totalPlays > 0 ?
+                (await GameHistory.sum('score', {
+                    where: { user_id: userId, game_session_id: sessionId, completed: true }
+                }) || 0) / totalPlays : 0,
+            completion_rate: totalPlays > 0 ?
+                ((await GameHistory.count({
+                    where: { user_id: userId, game_session_id: sessionId, completed: true }
+                }) || 0) / totalPlays) * 100 : 0
+        };
+
+        res.status(200).json({
+            message: 'Game session history retrieved successfully',
+            game_session: {
+                id: gameSession.id,
+                number_of_rounds: gameSession.number_of_rounds,
+                difficulty_level: gameSession.difficulty_level,
+                admin_instructions: gameSession.admin_instructions,
+                admin: gameSession.adminCreator
+            },
+            statistics: sessionStats,
+            pagination: {
+                total: totalPlays,
+                page: pageNum,
+                limit: limitNum,
+                totalPages: Math.ceil(totalPlays / limitNum)
+            },
+            plays: gameHistoryRecords.map(history => ({
+                id: history.id,
+                score: history.score,
+                correct_answers: history.correct_answers,
+                total_time: history.total_time,
+                completed: history.completed,
+                started_at: history.started_at,
+                completed_at: history.completed_at,
+                created_at: history.createdAt,
+                recording_url: history.recording_url,
+                accuracy: history.gameSession?.number_of_rounds > 0 ?
+                    Math.round((history.correct_answers / history.gameSession.number_of_rounds) * 100) : 0,
+                rounds_details: history.roundResponses || []
+            }))
+        });
+
+    } catch (err) {
+        console.error('Error retrieving game session history:', err);
+        res.status(500).json({ message: 'Server error', error: err.message });
+    }
+};
+
 // POST /api/admin/game/create-with-custom-rounds - Create game with fully customized rounds (ADMIN ONLY)
 export const createGameWithCustomRounds = async (req, res) => {
     const adminId = req.userId;
