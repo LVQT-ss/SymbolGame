@@ -103,55 +103,44 @@ app.use('/api/comments', commentRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 
-// Direct video recording upload route in index.js
-app.post('/api/record-video', verifyToken, videoUpload.single('video'), async (req, res) => {
+// Direct video recording URL endpoint - receives Firebase URL instead of file
+app.post('/api/record-video-url', verifyToken, async (req, res) => {
     try {
-        console.log('📹 Video upload request received');
-        console.log('📄 File:', req.file);
+        console.log('🔥 Video URL storage request received');
         console.log('📝 Body:', req.body);
         console.log('👤 User ID:', req.userId);
 
-        if (!req.file) {
-            return res.status(400).json({ message: 'No video file uploaded' });
+        const { recording_url, recording_duration } = req.body;
+
+        if (!recording_url) {
+            return res.status(400).json({ message: 'Recording URL is required' });
         }
 
-        const duration = parseInt(req.body.duration) || 5;
-        if (duration > 10) {
-            // Delete the uploaded file
-            fs.unlinkSync(req.file.path);
+        // Validate that it's a Firebase Storage URL
+        if (!recording_url.includes('firebase') && !recording_url.includes('googleapis')) {
+            return res.status(400).json({ message: 'Invalid Firebase Storage URL' });
+        }
+
+        const duration = parseInt(recording_duration) || 10;
+        if (duration > 15) {
             return res.status(400).json({
-                message: 'Video duration cannot exceed 10 seconds'
+                message: 'Video duration cannot exceed 15 seconds'
             });
         }
 
-        // Get the file path relative to the uploads directory
-        const relativePath = path.relative(
-            path.join(__dirname),
-            req.file.path
-        );
+        console.log('✅ Firebase video URL received successfully:', recording_url);
 
-        console.log('✅ Video uploaded successfully:', relativePath);
-
-        // Return the file path that can be stored in the database
+        // Return the URL to confirm storage
         return res.status(200).json({
-            message: 'Video uploaded successfully',
-            recording_url: relativePath,
+            message: 'Video URL stored successfully',
+            recording_url: recording_url,
             recording_duration: duration,
-            file_size: req.file.size,
-            original_name: req.file.originalname
+            storage_type: 'firebase'
         });
     } catch (error) {
-        // Clean up uploaded file if there's an error
-        if (req.file) {
-            try {
-                fs.unlinkSync(req.file.path);
-            } catch (unlinkError) {
-                console.error('Error cleaning up file:', unlinkError);
-            }
-        }
-        console.error('Error uploading video:', error);
+        console.error('Error storing video URL:', error);
         return res.status(500).json({
-            message: 'Failed to upload video',
+            message: 'Failed to store video URL',
             error: error.message
         });
     }

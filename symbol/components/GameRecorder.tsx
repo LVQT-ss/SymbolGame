@@ -25,13 +25,15 @@ interface GameRecorderProps {
   maxDuration?: number;
   autoStart?: boolean;
   gameStarted?: boolean;
+  gameCompleted?: boolean;
 }
 
 export const GameRecorder: React.FC<GameRecorderProps> = ({
   onRecordingComplete,
-  maxDuration = DEFAULT_VIDEO_DURATION,
+  maxDuration = 10,
   autoStart = false,
   gameStarted = false,
+  gameCompleted = false,
 }) => {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [microphonePermission, requestMicrophonePermission] =
@@ -42,6 +44,7 @@ export const GameRecorder: React.FC<GameRecorderProps> = ({
   const [recordingTimeLeft, setRecordingTimeLeft] = useState(maxDuration);
   const [showPreview, setShowPreview] = useState(true);
   const [isCameraReady, setIsCameraReady] = useState(false);
+  const [hasRecorded, setHasRecorded] = useState(false);
   const cameraRef = useRef<CameraView>(null);
 
   // Define hasRequiredPermissions early
@@ -52,16 +55,19 @@ export const GameRecorder: React.FC<GameRecorderProps> = ({
     requestPermissions();
   }, []);
 
-  // Auto-start recording when game starts and countdown is done
+  // Auto-start recording when game starts and countdown is done (only once)
   useEffect(() => {
     if (
       autoStart &&
       gameStarted &&
       !isRecording &&
       hasRequiredPermissions &&
-      isCameraReady
+      isCameraReady &&
+      !hasRecorded
     ) {
-      console.log("🎬 Auto-starting recording when game begins...");
+      console.log(
+        "🎬 Auto-starting ONE 10-second recording for entire game..."
+      );
       // Add a small delay to ensure camera is fully ready
       setTimeout(() => {
         startRecording();
@@ -73,7 +79,16 @@ export const GameRecorder: React.FC<GameRecorderProps> = ({
     isRecording,
     hasRequiredPermissions,
     isCameraReady,
+    hasRecorded,
   ]);
+
+  // Stop recording when game is completed
+  useEffect(() => {
+    if (gameCompleted && isRecording) {
+      console.log("🏁 Game completed, stopping recording...");
+      stopRecording();
+    }
+  }, [gameCompleted, isRecording]);
 
   // Recording countdown timer
   useEffect(() => {
@@ -83,7 +98,7 @@ export const GameRecorder: React.FC<GameRecorderProps> = ({
         setRecordingTimeLeft(recordingTimeLeft - 1);
       }, 1000);
     } else if (isRecording && recordingTimeLeft === 0) {
-      console.log("⏰ Recording time limit reached, stopping...");
+      console.log("⏰ Recording time limit reached (10 seconds), stopping...");
       stopRecording();
     }
     return () => clearTimeout(timer);
@@ -149,6 +164,11 @@ export const GameRecorder: React.FC<GameRecorderProps> = ({
       return;
     }
 
+    if (hasRecorded) {
+      console.log("❌ Already recorded for this game");
+      return;
+    }
+
     if (!cameraPermission?.granted) {
       Alert.alert(
         "Permission Required",
@@ -178,13 +198,17 @@ export const GameRecorder: React.FC<GameRecorderProps> = ({
         videoBitrate: 5 * 1000 * 1000, // 5 Mbps
       };
 
-      console.log("🎬 Starting recording with options:", options);
+      console.log(
+        "🎬 Starting 10-second game recording with options:",
+        options
+      );
       console.log("📱 Camera ref current:", !!cameraRef.current);
 
       const result = await cameraRef.current.recordAsync(options);
       console.log("📹 Recording result:", result);
 
       if (result?.uri) {
+        setHasRecorded(true); // Mark that we've recorded
         onRecordingComplete(result.uri);
         if (mediaPermission?.granted) {
           try {
@@ -282,13 +306,15 @@ export const GameRecorder: React.FC<GameRecorderProps> = ({
             <Text style={styles.statusText}>
               {!isCameraReady
                 ? "Loading..."
+                : hasRecorded
+                ? "Recorded"
                 : isRecording
                 ? "Recording..."
                 : "Ready"}
             </Text>
           </View>
 
-          {!autoStart && isCameraReady && (
+          {!autoStart && isCameraReady && !hasRecorded && (
             <TouchableOpacity
               style={[
                 styles.recordButton,

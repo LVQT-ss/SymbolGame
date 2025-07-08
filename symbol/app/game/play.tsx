@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
   Alert,
   Dimensions,
@@ -18,6 +18,7 @@ import Canvas from "../../components/canvas";
 import { Point, recognizeSymbol } from "../../utils/symbolUtils";
 import { GameRecorder } from "../../components/GameRecorder";
 import { useAuth } from "../../hooks/useAuth";
+import { uploadVideoToFirebase as uploadToFirebaseStorage } from "../../services/firebaseStorage";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -57,7 +58,7 @@ interface GameSession {
 export default function GameScreen() {
   const params = useLocalSearchParams();
   const { sessionId, gameType, title } = params;
-  const { token } = useAuth();
+  const { token, userId } = useAuth();
 
   // Validate and parse sessionId
   const parsedSessionId = useMemo(() => {
@@ -106,6 +107,9 @@ export default function GameScreen() {
   const [paths, setPaths] = useState<Point[][]>([]);
   const [recognizedSymbol, setRecognizedSymbol] = useState<string>("");
   const [showSymbolFeedback, setShowSymbolFeedback] = useState<boolean>(false);
+
+  // At the top with other state declarations, add a ref for immediate access to recording URL
+  const recordingUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (parsedSessionId === "practice") {
@@ -466,7 +470,57 @@ export default function GameScreen() {
     try {
       // Move to next round or complete game
       if (currentRoundIndex + 1 >= rounds.length) {
-        // Game completed
+        // Game completed - wait for video recording to finish
+        console.log(
+          "🎮 Game finished, waiting for video recording to complete..."
+        );
+        console.log("📊 Current recordingUrl before waiting:", recordingUrl);
+        console.log(
+          "📊 Current recordingUrlRef.current before waiting:",
+          recordingUrlRef.current
+        );
+
+        // Wait for recording to finish uploading with improved logic
+        const maxWaitTime = 8000; // Wait up to 8 seconds (longer than before)
+        const startWaitTime = Date.now();
+        let finalRecordingUrl = recordingUrl || recordingUrlRef.current;
+
+        // Check if recording is in progress and wait for it
+        while (Date.now() - startWaitTime < maxWaitTime) {
+          // Check both state and ref for recording URL
+          const currentStateUrl = recordingUrl;
+          const currentRefUrl = recordingUrlRef.current;
+          const availableUrl = currentStateUrl || currentRefUrl;
+
+          if (availableUrl && availableUrl.length > 0) {
+            console.log(
+              "✅ Recording URL available after waiting:",
+              availableUrl
+            );
+            console.log("   - From state:", currentStateUrl);
+            console.log("   - From ref:", currentRefUrl);
+            finalRecordingUrl = availableUrl;
+            break;
+          }
+          // Wait 200ms before checking again (slightly longer intervals)
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          console.log(
+            "⏳ Still waiting for recording URL...",
+            Date.now() - startWaitTime,
+            "ms elapsed"
+          );
+        }
+
+        if (!finalRecordingUrl) {
+          console.log(
+            "⚠️ No recording URL available after waiting",
+            maxWaitTime,
+            "ms, proceeding without recording"
+          );
+        } else {
+          console.log("🎥 Final recording URL to be used:", finalRecordingUrl);
+        }
+
         if (sessionId === "practice") {
           setGameCompleted(true);
 
@@ -488,9 +542,9 @@ export default function GameScreen() {
           });
         } else if (sessionId === "quick-submit") {
           // Submit whole game at once
-          await submitWholeGame(updatedRounds);
+          await submitWholeGame(updatedRounds, finalRecordingUrl);
         } else {
-          await completeGame(updatedRounds);
+          await completeGame(updatedRounds, finalRecordingUrl);
         }
       } else {
         // Next round
@@ -505,154 +559,97 @@ export default function GameScreen() {
     }
   };
 
-  const uploadVideoToDatabase = async (uri: string) => {
+  const uploadVideoToFirebase = async (uri: string) => {
     try {
-      console.log("📹 Uploading video to database...");
+      console.log("🔥 Uploading video to Firebase Storage...");
       console.log("🔑 Token available:", !!token);
+      console.log("👤 User ID:", userId);
 
-      // Check if we have a valid token
+      // Check if we have required data
       if (!token) {
         throw new Error("Authentication required. Please log in again.");
       }
 
-      // Create form data similar to image upload in Auth.tsx
-      const formData = new FormData();
-
-      // Get the file name and type from the URI
-      const filename = uri.split("/").pop() || "game-recording.mp4";
-      const match = /\.(\w+)$/.exec(filename);
-      const type = match ? `video/${match[1]}` : "video/mp4";
-
-      // Append the video to form data
-      formData.append("video", {
-        uri: uri,
-        type: type,
-        name: filename,
-      } as any);
-
-      formData.append("duration", "5");
-
-      // Upload to the new record-video endpoint in index.js
-      const response = await fetch(
-        "https://symbolgame.onrender.com/api/record-video",
-        {
-          method: "POST",
-          body: formData,
-          headers: {
-            Authorization: `Bearer ${token}`,
-            // Don't set Content-Type header - let the browser set it automatically for multipart/form-data
-          },
-        }
-      );
-
-      console.log("📡 Upload response status:", response.status);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(
-          "❌ Database upload failed with status:",
-          response.status
-        );
-        console.error("❌ Error response:", errorText);
-
-        // Handle specific error cases
-        if (response.status === 401) {
-          throw new Error("Authentication failed. Please log in again.");
-        } else if (response.status === 413) {
-          throw new Error("Video file is too large. Please try again.");
-        } else if (response.status === 400) {
-          throw new Error(
-            "Invalid video format or duration exceeded 10 seconds."
-          );
-        } else {
-          throw new Error(
-            `Database upload failed: ${response.status} - ${errorText}`
-          );
-        }
+      if (!userId) {
+        throw new Error("User ID not found. Please log in again.");
       }
 
-      const data = await response.json();
-      console.log("✅ Video uploaded to database successfully:", data);
-      return data.recording_url;
+      if (!parsedSessionId) {
+        throw new Error("Game session ID not found.");
+      }
+
+      // Upload video to Firebase Storage
+      const firebaseUrl: string = await uploadToFirebaseStorage(
+        uri,
+        userId,
+        parsedSessionId.toString()
+      );
+
+      console.log(
+        "✅ Video uploaded to Firebase Storage successfully:",
+        firebaseUrl
+      );
+      return firebaseUrl;
     } catch (error) {
-      console.error("❌ Error uploading video to database:", error);
+      console.error("❌ Error uploading video to Firebase:", error);
       throw error;
     }
   };
 
   const handleRecordingComplete = async (localUri: string) => {
     try {
-      console.log("📹 Starting video upload to database...");
+      console.log("🔥 Starting video upload to Firebase Storage...");
       console.log("📁 Local video URI:", localUri);
 
-      // Upload video directly to database (like image upload in Auth.tsx)
-      const databaseVideoUrl = await uploadVideoToDatabase(localUri);
-      setRecordingUrl(databaseVideoUrl);
+      // Upload video directly to Firebase Storage
+      const firebaseVideoUrl = await uploadVideoToFirebase(localUri);
 
-      console.log("✅ Video recording uploaded and URL set:", databaseVideoUrl);
-
-      // Don't show alert for successful upload - let the game flow continue
-      // Alert.alert(
-      //   "Success",
-      //   "Video recording uploaded to database successfully!"
-      // );
+      // CRITICAL: Set both the state and ref immediately
+      setRecordingUrl(firebaseVideoUrl);
+      recordingUrlRef.current = firebaseVideoUrl;
+      console.log(
+        "✅ Video recording uploaded to Firebase and URL set:",
+        firebaseVideoUrl
+      );
+      console.log(
+        "📊 Current recordingUrl state after setting:",
+        firebaseVideoUrl
+      );
+      console.log(
+        "📊 Current recordingUrlRef.current after setting:",
+        recordingUrlRef.current
+      );
     } catch (error: any) {
-      console.error("❌ Error uploading video:", error);
+      console.error("❌ Error uploading video to Firebase:", error);
+
+      // Set both state and ref to null if upload fails
+      setRecordingUrl(null);
+      recordingUrlRef.current = null;
+      console.log("⚠️ Recording URL set to null due to upload failure");
 
       // Provide more specific error messages
-      let errorMessage = "Failed to upload video to database. ";
+      let errorMessage = "Failed to upload video to Firebase Storage. ";
       if (error.message?.includes("Network request failed")) {
-        errorMessage +=
-          "Please check your internet connection and ensure the backend server is running.";
-      } else if (error.message?.includes("400")) {
-        errorMessage += "Invalid video file or format.";
-      } else if (error.message?.includes("401")) {
-        errorMessage += "Authentication failed. Please log in again.";
-      } else if (error.message?.includes("413")) {
-        errorMessage += "Video file is too large.";
+        errorMessage += "Please check your internet connection.";
+      } else if (error.message?.includes("unauthorized")) {
+        errorMessage += "Firebase access denied. Check permissions.";
+      } else if (error.message?.includes("quota-exceeded")) {
+        errorMessage += "Storage quota exceeded.";
       } else {
         errorMessage += error.message || "Unknown error occurred.";
       }
 
-      Alert.alert("Upload Failed", errorMessage, [
-        { text: "Continue without video", style: "default" },
-        { text: "Try again", onPress: () => handleRecordingComplete(localUri) },
-      ]);
+      console.log(
+        "⚠️ Firebase upload failed, continuing game without recording:",
+        errorMessage
+      );
     }
   };
 
-  const waitForRecordingToComplete = async (): Promise<void> => {
-    return new Promise((resolve) => {
-      // Give some time for recording to finish and upload
-      console.log("⏳ Waiting for recording to complete...");
-
-      let attempts = 0;
-      const maxAttempts = 30; // Wait up to 15 seconds (30 * 500ms)
-
-      const checkRecording = () => {
-        attempts++;
-
-        // If we have a recording URL or we've waited long enough, proceed
-        if (recordingUrl || attempts >= maxAttempts) {
-          console.log(
-            `✅ Recording complete. URL: ${
-              recordingUrl || "None"
-            }, Attempts: ${attempts}`
-          );
-          resolve();
-        } else {
-          console.log(
-            `🔄 Still waiting for recording... Attempt ${attempts}/${maxAttempts}`
-          );
-          setTimeout(checkRecording, 500);
-        }
-      };
-
-      checkRecording();
-    });
-  };
-
-  const completeGame = async (finalRounds: Round[]) => {
+  const completeGame = async (
+    finalRounds: Round[],
+    finalRecordingUrl: string | null
+  ) => {
     try {
       console.log("🎮 Completing game with session ID:", parsedSessionId);
 
@@ -677,10 +674,23 @@ export default function GameScreen() {
         return;
       }
 
-      // Wait for recording to complete before finishing the game
-      await waitForRecordingToComplete();
+      // CRITICAL FIX: Sort rounds by round_number before sending to backend
+      // This ensures the backend validation passes since it expects rounds in order
+      const sortedRounds = [...finalRounds].sort(
+        (a, b) => a.round_number - b.round_number
+      );
 
-      console.log("🎥 Final recording URL:", recordingUrl);
+      // Use Firebase recording URL if available
+      console.log(
+        "🎥 Firebase Recording URL for game completion:",
+        finalRecordingUrl || "No recording"
+      );
+      console.log(
+        "📊 Final rounds data being sent (sorted by round_number):",
+        JSON.stringify(sortedRounds, null, 2)
+      );
+      console.log("🎮 Game session ID:", parsedSessionId);
+      console.log("⏱️ Total time:", (Date.now() - gameStartTime) / 1000);
 
       const response = await fetch(
         `https://symbolgame.onrender.com/api/game/complete`,
@@ -693,15 +703,39 @@ export default function GameScreen() {
           body: JSON.stringify({
             game_session_id: parsedSessionId,
             total_time: (Date.now() - gameStartTime) / 1000,
-            rounds: finalRounds,
-            recording_url: recordingUrl,
-            recording_duration: 5,
+            rounds: sortedRounds, // Use sorted rounds instead of finalRounds
+            recording_url: finalRecordingUrl,
+            recording_duration: 10,
           }),
         }
       );
 
+      console.log("📡 Game completion response status:", response.status);
+
       if (!response.ok) {
-        throw new Error("Failed to complete game");
+        const errorText = await response.text();
+        console.error(
+          "❌ Game completion failed with status:",
+          response.status
+        );
+        console.error("❌ Error response:", errorText);
+        console.error(
+          "❌ Request body was:",
+          JSON.stringify(
+            {
+              game_session_id: parsedSessionId,
+              total_time: (Date.now() - gameStartTime) / 1000,
+              rounds: sortedRounds,
+              recording_url: finalRecordingUrl,
+              recording_duration: 10,
+            },
+            null,
+            2
+          )
+        );
+        throw new Error(
+          `Game completion failed: ${response.status} - ${errorText}`
+        );
       }
 
       const data = await response.json();
@@ -753,15 +787,19 @@ export default function GameScreen() {
     }
   };
 
-  const submitWholeGame = async (finalRounds: Round[]) => {
+  const submitWholeGame = async (
+    finalRounds: Round[],
+    finalRecordingUrl: string | null
+  ) => {
     try {
       setLoading(true);
       console.log("🚀 Submitting whole game...");
 
-      // Wait for recording to complete before submitting
-      await waitForRecordingToComplete();
-
-      console.log("🎥 Final recording URL for submit:", recordingUrl);
+      // Don't wait for recording - use whatever recording URL we have
+      console.log(
+        "🎥 Recording URL for submit:",
+        finalRecordingUrl || "No recording"
+      );
 
       // Calculate final scores
       const finalScore =
@@ -782,8 +820,8 @@ export default function GameScreen() {
         number_of_rounds: rounds.length,
         total_time: totalTime / 1000, // Convert to seconds
         rounds: roundsData,
-        recording_url: recordingUrl,
-        recording_duration: 5,
+        recording_url: finalRecordingUrl,
+        recording_duration: 10,
       });
 
       setGameCompleted(true);
@@ -945,7 +983,7 @@ export default function GameScreen() {
           text: "Submit Now",
           onPress: async () => {
             const completedRounds = rounds.slice(0, currentRoundIndex);
-            await submitWholeGame(completedRounds);
+            await submitWholeGame(completedRounds, recordingUrl);
           },
         },
       ]
@@ -1516,9 +1554,10 @@ export default function GameScreen() {
         {!gameCompleted && (
           <GameRecorder
             onRecordingComplete={handleRecordingComplete}
-            maxDuration={5}
+            maxDuration={10}
             autoStart={true}
             gameStarted={gameStarted && countdown === 0}
+            gameCompleted={gameCompleted}
           />
         )}
       </View>
