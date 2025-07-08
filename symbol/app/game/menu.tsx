@@ -96,13 +96,17 @@ interface GameHistoryDetails {
   completed_at: string;
   created_at: string;
   rounds: Array<{
-    round_number: number;
-    first_number: number;
-    second_number: number;
-    correct_symbol: string;
     user_symbol: string;
     response_time: number;
     is_correct: boolean;
+    points_earned: number;
+    answered_at: string;
+    roundDetail: {
+      round_number: number;
+      first_number: number;
+      second_number: number;
+      correct_symbol: string;
+    };
   }>;
   accuracy: number;
 }
@@ -336,10 +340,6 @@ export default function GameMenuScreen() {
       );
 
       if (historyResponse && historyResponse.plays) {
-        console.log(
-          `Found ${historyResponse.plays.length} plays for session ${gameId}`
-        );
-
         // Map the API response to our interface
         const detailedHistory: GameHistoryDetails[] = historyResponse.plays.map(
           (play: any) => ({
@@ -361,11 +361,6 @@ export default function GameMenuScreen() {
         );
 
         setSelectedGameHistory(detailedHistory);
-
-        // Log statistics for debugging
-        if (historyResponse.statistics) {
-          console.log(`Session statistics:`, historyResponse.statistics);
-        }
       } else {
         // No history found for this game session
         console.log(`No play history found for session ${gameId}`);

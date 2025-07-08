@@ -612,10 +612,23 @@ export const getGameSessionHistory = async (req, res) => {
                     model: UserRoundResponse,
                     as: 'roundResponses',
                     attributes: [
-                        'round_number',
                         'user_symbol',
                         'response_time',
-                        'is_correct'
+                        'is_correct',
+                        'points_earned',
+                        'answered_at'
+                    ],
+                    include: [
+                        {
+                            model: RoundDetail,
+                            as: 'roundDetail',
+                            attributes: [
+                                'round_number',
+                                'first_number',
+                                'second_number',
+                                'correct_symbol'
+                            ]
+                        }
                     ],
                     required: false
                 }
