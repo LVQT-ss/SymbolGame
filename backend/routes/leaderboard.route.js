@@ -1,5 +1,7 @@
 import express from 'express';
 import LeaderboardController from '../controllers/leaderboard.controller.js';
+import RedisLeaderboardService from '../services/redisLeaderboardService.js';
+import MonthlyLeaderboardJob from '../services/monthlyLeaderboardJob.js';
 import { verifyToken } from '../middleware/verifyUser.js';
 
 const router = express.Router();
@@ -336,5 +338,356 @@ router.get('/', LeaderboardController.getLeaderboard);
 
 // Update leaderboard cache
 router.post('/update-cache', verifyToken, LeaderboardController.updateLeaderboardCache);
+
+// ==== NEW REDIS ENDPOINTS ====
+
+// Manual monthly persistence with rewards for global top 3
+router.post('/monthly-persistence', verifyToken, async (req, res) => {
+    try {
+        console.log('🔧 Manual monthly persistence triggered by user:', req.userId);
+        const result = await MonthlyLeaderboardJob.runManually();
+
+        res.status(200).json({
+            success: true,
+            data: result,
+            message: 'Monthly persistence and rewards completed'
+        });
+    } catch (error) {
+        console.error('Error in manual monthly persistence:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to run monthly persistence',
+            error: error.message
+        });
+    }
+});
+
+// Store Redis data to database without rewards or clearing (manual backup)
+router.post('/backup-to-database', verifyToken, async (req, res) => {
+    try {
+        const {
+            includeRewards = false,
+            clearMonthlyData = false,
+            difficulty_levels = [1, 2, 3],
+            regions = ['global', 'asia', 'america', 'europe', 'oceania', 'africa', 'others']
+        } = req.body;
+
+        console.log('💾 Manual Redis backup to database triggered by user:', req.userId);
+        console.log(`📋 Options: rewards=${includeRewards}, clear=${clearMonthlyData}`);
+
+        const result = await RedisLeaderboardService.backupToDatabase({
+            includeRewards,
+            clearMonthlyData,
+            difficulty_levels,
+            regions
+        });
+
+        res.status(200).json({
+            success: true,
+            data: result,
+            message: 'Redis data backed up to database successfully'
+        });
+    } catch (error) {
+        console.error('Error in manual Redis backup:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to backup Redis data to database',
+            error: error.message
+        });
+    }
+});
+
+// Get monthly job status
+router.get('/monthly-job-status', verifyToken, async (req, res) => {
+    try {
+        const status = MonthlyLeaderboardJob.getStatus();
+        res.status(200).json({
+            success: true,
+            data: status,
+            message: 'Monthly job status retrieved'
+        });
+    } catch (error) {
+        console.error('Error getting monthly job status:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get monthly job status',
+            error: error.message
+        });
+    }
+});
+
+// Get Redis leaderboard statistics
+router.get('/redis-stats', verifyToken, async (req, res) => {
+    try {
+        const stats = await RedisLeaderboardService.getLeaderboardStats();
+        res.status(200).json({
+            success: true,
+            data: stats,
+            message: 'Redis leaderboard statistics retrieved'
+        });
+    } catch (error) {
+        console.error('Error getting Redis stats:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get Redis statistics',
+            error: error.message
+        });
+    }
+});
+
+// Clear all Redis leaderboard data (admin only)
+router.delete('/redis-clear', verifyToken, async (req, res) => {
+    try {
+        // Additional admin check could be added here
+        console.log('🧹 Clearing all Redis leaderboard data - triggered by user:', req.userId);
+
+        await RedisLeaderboardService.clearAllLeaderboards();
+
+        res.status(200).json({
+            success: true,
+            message: 'All Redis leaderboard data cleared successfully'
+        });
+    } catch (error) {
+        console.error('Error clearing Redis data:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to clear Redis data',
+            error: error.message
+        });
+    }
+});
+
+/**
+ * @swagger
+ * /api/leaderboard/test-monthly-rewards:
+ *   post:
+ *     tags:
+ *       - Leaderboard (Development)
+ *     summary: Test End-of-Month Rewards Scenario
+ *     description: |
+ *       **🧪 DEVELOPMENT ONLY ENDPOINT**
+ *       
+ *       Simulates the end-of-month scenario to test the monthly rewards system.
+ *       This endpoint is only available in development/testing environments.
+ *       
+ *       **What This Test Does:**
+ *       - Identifies global top 3 players across all difficulty levels
+ *       - Awards coins: 1st = 1000 coins, 2nd = 500 coins, 3rd = 200 coins
+ *       - Simulates monthly persistence to PostgreSQL database
+ *       - Clears monthly Redis data (preserves all-time data)
+ *       - Tests the complete end-of-month workflow
+ *       
+ *       **Important Notes:**
+ *       - Only works in development mode (NODE_ENV !== 'production')
+ *       - Awards go to GLOBAL top 3 players only (not regional)
+ *       - Uses real database operations (coins are actually awarded)
+ *       - Clears current monthly leaderboard data in Redis
+ *       
+ *       **Use Cases:**
+ *       - Testing monthly reward distribution logic
+ *       - Verifying end-of-month cleanup process
+ *       - Development environment testing
+ *       - QA validation of monthly features
+ *     security:
+ *       - Authorization: []
+ *     responses:
+ *       200:
+ *         description: Monthly rewards test completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     winners:
+ *                       type: array
+ *                       description: List of global top 3 winners who received rewards
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           rank:
+ *                             type: integer
+ *                             description: Winner's global rank position
+ *                             example: 1
+ *                           userId:
+ *                             type: integer
+ *                             description: Winner's user ID
+ *                             example: 123
+ *                           full_name:
+ *                             type: string
+ *                             description: Winner's display name
+ *                             example: "John Doe"
+ *                           coins_awarded:
+ *                             type: integer
+ *                             description: Number of coins awarded
+ *                             example: 1000
+ *                           previous_coins:
+ *                             type: integer
+ *                             description: Coins before reward
+ *                             example: 2500
+ *                           new_total_coins:
+ *                             type: integer
+ *                             description: Total coins after reward
+ *                             example: 3500
+ *                           highest_score:
+ *                             type: integer
+ *                             description: Player's highest score
+ *                             example: 15420
+ *                     persistence_stats:
+ *                       type: object
+ *                       description: Statistics about data persistence
+ *                       properties:
+ *                         monthly_records_saved:
+ *                           type: integer
+ *                           description: Number of monthly records saved to PostgreSQL
+ *                           example: 150
+ *                         redis_keys_cleared:
+ *                           type: integer
+ *                           description: Number of monthly Redis keys cleared
+ *                           example: 45
+ *                         processing_time:
+ *                           type: string
+ *                           description: Time taken to complete the operation
+ *                           example: "1.2 seconds"
+ *                     test_environment:
+ *                       type: object
+ *                       description: Test environment information
+ *                       properties:
+ *                         timestamp:
+ *                           type: string
+ *                           format: date-time
+ *                           description: When the test was executed
+ *                           example: "2024-01-01T02:00:00.000Z"
+ *                         triggered_by:
+ *                           type: integer
+ *                           description: User ID who triggered the test
+ *                           example: 1
+ *                         mode:
+ *                           type: string
+ *                           description: Test mode indicator
+ *                           example: "manual_test"
+ *                 message:
+ *                   type: string
+ *                   example: "Monthly rewards test completed"
+ *             examples:
+ *               successful_test:
+ *                 summary: Successful monthly rewards test
+ *                 value:
+ *                   success: true
+ *                   data:
+ *                     winners:
+ *                       - rank: 1
+ *                         userId: 123
+ *                         full_name: "Alice Smith"
+ *                         coins_awarded: 1000
+ *                         previous_coins: 2500
+ *                         new_total_coins: 3500
+ *                         highest_score: 15420
+ *                       - rank: 2
+ *                         userId: 456
+ *                         full_name: "Bob Johnson"
+ *                         coins_awarded: 500
+ *                         previous_coins: 1800
+ *                         new_total_coins: 2300
+ *                         highest_score: 14850
+ *                       - rank: 3
+ *                         userId: 789
+ *                         full_name: "Carol Wilson"
+ *                         coins_awarded: 200
+ *                         previous_coins: 1200
+ *                         new_total_coins: 1400
+ *                         highest_score: 14200
+ *                     persistence_stats:
+ *                       monthly_records_saved: 150
+ *                       redis_keys_cleared: 45
+ *                       processing_time: "1.2 seconds"
+ *                     test_environment:
+ *                       timestamp: "2024-01-01T02:00:00.000Z"
+ *                       triggered_by: 1
+ *                       mode: "manual_test"
+ *                   message: "Monthly rewards test completed"
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             examples:
+ *               unauthorized:
+ *                 summary: Missing authentication token
+ *                 value:
+ *                   success: false
+ *                   message: "Access denied. No token provided."
+ *       403:
+ *         description: Forbidden - Production environment or insufficient permissions
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Test endpoints not available in production"
+ *             examples:
+ *               production_blocked:
+ *                 summary: Test endpoint blocked in production
+ *                 value:
+ *                   success: false
+ *                   message: "Test endpoints not available in production"
+ *               insufficient_permissions:
+ *                 summary: Insufficient permissions
+ *                 value:
+ *                   success: false
+ *                   message: "Access denied. Insufficient permissions."
+ *       500:
+ *         description: Internal server error during test execution
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             examples:
+ *               test_failed:
+ *                 summary: Test execution failed
+ *                 value:
+ *                   success: false
+ *                   message: "Failed to run monthly rewards test"
+ *                   error: "Redis connection timeout"
+ */
+
+// Test endpoint for end-of-month scenario (development only)
+router.post('/test-monthly-rewards', verifyToken, async (req, res) => {
+    try {
+        if (process.env.NODE_ENV === 'production') {
+            return res.status(403).json({
+                success: false,
+                message: 'Test endpoints not available in production'
+            });
+        }
+
+        console.log('🧪 Testing monthly rewards - triggered by user:', req.userId);
+        const result = await MonthlyLeaderboardJob.testEndOfMonth();
+
+        res.status(200).json({
+            success: true,
+            data: result,
+            message: 'Monthly rewards test completed'
+        });
+    } catch (error) {
+        console.error('Error in monthly rewards test:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to run monthly rewards test',
+            error: error.message
+        });
+    }
+});
 
 export default router; 

@@ -4,6 +4,7 @@ import GameHistory from '../model/game-history.model.js';
 import UserRoundResponse from '../model/user-round-responses.model.js';
 import User from '../model/user.model.js';
 import UserStatistics from '../model/user-statistics.model.js';
+import RedisLeaderboardService from '../services/redisLeaderboardService.js';
 import sequelize from '../database/db.js';
 import { Op } from 'sequelize';
 import { updateUserLevelAfterGame } from '../services/levelService.js';
@@ -1282,30 +1283,22 @@ export const completeGame = async (req, res) => {
 
             console.log(`   ✅ Successfully updated UserStatistics for ${user.username} at difficulty ${gameDifficulty}: ${totalGamesPlayed} games, best: ${currentBestScore} (${bestScoreTime}s), total: ${totalScore}`);
 
-            // 🆕 UPDATE LEADERBOARD CACHE after statistics update
-            console.log(`🏆 Triggering leaderboard cache update after game completion...`);
+            // 🆕 UPDATE REDIS LEADERBOARD after statistics update
+            console.log(`🏆 Updating Redis leaderboard after game completion...`);
 
             try {
-                // Import the leaderboard controller
-                const { default: LeaderboardController } = await import('./leaderboard.controller.js');
-
-                // Create mock request/response objects for the leaderboard update
-                const mockReq = {};
-                const mockRes = {
-                    status: (code) => ({
-                        json: (data) => {
-                            console.log(`   📈 Leaderboard cache update result (${code}): ${data.message}`);
-                            return { status: code, json: data };
-                        }
-                    })
-                };
-
-                // Trigger the leaderboard cache update
-                await LeaderboardController.updateLeaderboardCache(mockReq, mockRes);
-                console.log(`   🏆 Leaderboard cache updated successfully after game completion`);
+                // Update Redis leaderboard with the current best score
+                await RedisLeaderboardService.updateUserScore(
+                    userId,
+                    gameDifficulty,
+                    currentBestScore,
+                    bestScoreTime || 0,
+                    user // Pass user data to avoid extra database call
+                );
+                console.log(`   🏆 Redis leaderboard updated successfully for user ${user.username}`);
 
             } catch (leaderboardError) {
-                console.error(`   ❌ Error updating leaderboard cache:`, leaderboardError.message);
+                console.error(`   ❌ Error updating Redis leaderboard:`, leaderboardError.message);
                 // Don't fail the main request if leaderboard update fails
             }
 
@@ -1993,30 +1986,22 @@ export const submitWholeGame = async (req, res) => {
 
             console.log(`   ✅ Successfully updated UserStatistics for ${user.username} at difficulty ${difficulty_level}: ${totalGamesPlayed} games, best: ${currentBestScore} (${bestScoreTime}s), total: ${totalScore}`);
 
-            // 🆕 UPDATE LEADERBOARD CACHE after statistics update
-            console.log(`🏆 Triggering leaderboard cache update after submitWholeGame...`);
+            // 🆕 UPDATE REDIS LEADERBOARD after statistics update
+            console.log(`🏆 Updating Redis leaderboard after submitWholeGame...`);
 
             try {
-                // Import the leaderboard controller
-                const { default: LeaderboardController } = await import('./leaderboard.controller.js');
-
-                // Create mock request/response objects for the leaderboard update
-                const mockReq = {};
-                const mockRes = {
-                    status: (code) => ({
-                        json: (data) => {
-                            console.log(`   📈 Leaderboard cache update result (${code}): ${data.message}`);
-                            return { status: code, json: data };
-                        }
-                    })
-                };
-
-                // Trigger the leaderboard cache update
-                await LeaderboardController.updateLeaderboardCache(mockReq, mockRes);
-                console.log(`   🏆 Leaderboard cache updated successfully after submitWholeGame`);
+                // Update Redis leaderboard with the current best score
+                await RedisLeaderboardService.updateUserScore(
+                    userId,
+                    difficulty_level,
+                    currentBestScore,
+                    bestScoreTime || 0,
+                    user // Pass user data to avoid extra database call
+                );
+                console.log(`   🏆 Redis leaderboard updated successfully for user ${user.username}`);
 
             } catch (leaderboardError) {
-                console.error(`   ❌ Error updating leaderboard cache:`, leaderboardError.message);
+                console.error(`   ❌ Error updating Redis leaderboard:`, leaderboardError.message);
                 // Don't fail the main request if leaderboard update fails
             }
 

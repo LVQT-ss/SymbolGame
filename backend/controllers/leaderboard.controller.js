@@ -3,6 +3,7 @@ import User from '../model/user.model.js';
 import UserStatistics from '../model/user-statistics.model.js';
 import GameHistory from '../model/game-history.model.js';
 import GameSession from '../model/game-sessions.model.js';
+import RedisLeaderboardService from '../services/redisLeaderboardService.js';
 import { Op } from 'sequelize';
 
 // Import associations to ensure they are set up
@@ -28,7 +29,7 @@ const REGION_MAPPING = {
 const DIFFICULTY_LEVELS = [1, 2, 3]; // 1=Easy, 2=Medium, 3=Hard
 
 const LeaderboardController = {
-    // Get Global or Regional Leaderboard
+    // Get Global or Regional Leaderboard (Redis-powered)
     getLeaderboard: async (req, res) => {
         try {
             const {
@@ -46,102 +47,130 @@ const LeaderboardController = {
                 });
             }
 
-            const whereClause = {
-                difficulty_level: parseInt(difficulty_level),
-                leaderboard_type: time_period === 'monthly' ? 'monthly' : 'allTime'
-            };
+            console.log(`🏆 Getting leaderboard: region=${region}, difficulty=${difficulty_level}, period=${time_period}`);
 
-            // Add region filter if not global
-            if (region !== 'global') {
-                whereClause.region = region;
-            }
+            // Get leaderboard from Redis
+            const leaderboard = await RedisLeaderboardService.getLeaderboard(
+                region,
+                parseInt(difficulty_level),
+                time_period,
+                parseInt(limit)
+            );
 
-            // For monthly leaderboard, filter by current month
-            if (time_period === 'monthly') {
-                const startOfMonth = new Date();
-                startOfMonth.setDate(1);
-                startOfMonth.setHours(0, 0, 0, 0);
-                whereClause.last_updated = { [Op.gte]: startOfMonth };
-            }
+            // If Redis is empty and it's a fallback request, try PostgreSQL
+            if (leaderboard.length === 0) {
+                console.log('⚠️ Redis leaderboard empty, falling back to PostgreSQL...');
 
-            const leaderboard = await LeaderboardCache.findAll({
-                where: whereClause,
-                include: [
-                    {
-                        model: UserStatistics,
-                        as: 'userStatistics',
-                        include: [
-                            {
-                                model: User,
-                                as: 'user',
-                                attributes: ['id', 'username', 'full_name', 'avatar', 'current_level', 'country']
-                            }
-                        ]
-                    }
-                ],
-                order: [['score', 'DESC'], ['total_time', 'ASC'], ['rank_position', 'ASC']], // Highest score first, then fastest time, then rank
-                limit: parseInt(limit),
-                attributes: [
-                    'id', // Include the cache entry ID to ensure uniqueness
-                    'rank_position',
-                    'full_name',
-                    'avatar',
-                    'current_level',
-                    'score',
-                    'total_time',
-                    'total_games',
-                    'region',
-                    'country',
-                    'user_statistics_id'
-                ]
-            });
+                const whereClause = {
+                    difficulty_level: parseInt(difficulty_level),
+                    leaderboard_type: time_period === 'monthly' ? 'monthly' : 'allTime'
+                };
 
-            // Remove duplicates by grouping by user_statistics_id (each user should appear only once)
-            const uniqueLeaderboard = [];
-            const seenUserStats = new Set();
-
-            for (const player of leaderboard) {
-                if (!seenUserStats.has(player.user_statistics_id)) {
-                    seenUserStats.add(player.user_statistics_id);
-                    uniqueLeaderboard.push(player);
+                // Add region filter if not global
+                if (region !== 'global') {
+                    whereClause.region = region;
                 }
-            }
 
-            // Re-assign rank positions based on the final order
-            const finalLeaderboard = uniqueLeaderboard
-                .sort((a, b) => {
-                    // Sort by score descending, then by time ascending (faster is better)
-                    if (b.score !== a.score) {
-                        return b.score - a.score;
-                    }
-                    return a.total_time - b.total_time;
-                })
-                .map((player, index) => ({
+                const fallbackLeaderboard = await LeaderboardCache.findAll({
+                    where: whereClause,
+                    order: [['score', 'DESC'], ['total_time', 'ASC']],
+                    limit: parseInt(limit),
+                    attributes: [
+                        'rank_position', 'full_name', 'avatar', 'current_level',
+                        'score', 'total_time', 'total_games', 'region', 'country'
+                    ]
+                });
+
+                const finalFallbackLeaderboard = fallbackLeaderboard.map((player, index) => ({
                     ...player.toJSON(),
-                    rank_position: index + 1, // Re-assign correct rank
+                    rank_position: index + 1,
                     medal: index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : null,
                     isTopThree: index < 3,
                     countryFlag: player.country ? getCountryFlag(player.country) : null
                 }));
 
+                return res.status(200).json({
+                    success: true,
+                    data: finalFallbackLeaderboard,
+                    metadata: {
+                        difficulty_level: parseInt(difficulty_level),
+                        region,
+                        time_period,
+                        total_players: finalFallbackLeaderboard.length,
+                        source: 'postgresql_fallback'
+                    },
+                    message: 'Leaderboard retrieved successfully (PostgreSQL fallback)'
+                });
+            }
+
             res.status(200).json({
                 success: true,
-                data: finalLeaderboard,
+                data: leaderboard,
                 metadata: {
                     difficulty_level: parseInt(difficulty_level),
                     region,
                     time_period,
-                    total_players: finalLeaderboard.length
+                    total_players: leaderboard.length,
+                    source: 'redis'
                 },
                 message: 'Leaderboard retrieved successfully'
             });
         } catch (error) {
             console.error('Get leaderboard error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Failed to get leaderboard',
-                error: error.message
-            });
+
+            // Emergency fallback to PostgreSQL on Redis error
+            try {
+                console.log('🆘 Redis error, emergency fallback to PostgreSQL...');
+                const {
+                    difficulty_level = 1,
+                    region = 'global',
+                    time_period = 'allTime',
+                    limit = 100
+                } = req.query;
+
+                const whereClause = {
+                    difficulty_level: parseInt(difficulty_level),
+                    leaderboard_type: time_period === 'monthly' ? 'monthly' : 'allTime'
+                };
+
+                if (region !== 'global') {
+                    whereClause.region = region;
+                }
+
+                const emergencyLeaderboard = await LeaderboardCache.findAll({
+                    where: whereClause,
+                    order: [['score', 'DESC'], ['total_time', 'ASC']],
+                    limit: parseInt(limit)
+                });
+
+                const finalEmergencyLeaderboard = emergencyLeaderboard.map((player, index) => ({
+                    ...player.toJSON(),
+                    rank_position: index + 1,
+                    medal: index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : null,
+                    isTopThree: index < 3,
+                    countryFlag: player.country ? getCountryFlag(player.country) : null
+                }));
+
+                return res.status(200).json({
+                    success: true,
+                    data: finalEmergencyLeaderboard,
+                    metadata: {
+                        difficulty_level: parseInt(difficulty_level),
+                        region,
+                        time_period,
+                        total_players: finalEmergencyLeaderboard.length,
+                        source: 'postgresql_emergency'
+                    },
+                    message: 'Leaderboard retrieved successfully (emergency fallback)'
+                });
+            } catch (fallbackError) {
+                console.error('Emergency fallback also failed:', fallbackError);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Failed to get leaderboard from both Redis and PostgreSQL',
+                    error: error.message
+                });
+            }
         }
     },
 

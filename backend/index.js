@@ -10,6 +10,8 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import initDB, { checkDatabaseHealth, closeDatabaseConnection } from './database/init.js';
+import { checkRedisHealth, closeRedisConnection } from './config/redis.config.js';
+import MonthlyLeaderboardJob from './services/monthlyLeaderboardJob.js';
 import swaggerDocs from './utils/swagger.js';
 import userRoutes from './routes/user.route.js';
 import authRoutes from './routes/auth.route.js';
@@ -150,6 +152,7 @@ app.post('/api/record-video-url', verifyToken, async (req, res) => {
 app.get('/api/health', async (req, res) => {
     try {
         const dbHealth = await checkDatabaseHealth();
+        const redisHealth = await checkRedisHealth();
         const cacheStats = await getCacheStats();
 
         res.status(200).json({
@@ -160,6 +163,7 @@ app.get('/api/health', async (req, res) => {
                 uptime: process.uptime(),
                 memory: process.memoryUsage(),
                 database: dbHealth,
+                redis: redisHealth,
                 cache: cacheStats
             }
         });
@@ -176,10 +180,20 @@ initDB().then(() => {
     // Initialize Socket.IO
     socketService.initialize(server);
 
+    // Initialize monthly leaderboard job scheduler
+    try {
+        MonthlyLeaderboardJob.initialize();
+        console.log('✅ Monthly leaderboard job scheduler initialized');
+    } catch (error) {
+        console.error('❌ Failed to initialize monthly leaderboard job:', error.message);
+    }
+
     server.listen(port, () => {
         console.log(`Server running at http://localhost:${port}`);
         console.log(`Swagger documentation available at http://localhost:${port}/api-docs`);
         console.log(`Socket.IO server ready for real-time battle communication`);
+        console.log(`🏆 Redis-powered leaderboard system active`);
+        console.log(`💰 Monthly rewards: 1st=1000 coins, 2nd=500 coins, 3rd=200 coins (global only)`);
         // Initialize Swagger docs
         swaggerDocs(app, port);
     });
@@ -191,8 +205,17 @@ initDB().then(() => {
 process.on('SIGINT', async () => {
     console.log('Shutting down gracefully...');
     try {
+        // Stop monthly job scheduler
+        MonthlyLeaderboardJob.stop();
+
+        // Close database connections
         await closeDatabaseConnection();
         console.log('Database connections closed.');
+
+        // Close Redis connections
+        await closeRedisConnection();
+        console.log('Redis connections closed.');
+
         process.exit(0);
     } catch (error) {
         console.error('Error during shutdown:', error);
