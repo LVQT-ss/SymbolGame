@@ -10,7 +10,8 @@
     "start": "node index.js",
     "start:cluster": "node cluster.js",
     "start:prod": "NODE_ENV=production node cluster.js",
-    "start:single": "NODE_ENV=production node index.js"
+    "start:single": "NODE_ENV=production node index.js",
+    "redis:test-cloud": "node test-redis-cloud.js"
   },
   "author": "",
   "license": "ISC",
