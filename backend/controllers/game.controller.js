@@ -878,9 +878,9 @@ export const completeGame = async (req, res) => {
         let processedRounds = [];
         let correctAnswers = 0;
 
-        // Get user info
+        // Get user info (including fields needed for Redis leaderboard)
         const user = await User.findByPk(userId, {
-            attributes: ['id', 'username', 'full_name', 'current_level', 'experience_points', 'coins']
+            attributes: ['id', 'username', 'full_name', 'current_level', 'experience_points', 'coins', 'avatar', 'country', 'is_active']
         });
 
         if (!user) {
@@ -1798,9 +1798,9 @@ export const submitWholeGame = async (req, res) => {
             });
         }
 
-        // Get user info
+        // Get user info (including fields needed for Redis leaderboard)
         const user = await User.findByPk(userId, {
-            attributes: ['id', 'username', 'full_name', 'current_level', 'experience_points', 'coins']
+            attributes: ['id', 'username', 'full_name', 'current_level', 'experience_points', 'coins', 'avatar', 'country', 'is_active']
         });
 
         if (!user) {

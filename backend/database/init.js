@@ -8,6 +8,11 @@ import RoundDetail from '../model/round-details.model.js';
 import GameSessionLike from '../model/game-session-likes.model.js';
 import GameSessionComment from '../model/game-session-comments.model.js';
 import PaymentTransaction from '../model/payment-transactions.model.js';
+import GameHistory from '../model/game-history.model.js';
+import LeaderboardCache from '../model/leaderboard-cache.model.js';
+import BattleSession from '../model/battle-sessions.model.js';
+import BattleRoundDetail from '../model/battle-round-details.model.js';
+import UserRoundResponse from '../model/user-round-responses.model.js';
 
 const initDB = async () => {
     try {
@@ -16,9 +21,19 @@ const initDB = async () => {
 
         // First, import all models to ensure they are registered
         const models = [
-            User, UserStatistics, FollowerRelationship, GameSession,
-            RoundDetail, GameSessionLike, GameSessionComment,
-            PaymentTransaction
+            User,
+            UserStatistics,
+            FollowerRelationship,
+            GameSession,
+            RoundDetail,
+            GameSessionLike,
+            GameSessionComment,
+            PaymentTransaction,
+            GameHistory,
+            LeaderboardCache,
+            BattleSession,
+            BattleRoundDetail,
+            UserRoundResponse
         ];
 
         console.log(`Loaded ${models.length} models`);

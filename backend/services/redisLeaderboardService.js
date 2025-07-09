@@ -44,9 +44,19 @@ class RedisLeaderboardService {
     // Add or update user score in Redis leaderboard
     static async updateUserScore(userId, difficulty, score, totalTime, userData) {
         try {
-            const user = userData || await User.findByPk(userId, {
-                attributes: ['id', 'username', 'full_name', 'avatar', 'current_level', 'country', 'is_active']
-            });
+            let user;
+            if (userData && userData.is_active !== undefined) {
+                // User data provided with all required fields
+                user = userData;
+                console.log(`🔄 Redis: Using provided user data for ${userId} (${userData.username})`);
+            } else {
+                // Need to fetch user data from database
+                console.log(`🔍 Redis: Fetching user data for ${userId} from database...`);
+                user = await User.findByPk(userId, {
+                    attributes: ['id', 'username', 'full_name', 'avatar', 'current_level', 'country', 'is_active']
+                });
+                console.log(`📋 Redis: Database lookup result for ${userId}:`, user ? `Found ${user.username}` : 'Not found');
+            }
 
             if (!user || !user.is_active) {
                 throw new Error(`User ${userId} not found or inactive`);
