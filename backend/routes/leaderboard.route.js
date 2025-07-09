@@ -259,6 +259,183 @@ router.get('/', LeaderboardController.getLeaderboard);
 
 /**
  * @swagger
+ * /api/leaderboard/redis:
+ *   get:
+ *     tags:
+ *       - Leaderboard
+ *     summary: Get Leaderboard from Redis Only
+ *     description: |
+ *       Retrieve leaderboard rankings directly from Redis cache with no PostgreSQL fallback.
+ *       This endpoint provides real-time Redis performance metrics and ensures data comes
+ *       exclusively from Redis for testing and performance analysis.
+ *       
+ *       **Key Differences from Standard Leaderboard:**
+ *       - No PostgreSQL fallback if Redis fails
+ *       - Returns detailed Redis performance metrics
+ *       - Shows actual Redis key names and statistics
+ *       - Includes query execution time
+ *       - Returns error if Redis is unavailable
+ *       
+ *       **Use Cases:**
+ *       - Testing Redis performance
+ *       - Verifying Redis data integrity
+ *       - Debugging Redis connectivity issues
+ *       - Performance benchmarking
+ *     parameters:
+ *       - in: query
+ *         name: difficulty_level
+ *         schema:
+ *           type: integer
+ *           enum: [1, 2, 3]
+ *           default: 1
+ *         description: |
+ *           Difficulty level filter:
+ *           - 1: Easy
+ *           - 2: Medium  
+ *           - 3: Hard
+ *         example: 1
+ *       - in: query
+ *         name: region
+ *         schema:
+ *           type: string
+ *           enum: [global, asia, america, europe, oceania, africa, others]
+ *           default: global
+ *         description: |
+ *           Region filter:
+ *           - global: All regions combined
+ *           - asia: Asian countries
+ *           - america: American countries
+ *           - europe: European countries
+ *           - oceania: Oceanic countries
+ *           - africa: African countries
+ *           - others: All other regions
+ *         example: "global"
+ *       - in: query
+ *         name: time_period
+ *         schema:
+ *           type: string
+ *           enum: [alltime, monthly]
+ *           default: alltime
+ *         description: |
+ *           Time period filter:
+ *           - alltime: All-time rankings
+ *           - monthly: Current month rankings only
+ *         example: "alltime"
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 500
+ *           default: 100
+ *         description: Maximum number of players to return
+ *         example: 100
+ *     responses:
+ *       200:
+ *         description: Redis leaderboard retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/LeaderboardEntry'
+ *                 metadata:
+ *                   type: object
+ *                   properties:
+ *                     difficulty_level:
+ *                       type: integer
+ *                       example: 1
+ *                     region:
+ *                       type: string
+ *                       example: "global"
+ *                     time_period:
+ *                       type: string
+ *                       example: "alltime"
+ *                     total_players:
+ *                       type: integer
+ *                       description: Number of players returned
+ *                       example: 50
+ *                     total_players_in_redis:
+ *                       type: integer
+ *                       description: Total players available in Redis
+ *                       example: 1250
+ *                     source:
+ *                       type: string
+ *                       example: "redis_only"
+ *                     redis_status:
+ *                       type: string
+ *                       example: "PONG"
+ *                     query_time_ms:
+ *                       type: integer
+ *                       description: Query execution time in milliseconds
+ *                       example: 15
+ *                     redis_key:
+ *                       type: string
+ *                       description: Actual Redis key used
+ *                       example: "leaderboard:global:1:alltime"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2025-01-09T10:30:00.000Z"
+ *                 message:
+ *                   type: string
+ *                   example: "Redis leaderboard retrieved successfully (Redis only, no fallback)"
+ *       400:
+ *         description: Invalid parameters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Redis connection failed - no fallback
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Redis leaderboard failed - no fallback available"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     message:
+ *                       type: string
+ *                       example: "connect ECONNREFUSED"
+ *                     type:
+ *                       type: string
+ *                       example: "RedisError"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 metadata:
+ *                   type: object
+ *                   properties:
+ *                     source:
+ *                       type: string
+ *                       example: "redis_only"
+ *                     fallback_used:
+ *                       type: boolean
+ *                       example: false
+ *                     redis_available:
+ *                       type: boolean
+ *                       example: false
+ */
+
+// Get leaderboard from Redis only (no PostgreSQL fallback)
+router.get('/redis', LeaderboardController.getRedisLeaderboard);
+
+/**
+ * @swagger
  * /api/leaderboard/update-cache:
  *   post:
  *     tags:

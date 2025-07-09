@@ -1285,20 +1285,23 @@ export const completeGame = async (req, res) => {
 
             // 🆕 UPDATE REDIS LEADERBOARD after statistics update
             console.log(`🏆 Updating Redis leaderboard after game completion...`);
+            console.log(`   📊 Redis update parameters: userId=${userId}, difficulty=${gameDifficulty}, score=${currentBestScore}, time=${bestScoreTime}, user=${user.username}`);
 
             try {
                 // Update Redis leaderboard with the current best score
-                await RedisLeaderboardService.updateUserScore(
+                const redisUpdateResult = await RedisLeaderboardService.updateUserScore(
                     userId,
                     gameDifficulty,
                     currentBestScore,
                     bestScoreTime || 0,
                     user // Pass user data to avoid extra database call
                 );
-                console.log(`   🏆 Redis leaderboard updated successfully for user ${user.username}`);
+                console.log(`   🏆 Redis leaderboard updated successfully for user ${user.username}, result: ${redisUpdateResult}`);
 
             } catch (leaderboardError) {
-                console.error(`   ❌ Error updating Redis leaderboard:`, leaderboardError.message);
+                console.error(`   ❌ CRITICAL: Redis leaderboard update failed for user ${user.username}!`);
+                console.error(`   ❌ Error details:`, leaderboardError.message);
+                console.error(`   ❌ Full error:`, leaderboardError);
                 // Don't fail the main request if leaderboard update fails
             }
 
@@ -1988,20 +1991,23 @@ export const submitWholeGame = async (req, res) => {
 
             // 🆕 UPDATE REDIS LEADERBOARD after statistics update
             console.log(`🏆 Updating Redis leaderboard after submitWholeGame...`);
+            console.log(`   📊 Redis update parameters: userId=${userId}, difficulty=${difficulty_level}, score=${currentBestScore}, time=${bestScoreTime}, user=${user.username}`);
 
             try {
                 // Update Redis leaderboard with the current best score
-                await RedisLeaderboardService.updateUserScore(
+                const redisUpdateResult = await RedisLeaderboardService.updateUserScore(
                     userId,
                     difficulty_level,
                     currentBestScore,
                     bestScoreTime || 0,
                     user // Pass user data to avoid extra database call
                 );
-                console.log(`   🏆 Redis leaderboard updated successfully for user ${user.username}`);
+                console.log(`   🏆 Redis leaderboard updated successfully for user ${user.username}, result: ${redisUpdateResult}`);
 
             } catch (leaderboardError) {
-                console.error(`   ❌ Error updating Redis leaderboard:`, leaderboardError.message);
+                console.error(`   ❌ CRITICAL: Redis leaderboard update failed for user ${user.username}!`);
+                console.error(`   ❌ Error details:`, leaderboardError.message);
+                console.error(`   ❌ Full error:`, leaderboardError);
                 // Don't fail the main request if leaderboard update fails
             }
 

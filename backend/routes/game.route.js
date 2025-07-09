@@ -803,8 +803,17 @@ router.post('/admin/create-custom', verifyToken, createGameWithCustomRounds);
  *   post:
  *     tags:
  *     - Game Controller
- *     summary: Complete a game session with results
- *     description: Submit final results for a game session, including optional recording data
+ *     summary: Complete a game session with results (2 modes)
+ *     description: |
+ *       Submit final results for a game session. Supports two modes:
+ *       
+ *       **Mode 1: Complete Existing Game Session** (with game_session_id)
+ *       - Must include first_number, second_number, user_symbol, response_time for each round
+ *       - Numbers must match the original game session to prevent cheating
+ *       
+ *       **Mode 2: Create New Game Session** (without game_session_id)
+ *       - Only requires user_symbol and response_time for each round
+ *       - Server generates the numbers automatically
  *     security:
  *       - Authorization: []
  *     requestBody:
@@ -819,7 +828,7 @@ router.post('/admin/create-custom', verifyToken, createGameWithCustomRounds);
  *             properties:
  *               game_session_id:
  *                 type: integer
- *                 example: 123
+ *                 example: 8
  *                 description: ID of existing game session (optional - if not provided, creates new session)
  *               total_time:
  *                 type: number
@@ -830,20 +839,29 @@ router.post('/admin/create-custom', verifyToken, createGameWithCustomRounds);
  *                 type: array
  *                 items:
  *                   type: object
- *                   required:
- *                     - user_symbol
- *                     - response_time
  *                   properties:
+ *                     first_number:
+ *                       type: integer
+ *                       example: 40
+ *                       description: First number from the comparison (REQUIRED for existing game sessions)
+ *                     second_number:
+ *                       type: integer
+ *                       example: 48
+ *                       description: Second number from the comparison (REQUIRED for existing game sessions)
  *                     user_symbol:
  *                       type: string
  *                       enum: ['>', '<', '=']
  *                       example: ">"
- *                       description: Symbol chosen by user
+ *                       description: Symbol chosen by user (ALWAYS REQUIRED)
  *                     response_time:
  *                       type: number
  *                       format: float
  *                       example: 2.5
- *                       description: Time taken to answer in seconds
+ *                       description: Time taken to answer in seconds (ALWAYS REQUIRED)
+ *                 description: |
+ *                   Round requirements depend on mode:
+ *                   - Existing session: first_number, second_number, user_symbol, response_time
+ *                   - New session: user_symbol, response_time only
  *               recording_url:
  *                 type: string
  *                 example: "https://example.com/recordings/game123.mp4"
@@ -862,6 +880,32 @@ router.post('/admin/create-custom', verifyToken, createGameWithCustomRounds);
  *                 default: 1
  *                 example: 2
  *                 description: Game difficulty level for new sessions (1=Easy, 2=Medium, 3=Hard)
+ *           examples:
+ *             existing_session:
+ *               summary: Complete Existing Game Session
+ *               value:
+ *                 game_session_id: 8
+ *                 total_time: 45.5
+ *                 rounds:
+ *                   - first_number: 40
+ *                     second_number: 48
+ *                     user_symbol: ">"
+ *                     response_time: 2.5
+ *                 recording_url: "https://example.com/recordings/game123.mp4"
+ *                 recording_duration: 10
+ *                 difficulty_level: 1
+ *             new_session:
+ *               summary: Create New Game Session
+ *               value:
+ *                 total_time: 30.0
+ *                 rounds:
+ *                   - user_symbol: "<"
+ *                     response_time: 3.2
+ *                   - user_symbol: ">"
+ *                     response_time: 2.8
+ *                   - user_symbol: "="
+ *                     response_time: 4.1
+ *                 difficulty_level: 2
  *     responses:
  *       200:
  *         description: Game completed successfully

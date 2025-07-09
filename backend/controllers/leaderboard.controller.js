@@ -4,6 +4,7 @@ import UserStatistics from '../model/user-statistics.model.js';
 import GameHistory from '../model/game-history.model.js';
 import GameSession from '../model/game-sessions.model.js';
 import RedisLeaderboardService from '../services/redisLeaderboardService.js';
+import redis from '../config/redis.config.js';
 import { Op } from 'sequelize';
 
 // Import associations to ensure they are set up
@@ -171,6 +172,102 @@ const LeaderboardController = {
                     error: error.message
                 });
             }
+        }
+    },
+
+    // Get Leaderboard directly from Redis (No PostgreSQL fallback)
+    getRedisLeaderboard: async (req, res) => {
+        try {
+            const startTime = Date.now();
+
+            const {
+                difficulty_level = 1,
+                region = 'global',
+                time_period = 'alltime',
+                limit = 100
+            } = req.query;
+
+            // Validate difficulty level
+            if (!DIFFICULTY_LEVELS.includes(parseInt(difficulty_level))) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid difficulty level. Must be 1 (Easy), 2 (Medium), or 3 (Hard)'
+                });
+            }
+
+            // Validate region
+            const validRegions = ['global', 'asia', 'america', 'europe', 'oceania', 'africa', 'others'];
+            if (!validRegions.includes(region)) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Invalid region. Must be one of: ${validRegions.join(', ')}`
+                });
+            }
+
+            // Validate time period
+            const validPeriods = ['alltime', 'monthly'];
+            if (!validPeriods.includes(time_period)) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Invalid time period. Must be one of: ${validPeriods.join(', ')}`
+                });
+            }
+
+            console.log(`🔴 Getting REDIS-ONLY leaderboard: region=${region}, difficulty=${difficulty_level}, period=${time_period}`);
+
+            // Get leaderboard ONLY from Redis (no fallback)
+            const leaderboard = await RedisLeaderboardService.getLeaderboard(
+                region,
+                parseInt(difficulty_level),
+                time_period,
+                parseInt(limit)
+            );
+
+            const endTime = Date.now();
+            const queryTime = endTime - startTime;
+
+            // Check Redis connection status
+            const redisStatus = await redis.ping();
+
+            // Get additional Redis metadata
+            const redisKey = RedisLeaderboardService.generateLeaderboardKey(region, parseInt(difficulty_level), time_period);
+            const totalPlayersInRedis = await redis.zcard(redisKey);
+
+            res.status(200).json({
+                success: true,
+                data: leaderboard,
+                metadata: {
+                    difficulty_level: parseInt(difficulty_level),
+                    region,
+                    time_period,
+                    total_players: leaderboard.length,
+                    total_players_in_redis: totalPlayersInRedis,
+                    source: 'redis_only',
+                    redis_status: redisStatus,
+                    query_time_ms: queryTime,
+                    redis_key: redisKey,
+                    timestamp: new Date().toISOString()
+                },
+                message: 'Redis leaderboard retrieved successfully (Redis only, no fallback)'
+            });
+        } catch (error) {
+            console.error('❌ Redis leaderboard error (no fallback):', error);
+
+            // Return error immediately - NO PostgreSQL fallback
+            return res.status(500).json({
+                success: false,
+                message: 'Redis leaderboard failed - no fallback available',
+                error: {
+                    message: error.message,
+                    type: error.name || 'RedisError',
+                    timestamp: new Date().toISOString()
+                },
+                metadata: {
+                    source: 'redis_only',
+                    fallback_used: false,
+                    redis_available: false
+                }
+            });
         }
     },
 
