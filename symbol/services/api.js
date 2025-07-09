@@ -1211,6 +1211,24 @@ export const leaderboardAPI = {
         }
     },
 
+    // 🆕 Redis-only leaderboard (this month's data from Redis)
+    getRedisLeaderboard: async (filters) => {
+        try {
+            const { difficulty_level = 1, region = 'global', time_period = 'monthly', limit = 100 } = filters;
+            const response = await api.get('/leaderboard/redis', {
+                params: {
+                    difficulty_level,
+                    region,
+                    time_period,
+                    limit
+                }
+            });
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to get Redis leaderboard");
+        }
+    },
+
     getUserPositions: async () => {
         try {
             const response = await api.get("/leaderboard/user/me/positions");
@@ -1447,6 +1465,28 @@ export const fetchLeaderboard = async (filters) => {
         return response.data;
     } catch (error) {
         console.error('Error fetching leaderboard:', error);
+        throw error;
+    }
+};
+
+// 🆕 Redis-only leaderboard API
+export const fetchRedisLeaderboard = async (filters) => {
+    try {
+        const { difficulty_level, region, time_period } = filters;
+        const token = await getToken();
+        const response = await axios.get(`${BASE_URL}/leaderboard/redis`, {
+            params: {
+                difficulty_level,
+                region,
+                time_period
+            },
+            headers: token ? {
+                Authorization: `Bearer ${token}`
+            } : {}
+        });
+        return response.data;
+    } catch (error) {
+        console.error('Error fetching Redis leaderboard:', error);
         throw error;
     }
 };

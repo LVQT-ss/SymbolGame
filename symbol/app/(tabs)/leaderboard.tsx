@@ -14,7 +14,12 @@ import {
   ScrollView,
   Animated,
 } from "react-native";
-import { fetchLeaderboard, userAPI, socialAPI } from "../../services/api";
+import {
+  fetchLeaderboard,
+  fetchRedisLeaderboard,
+  userAPI,
+  socialAPI,
+} from "../../services/api";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -50,6 +55,7 @@ interface LeaderboardEntry {
   isTopThree?: boolean;
   isCurrentUser?: boolean;
   user_statistics_id?: number;
+  user_id?: number; // For Redis API responses
   userStatistics?: any;
   rank_position?: number;
   time?: number;
@@ -92,6 +98,7 @@ export default function LeaderboardScreen() {
   const [selectedTime, setSelectedTime] = useState<TimeFilter>("allTime");
   const [selectedRegion, setSelectedRegion] = useState<RegionFilter>("global");
   const [loading, setLoading] = useState(false);
+  const [isRedisMode, setIsRedisMode] = useState(false);
 
   // Dropdown states
   const [showDifficultyMenu, setShowDifficultyMenu] = useState(false);
@@ -219,7 +226,7 @@ export default function LeaderboardScreen() {
   useEffect(() => {
     loadLeaderboard();
     getCurrentUser();
-  }, [selectedDifficulty, selectedTime, selectedRegion]);
+  }, [selectedDifficulty, selectedTime, selectedRegion, isRedisMode]);
 
   const loadLeaderboard = async () => {
     try {
@@ -235,21 +242,49 @@ export default function LeaderboardScreen() {
         console.log("Could not get current user info:", userError);
       }
 
-      // Call the actual API with current filter settings
-      console.log("🔍 Calling fetchLeaderboard with filters:", {
-        difficulty_level: selectedDifficulty,
-        region: selectedRegion,
-        time_period: selectedTime,
-      });
+      // Call the appropriate API based on mode
+      // Redis API only supports monthly data, so force monthly for Redis mode
+      const effectiveTimePeriod = isRedisMode ? "monthly" : selectedTime;
 
-      const response = await fetchLeaderboard({
-        difficulty_level: selectedDifficulty,
-        region: selectedRegion,
-        time_period: selectedTime,
-        limit: 100,
-      });
+      console.log(
+        `🔍 Calling ${
+          isRedisMode ? "fetchRedisLeaderboard" : "fetchLeaderboard"
+        } with filters:`,
+        {
+          difficulty_level: selectedDifficulty,
+          region: selectedRegion,
+          time_period: effectiveTimePeriod,
+        }
+      );
 
-      console.log("📊 API Response:", response);
+      const response = isRedisMode
+        ? await fetchRedisLeaderboard({
+            difficulty_level: selectedDifficulty,
+            region: selectedRegion,
+            time_period: effectiveTimePeriod,
+            limit: 100,
+          })
+        : await fetchLeaderboard({
+            difficulty_level: selectedDifficulty,
+            region: selectedRegion,
+            time_period: effectiveTimePeriod,
+            limit: 100,
+          });
+
+      console.log(
+        `📊 ${isRedisMode ? "Redis" : "Regular"} API Response:`,
+        response
+      );
+
+      // Log Redis-specific metadata if available
+      if (response.metadata) {
+        console.log("🔍 API Metadata:", {
+          source: response.metadata.source,
+          total_players_in_redis: response.metadata.total_players_in_redis,
+          redis_status: response.metadata.redis_status,
+          query_time_ms: response.metadata.query_time_ms,
+        });
+      }
 
       if (
         !response.success ||
@@ -263,10 +298,10 @@ export default function LeaderboardScreen() {
       const transformedData: LeaderboardEntry[] = response.data.map(
         (player: any, index: number) => ({
           id: `api_user_${
-            player.user_statistics_id || player.id || index
-          }_${index}`, // Use user_statistics_id + index for guaranteed uniqueness
+            player.user_statistics_id || player.user_id || player.id || index
+          }_${index}`, // Handle both user_statistics_id (regular API) and user_id (Redis API)
           rank: player.rank_position || index + 1,
-          username: player.full_name || "Unknown Player",
+          username: player.full_name || player.username || "Unknown Player",
           score: player.score || 0,
           avatar:
             player.avatar ||
@@ -283,12 +318,14 @@ export default function LeaderboardScreen() {
           isCurrentUser: currentUser
             ? player.full_name === currentUser.username ||
               player.full_name === currentUser.full_name ||
-              player.full_name === currentUser.name
+              player.full_name === currentUser.name ||
+              player.username === currentUser.username
             : false,
-          user_statistics_id: player.user_statistics_id,
+          user_statistics_id: player.user_statistics_id || player.user_id, // Handle both field names
+          user_id: player.user_id, // Keep original user_id from Redis
           userStatistics: player.userStatistics,
           rank_position: player.rank_position,
-          time: player.time,
+          time: player.time || player.total_time,
           created_at: player.created_at,
         })
       );
@@ -305,8 +342,25 @@ export default function LeaderboardScreen() {
       setLoading(false);
 
       console.log(
-        `✅ Loaded ${deduplicatedData.length} players (${transformedData.length} before deduplication) for difficulty ${selectedDifficulty}, region ${selectedRegion}, time ${selectedTime}`
+        `✅ Loaded ${deduplicatedData.length} players (${
+          transformedData.length
+        } before deduplication) for difficulty ${selectedDifficulty}, region ${selectedRegion}, time ${selectedTime}, mode: ${
+          isRedisMode ? "Redis" : "Regular"
+        }`
       );
+
+      // Log first few players for debugging
+      if (deduplicatedData.length > 0) {
+        console.log(
+          "👥 First 3 players:",
+          deduplicatedData.slice(0, 3).map((p) => ({
+            username: p.username,
+            score: p.score,
+            user_id: p.user_id,
+            user_statistics_id: p.user_statistics_id,
+          }))
+        );
+      }
     } catch (error) {
       setLoading(false);
       console.error("❌ Leaderboard loading error:", error);
@@ -399,10 +453,8 @@ export default function LeaderboardScreen() {
   // Enhanced handleViewUserProfile - Show modal first, then load data
   const handleViewUserProfile = async (player: LeaderboardEntry) => {
     // Prevent duplicate requests
-    if (
-      profileLoading ||
-      lastProfileRequest === player.user_statistics_id?.toString()
-    ) {
+    const playerId = player.user_statistics_id || player.user_id;
+    if (profileLoading || lastProfileRequest === playerId?.toString()) {
       console.log("🚫 Profile request blocked - already loading or duplicate");
       return;
     }
@@ -419,7 +471,7 @@ export default function LeaderboardScreen() {
     setShowProfileModal(true);
     setSelectedUserProfile(null);
     setIsFollowing(false);
-    setLastProfileRequest(player.user_statistics_id?.toString() || "");
+    setLastProfileRequest(playerId?.toString() || "");
 
     // Then fetch data inside modal
     try {
@@ -431,12 +483,14 @@ export default function LeaderboardScreen() {
         userId = player.userStatistics.user.id;
       } else if (player.userStatistics?.user_id) {
         userId = player.userStatistics.user_id;
+      } else if (player.user_statistics_id) {
+        userId = player.user_statistics_id;
+      } else if (player.user_id) {
+        userId = player.user_id; // From Redis API
       } else if (player.id) {
         // If it's a string ID, convert to number
         userId =
           typeof player.id === "string" ? parseInt(player.id) : player.id;
-      } else if (player.user_statistics_id) {
-        userId = player.user_statistics_id;
       }
 
       console.log("🔍 Player data:", {
@@ -679,73 +733,90 @@ export default function LeaderboardScreen() {
     onSelect: (value: any) => void,
     showMenu: boolean,
     setShowMenu: (show: boolean) => void
-  ) => (
-    <View style={styles.dropdownContainer}>
-      <TouchableOpacity
-        style={styles.dropdownButton}
-        onPress={() => {
-          // Close other dropdowns first
-          if (type === "difficulty") {
-            setShowRegionMenu(false);
-            setShowTimeMenu(false);
-          } else if (type === "region") {
-            setShowDifficultyMenu(false);
-            setShowTimeMenu(false);
-          } else if (type === "time") {
-            setShowDifficultyMenu(false);
-            setShowRegionMenu(false);
-          }
-          setShowMenu(!showMenu);
-        }}
-      >
-        <Text style={styles.dropdownButtonText}>
-          {getCurrentFilterLabel(type)}
-        </Text>
-        <Ionicons
-          name={showMenu ? "chevron-up" : "chevron-down"}
-          size={16}
-          color="#ffffff"
-        />
-      </TouchableOpacity>
+  ) => {
+    const isDisabled = type === "time" && isRedisMode;
 
-      {showMenu && (
-        <View style={styles.dropdownMenu}>
-          {options.map((option, index) => (
-            <TouchableOpacity
-              key={option.value}
-              style={[
-                styles.dropdownItem,
-                selectedValue === option.value && styles.selectedDropdownItem,
-                index === options.length - 1 && styles.lastDropdownItem,
-              ]}
-              onPress={() => {
-                onSelect(option.value);
-                setShowMenu(false);
-              }}
-            >
-              {option.icon && (
-                <Ionicons
-                  name={option.icon as any}
-                  size={18}
-                  color={selectedValue === option.value ? "#000000" : "#ffffff"}
-                  style={styles.dropdownItemIcon}
-                />
-              )}
-              <Text
+    return (
+      <View style={styles.dropdownContainer}>
+        <TouchableOpacity
+          style={[
+            styles.dropdownButton,
+            isDisabled && styles.dropdownButtonDisabled,
+          ]}
+          disabled={isDisabled}
+          onPress={() => {
+            if (isDisabled) return;
+
+            // Close other dropdowns first
+            if (type === "difficulty") {
+              setShowRegionMenu(false);
+              setShowTimeMenu(false);
+            } else if (type === "region") {
+              setShowDifficultyMenu(false);
+              setShowTimeMenu(false);
+            } else if (type === "time") {
+              setShowDifficultyMenu(false);
+              setShowRegionMenu(false);
+            }
+            setShowMenu(!showMenu);
+          }}
+        >
+          <Text
+            style={[
+              styles.dropdownButtonText,
+              isDisabled && styles.dropdownButtonTextDisabled,
+            ]}
+          >
+            {getCurrentFilterLabel(type)}
+          </Text>
+          <Ionicons
+            name={showMenu ? "chevron-up" : "chevron-down"}
+            size={16}
+            color={isDisabled ? "#666" : "#ffffff"}
+          />
+        </TouchableOpacity>
+
+        {showMenu && !isDisabled && (
+          <View style={styles.dropdownMenu}>
+            {options.map((option, index) => (
+              <TouchableOpacity
+                key={option.value}
                 style={[
-                  styles.dropdownItemText,
-                  selectedValue === option.value &&
-                    styles.selectedDropdownItemText,
+                  styles.dropdownItem,
+                  selectedValue === option.value && styles.selectedDropdownItem,
+                  index === options.length - 1 && styles.lastDropdownItem,
                 ]}
+                onPress={() => {
+                  onSelect(option.value);
+                  setShowMenu(false);
+                }}
               >
-                {option.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-    </View>
-  );
+                {option.icon && (
+                  <Ionicons
+                    name={option.icon as any}
+                    size={18}
+                    color={
+                      selectedValue === option.value ? "#000000" : "#ffffff"
+                    }
+                    style={styles.dropdownItemIcon}
+                  />
+                )}
+                <Text
+                  style={[
+                    styles.dropdownItemText,
+                    selectedValue === option.value &&
+                      styles.selectedDropdownItemText,
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  };
 
   const renderTopThree = () => {
     if (leaderboardData.length === 0) return null;
@@ -938,15 +1009,56 @@ export default function LeaderboardScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>🏆 Leaderboard</Text>
-          <Text style={styles.subtitle}>Compete with players worldwide</Text>
+          <Text style={styles.subtitle}>
+            {isRedisMode
+              ? "⚡ Live monthly rankings from Redis"
+              : "Compete with players worldwide"}
+          </Text>
         </View>
-        <TouchableOpacity style={styles.refreshButton} onPress={onRefresh}>
-          <Ionicons
-            name="refresh"
-            size={responsiveSize(20, 22, 24)}
-            color="#ffd33d"
-          />
-        </TouchableOpacity>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity
+            style={[styles.modeButton, isRedisMode && styles.modeButtonActive]}
+            onPress={() => {
+              const newRedisMode = !isRedisMode;
+              setIsRedisMode(newRedisMode);
+
+              // Redis API only supports monthly data, so force monthly when switching to Redis mode
+              if (newRedisMode && selectedTime !== "monthly") {
+                console.log(
+                  "🔄 Switching to Redis mode - forcing monthly time period"
+                );
+                setSelectedTime("monthly");
+              }
+
+              console.log(
+                `🔄 Switching to ${
+                  newRedisMode ? "Redis" : "regular"
+                } leaderboard mode`
+              );
+            }}
+          >
+            <Ionicons
+              name={isRedisMode ? "flash" : "flash-outline"}
+              size={responsiveSize(16, 18, 20)}
+              color={isRedisMode ? "#000" : "#ffd33d"}
+            />
+            <Text
+              style={[
+                styles.modeButtonText,
+                isRedisMode && styles.modeButtonTextActive,
+              ]}
+            >
+              {isRedisMode ? "This Month" : "Live Data"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.refreshButton} onPress={onRefresh}>
+            <Ionicons
+              name="refresh"
+              size={responsiveSize(20, 22, 24)}
+              color="#ffd33d"
+            />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Filters */}
@@ -978,10 +1090,10 @@ export default function LeaderboardScreen() {
           {renderFilterDropdown(
             "time",
             timeOptions,
-            selectedTime,
-            setSelectedTime,
-            showTimeMenu,
-            setShowTimeMenu
+            isRedisMode ? "monthly" : selectedTime, // Show monthly when Redis mode is active
+            isRedisMode ? () => {} : setSelectedTime, // Disable time selection in Redis mode
+            isRedisMode ? false : showTimeMenu, // Don't show dropdown in Redis mode
+            isRedisMode ? () => {} : setShowTimeMenu // Disable dropdown toggle in Redis mode
           )}
         </View>
       </View>
@@ -1309,6 +1421,31 @@ const styles = StyleSheet.create({
     backgroundColor: "#333",
     borderRadius: 25,
   },
+  headerButtons: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: responsiveSpacing(12),
+  },
+  modeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: responsiveSpacing(12),
+    paddingVertical: responsiveSpacing(8),
+    backgroundColor: "#333",
+    borderRadius: 20,
+    gap: responsiveSpacing(6),
+  },
+  modeButtonActive: {
+    backgroundColor: "#ffd33d",
+  },
+  modeButtonText: {
+    color: "#ffd33d",
+    fontSize: responsiveSize(12, 13, 14),
+    fontWeight: "600",
+  },
+  modeButtonTextActive: {
+    color: "#000",
+  },
   filtersContainer: {
     backgroundColor: "#1a1a1a",
     paddingVertical: responsiveSpacing(16),
@@ -1350,6 +1487,13 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textAlign: "center",
     flex: 1,
+  },
+  dropdownButtonDisabled: {
+    backgroundColor: "#222",
+    opacity: 0.6,
+  },
+  dropdownButtonTextDisabled: {
+    color: "#666",
   },
   dropdownMenu: {
     position: "absolute",
