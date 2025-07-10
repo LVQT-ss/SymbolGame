@@ -120,7 +120,11 @@ async function fixLeaderboardSimple() {
                 // Monthly entry (same as all-time for now)
                 leaderboardEntries.push({
                     ...baseEntry,
-                    leaderboard_type: 'monthly'
+                    leaderboard_type: 'monthly',
+                    month_year: (() => {
+                        const now = new Date();
+                        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                    })()
                 });
 
                 console.log(`  ${i + 1}. ${user.full_name || user.username} - Score: ${stat.best_score} (${stat.games_played} games)`);

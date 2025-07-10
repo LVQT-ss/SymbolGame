@@ -434,6 +434,9 @@ router.get('/', LeaderboardController.getLeaderboard);
 // Get leaderboard from Redis only (no PostgreSQL fallback)
 router.get('/redis', LeaderboardController.getRedisLeaderboard);
 
+// Get available historical months for leaderboards
+router.get('/available-months', LeaderboardController.getAvailableMonths);
+
 /**
  * @swagger
  * /api/leaderboard/update-cache:

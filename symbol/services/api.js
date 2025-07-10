@@ -1214,18 +1214,35 @@ export const leaderboardAPI = {
     // 🆕 Redis-only leaderboard (this month's data from Redis)
     getRedisLeaderboard: async (filters) => {
         try {
-            const { difficulty_level = 1, region = 'global', time_period = 'monthly', limit = 100 } = filters;
+            const { difficulty_level = 1, region = 'global', time_period = 'monthly', limit = 100, month_year = null } = filters;
             const response = await api.get('/leaderboard/redis', {
                 params: {
                     difficulty_level,
                     region,
                     time_period,
-                    limit
+                    limit,
+                    month_year
                 }
             });
             return response.data;
         } catch (error) {
             throw new Error(error.response?.data?.message || "Failed to get Redis leaderboard");
+        }
+    },
+
+    // 🆕 Get available historical months for leaderboards
+    getAvailableMonths: async (filters = {}) => {
+        try {
+            const { difficulty_level = null, region = null } = filters;
+            const response = await api.get('/leaderboard/available-months', {
+                params: {
+                    difficulty_level,
+                    region
+                }
+            });
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to get available months");
         }
     },
 
@@ -1472,13 +1489,14 @@ export const fetchLeaderboard = async (filters) => {
 // 🆕 Redis-only leaderboard API
 export const fetchRedisLeaderboard = async (filters) => {
     try {
-        const { difficulty_level, region, time_period } = filters;
+        const { difficulty_level, region, time_period, month_year = null } = filters;
         const token = await getToken();
         const response = await axios.get(`${BASE_URL}/leaderboard/redis`, {
             params: {
                 difficulty_level,
                 region,
-                time_period
+                time_period,
+                month_year
             },
             headers: token ? {
                 Authorization: `Bearer ${token}`
@@ -1487,6 +1505,27 @@ export const fetchRedisLeaderboard = async (filters) => {
         return response.data;
     } catch (error) {
         console.error('Error fetching Redis leaderboard:', error);
+        throw error;
+    }
+};
+
+// 🆕 Get available historical months API
+export const fetchAvailableMonths = async (filters = {}) => {
+    try {
+        const { difficulty_level = null, region = null } = filters;
+        const token = await getToken();
+        const response = await axios.get(`${BASE_URL}/leaderboard/available-months`, {
+            params: {
+                difficulty_level,
+                region
+            },
+            headers: token ? {
+                Authorization: `Bearer ${token}`
+            } : {}
+        });
+        return response.data;
+    } catch (error) {
+        console.error('Error fetching available months:', error);
         throw error;
     }
 };

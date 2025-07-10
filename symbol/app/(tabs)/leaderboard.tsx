@@ -17,6 +17,7 @@ import {
 import {
   fetchLeaderboard,
   fetchRedisLeaderboard,
+  fetchAvailableMonths,
   userAPI,
   socialAPI,
 } from "../../services/api";
@@ -72,6 +73,11 @@ interface FilterOption {
   icon?: string;
 }
 
+interface MonthOption {
+  month_year: string;
+  display_name: string;
+}
+
 interface UserProfile {
   id: number;
   username: string;
@@ -100,10 +106,16 @@ export default function LeaderboardScreen() {
   const [loading, setLoading] = useState(false);
   const [isRedisMode, setIsRedisMode] = useState(false);
 
+  // Month selection for historical data
+  const [availableMonths, setAvailableMonths] = useState<MonthOption[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [monthsLoading, setMonthsLoading] = useState(false);
+
   // Dropdown states
   const [showDifficultyMenu, setShowDifficultyMenu] = useState(false);
   const [showTimeMenu, setShowTimeMenu] = useState(false);
   const [showRegionMenu, setShowRegionMenu] = useState(false);
+  const [showMonthMenu, setShowMonthMenu] = useState(false);
 
   // Profile modal states
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -226,7 +238,64 @@ export default function LeaderboardScreen() {
   useEffect(() => {
     loadLeaderboard();
     getCurrentUser();
-  }, [selectedDifficulty, selectedTime, selectedRegion, isRedisMode]);
+
+    // Load available months when in monthly mode (either regular monthly or Redis mode)
+    if (selectedTime === "monthly" || isRedisMode) {
+      loadAvailableMonths();
+    }
+  }, [
+    selectedDifficulty,
+    selectedTime,
+    selectedRegion,
+    isRedisMode,
+    selectedMonth,
+  ]);
+
+  // Load available months for historical data
+  const loadAvailableMonths = async () => {
+    if (monthsLoading) return; // Prevent multiple simultaneous requests
+
+    try {
+      setMonthsLoading(true);
+
+      const response = await fetchAvailableMonths({
+        difficulty_level: selectedDifficulty,
+        region: selectedRegion === "global" ? null : selectedRegion,
+      });
+
+      if (response.success && response.data) {
+        setAvailableMonths(response.data);
+        console.log(`📅 Loaded ${response.data.length} available months`);
+
+        // Auto-select current month if no month is selected
+        if (!selectedMonth && response.data.length > 0) {
+          const currentDate = new Date();
+          const currentMonth = `${currentDate.getFullYear()}-${String(
+            currentDate.getMonth() + 1
+          ).padStart(2, "0")}`;
+
+          // Find current month in available months, or use the most recent
+          const currentMonthOption = response.data.find(
+            (m: MonthOption) => m.month_year === currentMonth
+          );
+          const monthToSelect = currentMonthOption
+            ? currentMonth
+            : response.data[0].month_year;
+
+          setSelectedMonth(monthToSelect);
+          console.log(`📅 Auto-selected month: ${monthToSelect}`);
+        }
+      } else {
+        console.log("⚠️ No available months data received");
+        setAvailableMonths([]);
+      }
+    } catch (error) {
+      console.error("❌ Failed to load available months:", error);
+      setAvailableMonths([]);
+    } finally {
+      setMonthsLoading(false);
+    }
+  };
 
   const loadLeaderboard = async () => {
     try {
@@ -263,12 +332,15 @@ export default function LeaderboardScreen() {
             region: selectedRegion,
             time_period: effectiveTimePeriod,
             limit: 100,
+            month_year: selectedMonth, // Include selected month for historical data
           })
         : await fetchLeaderboard({
             difficulty_level: selectedDifficulty,
             region: selectedRegion,
             time_period: effectiveTimePeriod,
             limit: 100,
+            month_year:
+              effectiveTimePeriod === "monthly" ? selectedMonth : null, // Include month for monthly queries
           });
 
       console.log(
@@ -726,6 +798,87 @@ export default function LeaderboardScreen() {
     }
   };
 
+  const renderMonthDropdown = () => {
+    const selectedMonthOption = availableMonths.find(
+      (month: MonthOption) => month.month_year === selectedMonth
+    );
+
+    const currentLabel = selectedMonthOption
+      ? selectedMonthOption.display_name
+      : monthsLoading
+      ? "Loading months..."
+      : "Select Month";
+
+    return (
+      <View style={styles.dropdownContainer}>
+        <TouchableOpacity
+          style={[
+            styles.dropdownButton,
+            showMonthMenu && styles.dropdownButtonActive,
+            monthsLoading && styles.dropdownButtonDisabled,
+          ]}
+          onPress={() => {
+            if (!monthsLoading && availableMonths.length > 0) {
+              setShowMonthMenu(!showMonthMenu);
+            }
+          }}
+          disabled={monthsLoading}
+        >
+          <Text
+            style={[
+              styles.dropdownButtonText,
+              monthsLoading && styles.dropdownButtonTextDisabled,
+            ]}
+          >
+            {currentLabel}
+          </Text>
+          <Ionicons
+            name={showMonthMenu ? "chevron-up" : "chevron-down"}
+            size={16}
+            color={monthsLoading ? "#666" : "#ffffff"}
+          />
+        </TouchableOpacity>
+
+        {showMonthMenu && availableMonths.length > 0 && (
+          <View style={styles.dropdownMenu}>
+            <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+              {availableMonths.map((month: MonthOption) => (
+                <TouchableOpacity
+                  key={month.month_year}
+                  style={[
+                    styles.dropdownItem,
+                    selectedMonth === month.month_year &&
+                      styles.selectedDropdownItem,
+                  ]}
+                  onPress={() => {
+                    setSelectedMonth(month.month_year);
+                    setShowMonthMenu(false);
+                    console.log(
+                      `📅 Selected month: ${month.month_year} (${month.display_name})`
+                    );
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.dropdownItemText,
+                      selectedMonth === month.month_year &&
+                        styles.selectedDropdownItemText,
+                    ]}
+                  >
+                    {month.display_name}
+                  </Text>
+                  {selectedMonth === month.month_year && (
+                    <Ionicons name="checkmark" size={16} color="#ffd33d" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+      </View>
+    );
+  };
+
   const renderFilterDropdown = (
     type: string,
     options: FilterOption[],
@@ -1065,7 +1218,10 @@ export default function LeaderboardScreen() {
       <View
         style={[
           styles.filtersContainer,
-          (showDifficultyMenu || showRegionMenu || showTimeMenu) &&
+          (showDifficultyMenu ||
+            showRegionMenu ||
+            showTimeMenu ||
+            showMonthMenu) &&
             styles.filtersContainerExpanded,
         ]}
       >
@@ -1096,6 +1252,13 @@ export default function LeaderboardScreen() {
             isRedisMode ? () => {} : setShowTimeMenu // Disable dropdown toggle in Redis mode
           )}
         </View>
+
+        {/* Month selection row - show when in monthly mode */}
+        {(selectedTime === "monthly" || isRedisMode) && (
+          <View style={[styles.filtersRow, styles.monthRow]}>
+            {renderMonthDropdown()}
+          </View>
+        )}
       </View>
 
       {/* Leaderboard List */}
@@ -1464,6 +1627,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     overflow: "visible",
   },
+  monthRow: {
+    marginTop: responsiveSpacing(12),
+    paddingTop: responsiveSpacing(12),
+    borderTopWidth: 1,
+    borderTopColor: "#333",
+  },
   dropdownContainer: {
     position: "relative",
     flex: 1,
@@ -1494,6 +1663,14 @@ const styles = StyleSheet.create({
   },
   dropdownButtonTextDisabled: {
     color: "#666",
+  },
+  dropdownButtonActive: {
+    backgroundColor: "#444",
+    borderColor: "#ffd33d",
+    borderWidth: 1,
+  },
+  dropdownScroll: {
+    maxHeight: 200,
   },
   dropdownMenu: {
     position: "absolute",

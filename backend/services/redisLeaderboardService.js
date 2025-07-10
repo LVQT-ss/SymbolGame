@@ -180,12 +180,21 @@ class RedisLeaderboardService {
             console.log('💾 Starting Redis backup to PostgreSQL...');
             console.log(`📋 Options: rewards=${includeRewards}, clear=${clearMonthlyData}, type=${leaderboardType}`);
 
-            // Clear existing cache of the specified type in PostgreSQL
-            await LeaderboardCache.destroy({
-                where: {
-                    leaderboard_type: leaderboardType
-                }
-            });
+            // Get current month/year for monthly leaderboards
+            const currentDate = new Date();
+            const monthYear = leaderboardType === 'monthly'
+                ? `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`
+                : null;
+
+            console.log(`📅 Processing data for month: ${monthYear}`);
+
+            // Clear existing cache for this specific month/type in PostgreSQL
+            const whereClause = { leaderboard_type: leaderboardType };
+            if (monthYear) {
+                whereClause.month_year = monthYear;
+            }
+
+            await LeaderboardCache.destroy({ where: whereClause });
 
             const rewardedUsers = []; // Track users who got rewards
             let totalEntriesStored = 0;
@@ -235,6 +244,7 @@ class RedisLeaderboardService {
                     // Save to PostgreSQL LeaderboardCache
                     const cacheEntries = dataToStore.map(player => ({
                         leaderboard_type: leaderboardType,
+                        month_year: monthYear,
                         region: region === 'global' ? null : region,
                         difficulty_level: difficulty,
                         user_statistics_id: player.user_id,

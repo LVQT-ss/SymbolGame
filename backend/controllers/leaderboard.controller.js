@@ -37,6 +37,7 @@ const LeaderboardController = {
                 difficulty_level = 1,
                 region = 'global',
                 time_period = 'allTime',
+                month_year = null, // Format: YYYY-MM (e.g., 2024-01)
                 limit = 100
             } = req.query;
 
@@ -66,6 +67,16 @@ const LeaderboardController = {
                     difficulty_level: parseInt(difficulty_level),
                     leaderboard_type: time_period === 'monthly' ? 'monthly' : 'allTime'
                 };
+
+                // Add month_year filter for monthly leaderboards
+                if (time_period === 'monthly' && month_year) {
+                    whereClause.month_year = month_year;
+                } else if (time_period === 'monthly' && !month_year) {
+                    // If monthly but no specific month requested, get current month
+                    const currentDate = new Date();
+                    const currentMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+                    whereClause.month_year = currentMonth;
+                }
 
                 // Add region filter if not global
                 if (region !== 'global') {
@@ -112,7 +123,8 @@ const LeaderboardController = {
                     region,
                     time_period,
                     total_players: leaderboard.length,
-                    source: 'redis'
+                    source: 'redis',
+                    month_year: month_year
                 },
                 message: 'Leaderboard retrieved successfully'
             });
@@ -133,6 +145,16 @@ const LeaderboardController = {
                     difficulty_level: parseInt(difficulty_level),
                     leaderboard_type: time_period === 'monthly' ? 'monthly' : 'allTime'
                 };
+
+                // Add month_year filter for monthly leaderboards
+                if (time_period === 'monthly' && month_year) {
+                    whereClause.month_year = month_year;
+                } else if (time_period === 'monthly' && !month_year) {
+                    // If monthly but no specific month requested, get current month
+                    const currentDate = new Date();
+                    const currentMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+                    whereClause.month_year = currentMonth;
+                }
 
                 if (region !== 'global') {
                     whereClause.region = region;
@@ -375,7 +397,11 @@ const LeaderboardController = {
                         current_level: data.user.current_level,
                         country: data.user.country,
                         total_games: data.monthlyGames,
-                        last_updated: new Date()
+                        last_updated: new Date(),
+                        month_year: (() => {
+                            const now = new Date();
+                            return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                        })()
                     }));
 
                 // Bulk create all entries
@@ -447,8 +473,80 @@ const LeaderboardController = {
                 error: error.message
             });
         }
+    },
+
+    // Get available historical months for leaderboards
+    getAvailableMonths: async (req, res) => {
+        try {
+            const { difficulty_level = null, region = null } = req.query;
+
+            console.log(`📅 Getting available months: difficulty=${difficulty_level}, region=${region}`);
+
+            const whereClause = {
+                leaderboard_type: 'monthly',
+                month_year: { [Op.not]: null }
+            };
+
+            // Add filters if provided
+            if (difficulty_level) {
+                whereClause.difficulty_level = parseInt(difficulty_level);
+            }
+            if (region && region !== 'global') {
+                whereClause.region = region;
+            } else if (region === 'global') {
+                whereClause.region = null;
+            }
+
+            const availableMonths = await LeaderboardCache.findAll({
+                where: whereClause,
+                attributes: ['month_year'],
+                group: ['month_year'],
+                order: [['month_year', 'DESC']]
+            });
+
+            const months = availableMonths.map(entry => ({
+                month_year: entry.month_year,
+                display_name: formatMonthDisplay(entry.month_year)
+            }));
+
+            res.status(200).json({
+                success: true,
+                data: months,
+                metadata: {
+                    total_months: months.length,
+                    difficulty_level: difficulty_level ? parseInt(difficulty_level) : 'all',
+                    region: region || 'all'
+                },
+                message: 'Available months retrieved successfully'
+            });
+        } catch (error) {
+            console.error('Get available months error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to get available months',
+                error: error.message
+            });
+        }
     }
 };
+
+// Helper function to format month display name
+function formatMonthDisplay(monthYear) {
+    if (!monthYear || monthYear.length !== 7) return monthYear;
+
+    const [year, month] = monthYear.split('-');
+    const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    const monthIndex = parseInt(month) - 1;
+    if (monthIndex >= 0 && monthIndex < 12) {
+        return `${monthNames[monthIndex]} ${year}`;
+    }
+
+    return monthYear;
+}
 
 // Helper function to get country flag emoji
 function getCountryFlag(countryCode) {

@@ -12,6 +12,11 @@ const LeaderboardCache = sequelize.define('LeaderboardCache', {
         allowNull: false,
         comment: 'Type of leaderboard: regional, monthly, or allTime'
     },
+    month_year: {
+        type: DataTypes.STRING(7),
+        allowNull: true,
+        comment: 'Month and year in YYYY-MM format (e.g., 2024-01). Required for monthly leaderboards, null for others'
+    },
     region: {
         type: DataTypes.STRING(20),
         allowNull: true,
@@ -79,17 +84,21 @@ const LeaderboardCache = sequelize.define('LeaderboardCache', {
     timestamps: true,
     indexes: [
         {
-            fields: ['leaderboard_type', 'region', 'difficulty_level', 'rank_position'],
+            fields: ['leaderboard_type', 'month_year', 'region', 'difficulty_level', 'rank_position'],
             name: 'idx_leaderboard_fast_query'
         },
         {
             unique: true,
-            fields: ['leaderboard_type', 'user_id'],
+            fields: ['leaderboard_type', 'month_year', 'user_statistics_id', 'region', 'difficulty_level'],
             name: 'idx_leaderboard_user_unique'
         },
         {
             fields: ['last_updated'],
             name: 'idx_leaderboard_last_updated'
+        },
+        {
+            fields: ['month_year'],
+            name: 'idx_leaderboard_month_year'
         }
     ]
 });
