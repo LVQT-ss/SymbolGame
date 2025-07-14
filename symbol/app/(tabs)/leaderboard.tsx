@@ -104,7 +104,6 @@ export default function LeaderboardScreen() {
   const [selectedTime, setSelectedTime] = useState<TimeFilter>("allTime");
   const [selectedRegion, setSelectedRegion] = useState<RegionFilter>("global");
   const [loading, setLoading] = useState(false);
-  const [isRedisMode, setIsRedisMode] = useState(false);
 
   // Month selection for historical data
   const [availableMonths, setAvailableMonths] = useState<MonthOption[]>([]);
@@ -236,222 +235,306 @@ export default function LeaderboardScreen() {
   };
 
   useEffect(() => {
-    loadLeaderboard();
-    getCurrentUser();
+    // Load available months first
+    loadAvailableMonths();
+  }, [selectedDifficulty, selectedRegion]);
 
-    // Load available months when in monthly mode (either regular monthly or Redis mode)
-    if (selectedTime === "monthly" || isRedisMode) {
-      loadAvailableMonths();
+  useEffect(() => {
+    // Load leaderboard when month selection changes
+    if (selectedMonth !== null) {
+      loadLeaderboard();
     }
-  }, [
-    selectedDifficulty,
-    selectedTime,
-    selectedRegion,
-    isRedisMode,
-    selectedMonth,
-  ]);
+  }, [selectedMonth, selectedDifficulty, selectedTime, selectedRegion]);
+
+  useEffect(() => {
+    // Load current user info
+    getCurrentUser();
+  }, []);
 
   // Load available months for historical data
   const loadAvailableMonths = async () => {
-    if (monthsLoading) return; // Prevent multiple simultaneous requests
-
+    setMonthsLoading(true);
     try {
-      setMonthsLoading(true);
+      console.log("📅 Loading available months for month selector...");
 
-      const response = await fetchAvailableMonths({
-        difficulty_level: selectedDifficulty,
-        region: selectedRegion === "global" ? null : selectedRegion,
+      // Get current year's months (January to current month)
+      const currentDate = new Date();
+      const currentYear = currentDate.getFullYear();
+      const currentMonthNum = currentDate.getMonth() + 1; // 1-12
+
+      // Generate all months for current year (up to current month)
+      const yearMonths: MonthOption[] = [];
+
+      // Add "Live Data" as the first option
+      yearMonths.push({
+        month_year: "live",
+        display_name: "🔴 Live Data",
       });
 
-      if (response.success && response.data) {
-        setAvailableMonths(response.data);
-        console.log(`📅 Loaded ${response.data.length} available months`);
+      // Add all months from January to current month
+      const monthNames = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+      ];
 
-        // Auto-select current month if no month is selected
-        if (!selectedMonth && response.data.length > 0) {
-          const currentDate = new Date();
-          const currentMonth = `${currentDate.getFullYear()}-${String(
-            currentDate.getMonth() + 1
-          ).padStart(2, "0")}`;
+      for (let month = 1; month <= currentMonthNum; month++) {
+        const monthStr = String(month).padStart(2, "0");
+        const monthYear = `${currentYear}-${monthStr}`;
+        yearMonths.push({
+          month_year: monthYear,
+          display_name: `${monthNames[month - 1]} ${currentYear}`,
+        });
+      }
 
-          // Find current month in available months, or use the most recent
-          const currentMonthOption = response.data.find(
-            (m: MonthOption) => m.month_year === currentMonth
+      // Try to get historical months from API (for previous months that might have data)
+      try {
+        const response = await fetchAvailableMonths({
+          difficulty_level: selectedDifficulty,
+          region: selectedRegion !== "global" ? selectedRegion : null,
+        });
+
+        if (response?.data?.success && response.data.data?.length > 0) {
+          const apiMonths = response.data.data
+            .filter((item: any) => item.month_year) // Only items with month_year
+            .map((item: any) => ({
+              month_year: item.month_year,
+              display_name: `${item.month_year.split("-")[1]}/${
+                item.month_year.split("-")[0]
+              }`,
+            }));
+
+          // Merge with current year months, removing duplicates
+          const allMonthsMap = new Map();
+
+          // Add Live Data first
+          allMonthsMap.set("live", yearMonths[0]);
+
+          // Add current year months
+          yearMonths.slice(1).forEach((month) => {
+            allMonthsMap.set(month.month_year, month);
+          });
+
+          // Add historical months (might include previous years)
+          apiMonths.forEach((month: MonthOption) => {
+            if (!allMonthsMap.has(month.month_year)) {
+              allMonthsMap.set(month.month_year, month);
+            }
+          });
+
+          // Convert back to array and sort (Live Data first, then newest to oldest)
+          const sortedMonths = Array.from(allMonthsMap.values());
+          const liveData = sortedMonths.find((m) => m.month_year === "live");
+          const monthData = sortedMonths
+            .filter((m) => m.month_year !== "live")
+            .sort((a, b) => b.month_year.localeCompare(a.month_year)); // Newest first
+
+          setAvailableMonths([liveData!, ...monthData]);
+          console.log(
+            `✅ Loaded ${sortedMonths.length} month options (including Live Data)`
           );
-          const monthToSelect = currentMonthOption
-            ? currentMonth
-            : response.data[0].month_year;
-
-          setSelectedMonth(monthToSelect);
-          console.log(`📅 Auto-selected month: ${monthToSelect}`);
+        } else {
+          // Fallback to current year months only
+          setAvailableMonths(yearMonths);
+          console.log(
+            `📅 Using current year months only (${yearMonths.length} options)`
+          );
         }
-      } else {
-        console.log("⚠️ No available months data received");
-        setAvailableMonths([]);
+      } catch (apiError) {
+        console.error("⚠️ API failed, using current year months:", apiError);
+        setAvailableMonths(yearMonths);
+      }
+
+      // Set default selection to "Live Data" if nothing is selected
+      if (!selectedMonth) {
+        setSelectedMonth("live");
+        console.log("🔴 Default selection: Live Data");
       }
     } catch (error) {
-      console.error("❌ Failed to load available months:", error);
-      setAvailableMonths([]);
+      console.error("❌ Error loading available months:", error);
+      // Fallback: just Live Data and current month
+      const currentDate = new Date();
+      const currentMonth = `${currentDate.getFullYear()}-${String(
+        currentDate.getMonth() + 1
+      ).padStart(2, "0")}`;
+      setAvailableMonths([
+        { month_year: "live", display_name: "🔴 Live Data" },
+        {
+          month_year: currentMonth,
+          display_name: `${currentMonth.split("-")[1]}/${
+            currentMonth.split("-")[0]
+          }`,
+        },
+      ]);
+      if (!selectedMonth) {
+        setSelectedMonth("live");
+      }
     } finally {
       setMonthsLoading(false);
     }
   };
 
   const loadLeaderboard = async () => {
+    if (loading) return;
+
     try {
       setLoading(true);
-
-      // Get current user info to identify them in the leaderboard
-      let currentUser = null;
-      try {
-        const userResponse = await userAPI.getCurrentUserProfile();
-        currentUser = userResponse.user || userResponse;
-        console.log("Current user:", currentUser);
-      } catch (userError) {
-        console.log("Could not get current user info:", userError);
-      }
-
-      // Call the appropriate API based on mode
-      // Redis API only supports monthly data, so force monthly for Redis mode
-      const effectiveTimePeriod = isRedisMode ? "monthly" : selectedTime;
-
-      console.log(
-        `🔍 Calling ${
-          isRedisMode ? "fetchRedisLeaderboard" : "fetchLeaderboard"
-        } with filters:`,
-        {
-          difficulty_level: selectedDifficulty,
-          region: selectedRegion,
-          time_period: effectiveTimePeriod,
-        }
-      );
-
-      const response = isRedisMode
-        ? await fetchRedisLeaderboard({
-            difficulty_level: selectedDifficulty,
-            region: selectedRegion,
-            time_period: effectiveTimePeriod,
-            limit: 100,
-            month_year: selectedMonth, // Include selected month for historical data
-          })
-        : await fetchLeaderboard({
-            difficulty_level: selectedDifficulty,
-            region: selectedRegion,
-            time_period: effectiveTimePeriod,
-            limit: 100,
-            month_year:
-              effectiveTimePeriod === "monthly" ? selectedMonth : null, // Include month for monthly queries
-          });
-
-      console.log(
-        `📊 ${isRedisMode ? "Redis" : "Regular"} API Response:`,
-        response
-      );
-
-      // Log Redis-specific metadata if available
-      if (response.metadata) {
-        console.log("🔍 API Metadata:", {
-          source: response.metadata.source,
-          total_players_in_redis: response.metadata.total_players_in_redis,
-          redis_status: response.metadata.redis_status,
-          query_time_ms: response.metadata.query_time_ms,
-        });
-      }
-
-      if (
-        !response.success ||
-        !response.data ||
-        !Array.isArray(response.data)
-      ) {
-        throw new Error(response.message || "Invalid API response format");
-      }
-
-      // Transform API response to match our LeaderboardEntry interface
-      const transformedData: LeaderboardEntry[] = response.data.map(
-        (player: any, index: number) => ({
-          id: `api_user_${
-            player.user_statistics_id || player.user_id || player.id || index
-          }_${index}`, // Handle both user_statistics_id (regular API) and user_id (Redis API)
-          rank: player.rank_position || index + 1,
-          username: player.full_name || player.username || "Unknown Player",
-          score: player.score || 0,
-          avatar:
-            player.avatar ||
-            `https://i.pravatar.cc/150?img=${(index % 50) + 1}`,
-          level: player.current_level || 1,
-          region: player.region || "others",
-          country: player.country || "",
-          countryFlag:
-            player.countryFlag || getCountryFlag(player.country || ""),
-          total_time: player.total_time || 0,
-          total_games: player.total_games || 0,
-          medal: player.medal || undefined,
-          isTopThree: player.isTopThree || player.rank_position <= 3,
-          isCurrentUser: currentUser
-            ? player.full_name === currentUser.username ||
-              player.full_name === currentUser.full_name ||
-              player.full_name === currentUser.name ||
-              player.username === currentUser.username
-            : false,
-          user_statistics_id: player.user_statistics_id || player.user_id, // Handle both field names
-          user_id: player.user_id, // Keep original user_id from Redis
-          userStatistics: player.userStatistics,
-          rank_position: player.rank_position,
-          time: player.time || player.total_time,
-          created_at: player.created_at,
-        })
-      );
-
-      // Additional safeguard: Remove any duplicates by username + score combination
-      const deduplicatedData = transformedData.filter((player, index, arr) => {
-        const duplicateIndex = arr.findIndex(
-          (p) => p.username === player.username && p.score === player.score
-        );
-        return duplicateIndex === index; // Keep only the first occurrence
+      console.log("🔄 Loading leaderboard...", {
+        difficulty: selectedDifficulty,
+        region: selectedRegion,
+        time: selectedTime,
+        selectedMonth,
+        isLiveData: selectedMonth === "live",
       });
 
-      setLeaderboardData(deduplicatedData);
-      setLoading(false);
+      let leaderboard: LeaderboardEntry[] = [];
 
-      console.log(
-        `✅ Loaded ${deduplicatedData.length} players (${
-          transformedData.length
-        } before deduplication) for difficulty ${selectedDifficulty}, region ${selectedRegion}, time ${selectedTime}, mode: ${
-          isRedisMode ? "Redis" : "Regular"
-        }`
-      );
+      // Determine data source based on selected month
+      if (selectedMonth === "live") {
+        // Use Redis for live data (current month, real-time)
+        console.log("🔴 Loading LIVE data from Redis...");
 
-      // Log first few players for debugging
-      if (deduplicatedData.length > 0) {
+        const filters = {
+          difficulty_level: selectedDifficulty,
+          region: selectedRegion,
+          time_period: "monthly", // Redis only supports monthly
+          // month_year: null // Temporarily disabled for testing
+        };
+
+        const response = await fetchRedisLeaderboard(filters);
+
+        console.log("🔍 Redis API Response Debug:", {
+          response: response,
+          hasData: !!response?.data,
+          success: response?.data?.success,
+          dataArray: response?.data?.data,
+          dataLength: response?.data?.data?.length,
+          errorMessage: response?.data?.message,
+          fullResponse: JSON.stringify(response, null, 2),
+        });
+
+        if (response?.data?.success && response.data.data) {
+          leaderboard = response.data.data.map(
+            (player: any, index: number) => ({
+              id:
+                player.user_id?.toString() ||
+                player.id?.toString() ||
+                `redis_${index}`,
+              rank: player.rank_position || index + 1,
+              username:
+                player.full_name || player.username || `Player ${index + 1}`,
+              score: player.score || 0,
+              avatar: player.avatar || "https://i.pravatar.cc/150?img=1",
+              level: player.current_level || 1,
+              region: player.region || selectedRegion,
+              country: player.country,
+              countryFlag: player.countryFlag,
+              total_time: player.total_time || 0,
+              total_games: player.total_games || 0,
+              medal: player.medal,
+              isTopThree: player.isTopThree || false,
+              isCurrentUser: false,
+              user_id: player.user_id,
+              user_statistics_id: player.user_statistics_id,
+              userStatistics: player.userStatistics,
+              rank_position: player.rank_position || index + 1,
+              time: player.time || player.total_time,
+              created_at: player.created_at,
+            })
+          );
+
+          console.log(
+            `✅ Loaded ${leaderboard.length} Redis leaderboard entries (LIVE)`
+          );
+        } else {
+          console.log("⚠️ Redis response was empty or failed, using mock data");
+          leaderboard = generateMockData();
+        }
+      } else {
+        // Use PostgreSQL for historical data (specific month)
         console.log(
-          "👥 First 3 players:",
-          deduplicatedData.slice(0, 3).map((p) => ({
-            username: p.username,
-            score: p.score,
-            user_id: p.user_id,
-            user_statistics_id: p.user_statistics_id,
-          }))
+          `📅 Loading HISTORICAL data from PostgreSQL for month: ${selectedMonth}`
         );
-      }
-    } catch (error) {
-      setLoading(false);
-      console.error("❌ Leaderboard loading error:", error);
 
-      // Fallback to mock data if API fails
-      console.log("🔄 API failed, using mock data as fallback");
+        const filters = {
+          difficulty_level: selectedDifficulty,
+          region: selectedRegion,
+          time_period: selectedTime,
+          // month_year: selectedMonth // Temporarily disabled for testing
+        };
+
+        const response = await fetchLeaderboard(filters);
+
+        console.log("🔍 PostgreSQL API Response Debug:", {
+          response: response,
+          hasData: !!response?.data,
+          success: response?.data?.success,
+          dataArray: response?.data?.data,
+          dataLength: response?.data?.data?.length,
+          errorMessage: response?.data?.message,
+          fullResponse: JSON.stringify(response, null, 2),
+        });
+
+        if (response?.data?.success && response.data.data) {
+          leaderboard = response.data.data.map(
+            (player: any, index: number) => ({
+              id:
+                player.user_statistics_id?.toString() ||
+                player.id?.toString() ||
+                `pg_${index}`,
+              rank: player.rank_position || index + 1,
+              username:
+                player.full_name || player.username || `Player ${index + 1}`,
+              score: player.score || 0,
+              avatar: player.avatar || "https://i.pravatar.cc/150?img=1",
+              level: player.current_level || 1,
+              region: player.region || selectedRegion,
+              country: player.country,
+              countryFlag: player.countryFlag,
+              total_time: player.total_time || 0,
+              total_games: player.total_games || 0,
+              medal: player.medal,
+              isTopThree: player.isTopThree || false,
+              isCurrentUser: false,
+              user_statistics_id: player.user_statistics_id,
+              rank_position: player.rank_position || index + 1,
+              time: player.time || player.total_time,
+              created_at: player.created_at,
+            })
+          );
+
+          console.log(
+            `✅ Loaded ${leaderboard.length} PostgreSQL leaderboard entries for ${selectedMonth}`
+          );
+        } else {
+          console.log(
+            "⚠️ PostgreSQL response was empty or failed, using mock data"
+          );
+          leaderboard = generateMockData();
+        }
+      }
+
+      setLeaderboardData(leaderboard);
+    } catch (error) {
+      console.error("❌ Failed to load leaderboard:", error);
       const mockData = generateMockData();
       setLeaderboardData(mockData);
-
-      // Only show alert if there's no data at all
-      if (mockData.length === 0) {
-        Alert.alert(
-          "Connection Issue",
-          "Could not load leaderboard from server and no sample data available.",
-          [{ text: "OK" }]
-        );
-      } else {
-        console.log("✅ Using mock data with", mockData.length, "players");
-      }
+      Alert.alert(
+        "Connection Error",
+        "Failed to load leaderboard. Showing sample data.",
+        [{ text: "OK" }]
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -806,16 +889,19 @@ export default function LeaderboardScreen() {
     const currentLabel = selectedMonthOption
       ? selectedMonthOption.display_name
       : monthsLoading
-      ? "Loading months..."
-      : "Select Month";
+      ? "Loading..."
+      : "🔴 Live Data";
+
+    const isLiveData = selectedMonth === "live";
 
     return (
       <View style={styles.dropdownContainer}>
         <TouchableOpacity
           style={[
-            styles.dropdownButton,
-            showMonthMenu && styles.dropdownButtonActive,
-            monthsLoading && styles.dropdownButtonDisabled,
+            styles.monthSelectorButton,
+            showMonthMenu && styles.monthSelectorButtonActive,
+            monthsLoading && styles.monthSelectorButtonDisabled,
+            isLiveData && styles.monthSelectorButtonLive,
           ]}
           onPress={() => {
             if (!monthsLoading && availableMonths.length > 0) {
@@ -824,10 +910,17 @@ export default function LeaderboardScreen() {
           }}
           disabled={monthsLoading}
         >
+          <Ionicons
+            name={isLiveData ? "flash" : "calendar-outline"}
+            size={16}
+            color={isLiveData ? "#000" : "#ffffff"}
+            style={{ marginRight: 6 }}
+          />
           <Text
             style={[
-              styles.dropdownButtonText,
-              monthsLoading && styles.dropdownButtonTextDisabled,
+              styles.monthSelectorButtonText,
+              monthsLoading && styles.monthSelectorButtonTextDisabled,
+              isLiveData && styles.monthSelectorButtonTextLive,
             ]}
           >
             {currentLabel}
@@ -835,43 +928,67 @@ export default function LeaderboardScreen() {
           <Ionicons
             name={showMonthMenu ? "chevron-up" : "chevron-down"}
             size={16}
-            color={monthsLoading ? "#666" : "#ffffff"}
+            color={isLiveData ? "#000" : "#ffffff"}
           />
         </TouchableOpacity>
 
         {showMonthMenu && availableMonths.length > 0 && (
-          <View style={styles.dropdownMenu}>
+          <View style={styles.monthDropdownMenu}>
             <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-              {availableMonths.map((month: MonthOption) => (
-                <TouchableOpacity
-                  key={month.month_year}
-                  style={[
-                    styles.dropdownItem,
-                    selectedMonth === month.month_year &&
-                      styles.selectedDropdownItem,
-                  ]}
-                  onPress={() => {
-                    setSelectedMonth(month.month_year);
-                    setShowMonthMenu(false);
-                    console.log(
-                      `📅 Selected month: ${month.month_year} (${month.display_name})`
-                    );
-                  }}
-                >
-                  <Text
+              {availableMonths.map((month: MonthOption) => {
+                const isSelected = selectedMonth === month.month_year;
+                const isLiveOption = month.month_year === "live";
+
+                return (
+                  <TouchableOpacity
+                    key={month.month_year}
                     style={[
-                      styles.dropdownItemText,
-                      selectedMonth === month.month_year &&
-                        styles.selectedDropdownItemText,
+                      styles.monthDropdownItem,
+                      isSelected && styles.selectedMonthDropdownItem,
+                      isLiveOption && styles.liveMonthDropdownItem,
                     ]}
+                    onPress={() => {
+                      setSelectedMonth(month.month_year);
+                      setShowMonthMenu(false);
+                      console.log(
+                        `📅 Selected: ${
+                          month.month_year === "live"
+                            ? "Live Data"
+                            : month.display_name
+                        }`
+                      );
+                    }}
                   >
-                    {month.display_name}
-                  </Text>
-                  {selectedMonth === month.month_year && (
-                    <Ionicons name="checkmark" size={16} color="#ffd33d" />
-                  )}
-                </TouchableOpacity>
-              ))}
+                    <Ionicons
+                      name={isLiveOption ? "flash" : "calendar-outline"}
+                      size={16}
+                      color={
+                        isSelected
+                          ? isLiveOption
+                            ? "#000"
+                            : "#000"
+                          : "#ffffff"
+                      }
+                      style={{ marginRight: 8 }}
+                    />
+                    <Text
+                      style={[
+                        styles.monthDropdownItemText,
+                        isSelected && styles.selectedMonthDropdownItemText,
+                      ]}
+                    >
+                      {month.display_name}
+                    </Text>
+                    {isSelected && (
+                      <Ionicons
+                        name="checkmark"
+                        size={16}
+                        color={isLiveOption ? "#000" : "#ffd33d"}
+                      />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
           </View>
         )}
@@ -887,7 +1004,7 @@ export default function LeaderboardScreen() {
     showMenu: boolean,
     setShowMenu: (show: boolean) => void
   ) => {
-    const isDisabled = type === "time" && isRedisMode;
+    const isDisabled = type === "time" && selectedMonth === "live";
 
     return (
       <View style={styles.dropdownContainer}>
@@ -1163,47 +1280,16 @@ export default function LeaderboardScreen() {
         <View>
           <Text style={styles.title}>🏆 Leaderboard</Text>
           <Text style={styles.subtitle}>
-            {isRedisMode
+            {selectedMonth === "live"
               ? "⚡ Live monthly rankings from Redis"
-              : "Compete with players worldwide"}
+              : `📅 Historical rankings for ${
+                  availableMonths.find((m) => m.month_year === selectedMonth)
+                    ?.display_name || selectedMonth
+                }`}
           </Text>
         </View>
         <View style={styles.headerButtons}>
-          <TouchableOpacity
-            style={[styles.modeButton, isRedisMode && styles.modeButtonActive]}
-            onPress={() => {
-              const newRedisMode = !isRedisMode;
-              setIsRedisMode(newRedisMode);
-
-              // Redis API only supports monthly data, so force monthly when switching to Redis mode
-              if (newRedisMode && selectedTime !== "monthly") {
-                console.log(
-                  "🔄 Switching to Redis mode - forcing monthly time period"
-                );
-                setSelectedTime("monthly");
-              }
-
-              console.log(
-                `🔄 Switching to ${
-                  newRedisMode ? "Redis" : "regular"
-                } leaderboard mode`
-              );
-            }}
-          >
-            <Ionicons
-              name={isRedisMode ? "flash" : "flash-outline"}
-              size={responsiveSize(16, 18, 20)}
-              color={isRedisMode ? "#000" : "#ffd33d"}
-            />
-            <Text
-              style={[
-                styles.modeButtonText,
-                isRedisMode && styles.modeButtonTextActive,
-              ]}
-            >
-              {isRedisMode ? "This Month" : "Live Data"}
-            </Text>
-          </TouchableOpacity>
+          {renderMonthDropdown()}
           <TouchableOpacity style={styles.refreshButton} onPress={onRefresh}>
             <Ionicons
               name="refresh"
@@ -1218,10 +1304,7 @@ export default function LeaderboardScreen() {
       <View
         style={[
           styles.filtersContainer,
-          (showDifficultyMenu ||
-            showRegionMenu ||
-            showTimeMenu ||
-            showMonthMenu) &&
+          (showDifficultyMenu || showRegionMenu || showTimeMenu) &&
             styles.filtersContainerExpanded,
         ]}
       >
@@ -1246,19 +1329,12 @@ export default function LeaderboardScreen() {
           {renderFilterDropdown(
             "time",
             timeOptions,
-            isRedisMode ? "monthly" : selectedTime, // Show monthly when Redis mode is active
-            isRedisMode ? () => {} : setSelectedTime, // Disable time selection in Redis mode
-            isRedisMode ? false : showTimeMenu, // Don't show dropdown in Redis mode
-            isRedisMode ? () => {} : setShowTimeMenu // Disable dropdown toggle in Redis mode
+            selectedTime,
+            setSelectedTime,
+            showTimeMenu,
+            setShowTimeMenu
           )}
         </View>
-
-        {/* Month selection row - show when in monthly mode */}
-        {(selectedTime === "monthly" || isRedisMode) && (
-          <View style={[styles.filtersRow, styles.monthRow]}>
-            {renderMonthDropdown()}
-          </View>
-        )}
       </View>
 
       {/* Leaderboard List */}
@@ -2123,5 +2199,85 @@ const styles = StyleSheet.create({
     fontSize: responsiveSize(14, 15, 16),
     color: "#ffffff",
     fontWeight: "500",
+  },
+
+  // Month Selector Styles
+  monthSelectorButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#333",
+    paddingHorizontal: responsiveSpacing(12),
+    paddingVertical: responsiveSpacing(12),
+    borderRadius: 22,
+    minHeight: 44,
+  },
+  monthSelectorButtonText: {
+    color: "#ffffff",
+    fontSize: responsiveSize(13, 14, 15),
+    fontWeight: "600",
+    textAlign: "center",
+    flex: 1,
+  },
+  monthSelectorButtonDisabled: {
+    backgroundColor: "#222",
+    opacity: 0.6,
+  },
+  monthSelectorButtonTextDisabled: {
+    color: "#666",
+  },
+  monthSelectorButtonActive: {
+    backgroundColor: "#444",
+    borderColor: "#ffd33d",
+    borderWidth: 1,
+  },
+  monthSelectorButtonLive: {
+    backgroundColor: "#ffd33d",
+    borderColor: "#000",
+    borderWidth: 1,
+  },
+  monthSelectorButtonTextLive: {
+    color: "#000",
+  },
+  monthDropdownMenu: {
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    right: 0,
+    backgroundColor: "#2a2a2a",
+    borderRadius: 12,
+    marginTop: 6,
+    zIndex: 2000,
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    borderWidth: 1,
+    borderColor: "#444",
+  },
+  monthDropdownItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: responsiveSpacing(16),
+    paddingVertical: responsiveSpacing(14),
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
+    minHeight: 48,
+  },
+  selectedMonthDropdownItem: {
+    backgroundColor: "#ffd33d",
+  },
+  liveMonthDropdownItem: {
+    backgroundColor: "#ffd33d",
+  },
+  monthDropdownItemText: {
+    color: "#ffffff",
+    fontSize: responsiveSize(14, 15, 16),
+    fontWeight: "500",
+    flex: 1,
+  },
+  selectedMonthDropdownItemText: {
+    color: "#000000",
   },
 });

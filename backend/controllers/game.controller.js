@@ -1195,120 +1195,122 @@ export const completeGame = async (req, res) => {
             coins: user.coins + coinsEarned
         });
 
-        // 🆕 UPDATE USER STATISTICS after game completion (per difficulty level)
+        // 🆕 UPDATE USER STATISTICS FIRST (source of truth for best scores)
         try {
-            // Get the difficulty level from the game session
             const gameDifficulty = gameSession.difficulty_level || difficulty_level || 1;
-            console.log(`📊 Updating UserStatistics for user ${userId} (${user.username}) at difficulty ${gameDifficulty}...`);
+            console.log(`📊 Updating UserStatistics for user ${user.username} (difficulty ${gameDifficulty})...`);
+            console.log(`   🎯 Game result: score=${finalScore}, time=${total_time}`);
 
-            // Find or create user statistics record for this difficulty level
-            let userStats = await UserStatistics.findOne({
+            // Find or create UserStatistics record for this user+difficulty
+            const [userStats, created] = await UserStatistics.findOrCreate({
                 where: {
                     user_id: userId,
                     difficulty_level: gameDifficulty
-                }
-            });
-
-            if (!userStats) {
-                console.log(`   ⚠️  UserStatistics record not found for difficulty ${gameDifficulty}, creating new one...`);
-                userStats = await UserStatistics.create({
+                },
+                defaults: {
                     user_id: userId,
                     difficulty_level: gameDifficulty,
                     games_played: 0,
                     best_score: 0,
+                    best_score_time: null,
+                    best_score_achieved_at: null,
                     total_score: 0
-                });
-                console.log(`   ✅ Created UserStatistics record for user ${userId} at difficulty ${gameDifficulty}`);
+                }
+            });
+
+            if (created) {
+                console.log(`   ✨ Created new UserStatistics record for user ${userId}, difficulty ${gameDifficulty}`);
             }
 
-            // SIMPLIFIED APPROACH: Get statistics directly using raw queries to avoid association issues
+            // Check if this is a new best score
+            let isNewBest = false;
+            let updateReason = '';
 
-            // Get best score and its time from GameHistory for this difficulty
-            const bestScoreQuery = await sequelize.query(`
-                SELECT gh.score as best_score, gh.total_time as best_score_time, gh.completed_at as best_score_achieved_at
-                FROM game_history gh 
-                JOIN game_sessions gs ON gh.game_session_id = gs.id 
-                WHERE gh.user_id = :userId 
-                AND gh.completed = true 
-                AND gs.difficulty_level = :difficulty
-                ORDER BY gh.score DESC, gh.total_time ASC
-                LIMIT 1
-            `, {
-                replacements: { userId, difficulty: gameDifficulty },
-                type: sequelize.QueryTypes.SELECT
-            });
-            const bestScoreData = bestScoreQuery[0];
-            const currentBestScore = bestScoreData?.best_score || 0;
-            const bestScoreTime = bestScoreData?.best_score_time || null;
-            const bestScoreAchievedAt = bestScoreData?.best_score_achieved_at || null;
+            if (userStats.best_score === 0 || userStats.best_score === null) {
+                // First score for this difficulty
+                isNewBest = true;
+                updateReason = 'first score';
+            } else if (finalScore > userStats.best_score) {
+                // Higher score
+                isNewBest = true;
+                updateReason = `higher score (${userStats.best_score} → ${finalScore})`;
+            } else if (finalScore === userStats.best_score && total_time < userStats.best_score_time) {
+                // Same score but faster time
+                isNewBest = true;
+                updateReason = `same score, faster time (${userStats.best_score_time}s → ${total_time}s)`;
+            } else {
+                updateReason = `no improvement (current: ${userStats.best_score}/${userStats.best_score_time}s, new: ${finalScore}/${total_time}s)`;
+            }
 
-            // Get total games played from GameHistory for this difficulty
-            const gamesPlayedQuery = await sequelize.query(`
-                SELECT COUNT(*) as games_played 
-                FROM game_history gh 
-                JOIN game_sessions gs ON gh.game_session_id = gs.id 
-                WHERE gh.user_id = :userId 
-                AND gh.completed = true 
-                AND gs.difficulty_level = :difficulty
-            `, {
-                replacements: { userId, difficulty: gameDifficulty },
-                type: sequelize.QueryTypes.SELECT
-            });
-            const totalGamesPlayed = parseInt(gamesPlayedQuery[0]?.games_played || 0);
+            // Update UserStatistics (always update games_played and total_score)
+            const updateData = {
+                games_played: userStats.games_played + 1,
+                total_score: userStats.total_score + finalScore
+            };
 
-            // Get total score from GameHistory for this difficulty
-            const totalScoreQuery = await sequelize.query(`
-                SELECT SUM(gh.score) as total_score 
-                FROM game_history gh 
-                JOIN game_sessions gs ON gh.game_session_id = gs.id 
-                WHERE gh.user_id = :userId 
-                AND gh.completed = true 
-                AND gs.difficulty_level = :difficulty
-            `, {
-                replacements: { userId, difficulty: gameDifficulty },
-                type: sequelize.QueryTypes.SELECT
-            });
-            const totalScore = parseInt(totalScoreQuery[0]?.total_score || 0);
+            // Update best score data if this is a new best
+            if (isNewBest) {
+                updateData.best_score = finalScore;
+                updateData.best_score_time = total_time;
+                updateData.best_score_achieved_at = new Date();
+                console.log(`   🏆 NEW BEST SCORE! ${updateReason}`);
+            } else {
+                console.log(`   📊 Score recorded but not best: ${updateReason}`);
+            }
 
-            console.log(`   📈 Calculated stats for difficulty ${gameDifficulty} - Games: ${totalGamesPlayed}, Best: ${currentBestScore} (Time: ${bestScoreTime}s), Total: ${totalScore}`);
+            await userStats.update(updateData);
 
-            // Update the statistics for this difficulty level
-            await userStats.update({
-                games_played: totalGamesPlayed,
-                best_score: currentBestScore,
-                best_score_time: bestScoreTime,
-                best_score_achieved_at: bestScoreAchievedAt,
-                total_score: totalScore
-            });
+            console.log(`   ✅ UserStatistics updated: games_played=${updateData.games_played}, total_score=${updateData.total_score}`);
+            if (isNewBest) {
+                console.log(`   🎯 New best: score=${finalScore}, time=${total_time}s`);
+            }
 
-            console.log(`   ✅ Successfully updated UserStatistics for ${user.username} at difficulty ${gameDifficulty}: ${totalGamesPlayed} games, best: ${currentBestScore} (${bestScoreTime}s), total: ${totalScore}`);
-
-            // 🆕 UPDATE REDIS LEADERBOARD after statistics update
-            console.log(`🏆 Updating Redis leaderboard after game completion...`);
-            console.log(`   📊 Redis update parameters: userId=${userId}, difficulty=${gameDifficulty}, score=${currentBestScore}, time=${bestScoreTime}, user=${user.username}`);
-
+            // Now sync this UserStatistics record to Redis
             try {
-                // Update Redis leaderboard with the current best score
+                console.log(`🔄 Syncing UserStatistics to Redis leaderboard...`);
+                console.log(`   📊 Parameters: userId=${userId}, difficulty=${gameDifficulty}, score=${userStats.best_score || finalScore}, time=${userStats.best_score_time || total_time}`);
+                console.log(`   👤 User data: ${user.username} (${user.full_name}), active=${user.is_active}, country=${user.country}`);
+
                 const redisUpdateResult = await RedisLeaderboardService.updateUserScore(
                     userId,
                     gameDifficulty,
-                    currentBestScore,
-                    bestScoreTime || 0,
+                    userStats.best_score || finalScore,  // Use the best score from UserStatistics
+                    userStats.best_score_time || total_time,  // Use the best time from UserStatistics
                     user // Pass user data to avoid extra database call
                 );
-                console.log(`   🏆 Redis leaderboard updated successfully for user ${user.username}, result: ${redisUpdateResult}`);
 
-            } catch (leaderboardError) {
-                console.error(`   ❌ CRITICAL: Redis leaderboard update failed for user ${user.username}!`);
-                console.error(`   ❌ Error details:`, leaderboardError.message);
-                console.error(`   ❌ Full error:`, leaderboardError);
-                // Don't fail the main request if leaderboard update fails
+                if (redisUpdateResult) {
+                    console.log(`   🏆 Redis leaderboard synced with UserStatistics best score!`);
+                } else {
+                    console.log(`   📊 Redis leaderboard already up to date (score not better than existing)`);
+                }
+
+                // Verify Redis was actually updated
+                try {
+                    const leaderboard = await RedisLeaderboardService.getLeaderboard('global', gameDifficulty, 'alltime', 5);
+                    const userInRedis = leaderboard.find(p => p.user_id === userId);
+                    if (userInRedis) {
+                        console.log(`   ✅ Verified in Redis: ${userInRedis.score} points, ${userInRedis.total_time}s, rank ${userInRedis.rank_position}`);
+                    } else {
+                        console.log(`   ⚠️ Warning: User not found in Redis leaderboard after update`);
+                    }
+                } catch (verifyError) {
+                    console.log(`   ⚠️ Could not verify Redis update: ${verifyError.message}`);
+                }
+
+            } catch (redisError) {
+                console.error(`   ❌ CRITICAL: Redis sync failed, but UserStatistics updated successfully`);
+                console.error(`   ❌ Redis error message: ${redisError.message}`);
+                console.error(`   ❌ Redis error stack: ${redisError.stack}`);
+                console.error(`   ❌ Parameters that failed: userId=${userId}, difficulty=${gameDifficulty}, score=${userStats.best_score || finalScore}, time=${userStats.best_score_time || total_time}`);
+                // Don't fail the main request if Redis sync fails
             }
 
-        } catch (statsError) {
-            console.error(`❌ Error updating UserStatistics for user ${userId}:`, statsError);
-            console.error(`   Full error details:`, statsError);
-            // Don't fail the whole request if stats update fails, but log the actual error
+        } catch (userStatsError) {
+            console.error(`❌ CRITICAL: UserStatistics update failed for user ${userId}!`);
+            console.error(`   Error details:`, userStatsError.message);
+            console.error(`   Full error:`, userStatsError);
+            // Continue with response even if UserStatistics update fails
         }
 
         // 🆕 Update user level using the new progressive system BEFORE sending response
@@ -1919,102 +1921,121 @@ export const submitWholeGame = async (req, res) => {
             coins: user.coins + coinsEarned
         });
 
-        // 🆕 UPDATE USER STATISTICS after game completion (submitWholeGame - per difficulty level)
+        // 🆕 UPDATE USER STATISTICS FIRST (source of truth for best scores)
         try {
-            console.log(`📊 Updating UserStatistics for user ${userId} (${user.username}) after submitWholeGame at difficulty ${difficulty_level}...`);
+            console.log(`📊 Updating UserStatistics for user ${user.username} (difficulty ${difficulty_level})...`);
+            console.log(`   🎯 Game result: score=${finalScore}, time=${total_time}`);
 
-            // Find or create user statistics record for this difficulty level
-            let userStats = await UserStatistics.findOne({
+            // Find or create UserStatistics record for this user+difficulty
+            const [userStats, created] = await UserStatistics.findOrCreate({
                 where: {
                     user_id: userId,
                     difficulty_level: difficulty_level
-                }
-            });
-
-            if (!userStats) {
-                console.log(`   ⚠️  UserStatistics record not found for difficulty ${difficulty_level}, creating new one...`);
-                userStats = await UserStatistics.create({
+                },
+                defaults: {
                     user_id: userId,
                     difficulty_level: difficulty_level,
                     games_played: 0,
                     best_score: 0,
+                    best_score_time: null,
+                    best_score_achieved_at: null,
                     total_score: 0
-                });
-                console.log(`   ✅ Created UserStatistics record for user ${userId} at difficulty ${difficulty_level}`);
+                }
+            });
+
+            if (created) {
+                console.log(`   ✨ Created new UserStatistics record for user ${userId}, difficulty ${difficulty_level}`);
             }
 
-            // Get best score and its time from GameSessions for this difficulty (for submitWholeGame)
-            const bestScoreData = await GameSession.findOne({
-                where: {
-                    user_id: userId,
-                    completed: true,
-                    difficulty_level: difficulty_level
-                },
-                order: [['score', 'DESC'], ['total_time', 'ASC']],
-                attributes: ['score', 'total_time', 'updatedAt']
-            });
+            // Check if this is a new best score
+            let isNewBest = false;
+            let updateReason = '';
 
-            const currentBestScore = bestScoreData?.score || 0;
-            const bestScoreTime = bestScoreData?.total_time || null;
-            const bestScoreAchievedAt = bestScoreData?.updatedAt || null;
+            if (userStats.best_score === 0 || userStats.best_score === null) {
+                // First score for this difficulty
+                isNewBest = true;
+                updateReason = 'first score';
+            } else if (finalScore > userStats.best_score) {
+                // Higher score
+                isNewBest = true;
+                updateReason = `higher score (${userStats.best_score} → ${finalScore})`;
+            } else if (finalScore === userStats.best_score && total_time < userStats.best_score_time) {
+                // Same score but faster time
+                isNewBest = true;
+                updateReason = `same score, faster time (${userStats.best_score_time}s → ${total_time}s)`;
+            } else {
+                updateReason = `no improvement (current: ${userStats.best_score}/${userStats.best_score_time}s, new: ${finalScore}/${total_time}s)`;
+            }
 
-            // Get total games played from GameSessions for this difficulty
-            const totalGamesPlayed = await GameSession.count({
-                where: {
-                    user_id: userId,
-                    completed: true,
-                    difficulty_level: difficulty_level
-                }
-            });
+            // Update UserStatistics (always update games_played and total_score)
+            const updateData = {
+                games_played: userStats.games_played + 1,
+                total_score: userStats.total_score + finalScore
+            };
 
-            // Get total score from GameSessions for this difficulty
-            const totalScore = await GameSession.sum('score', {
-                where: {
-                    user_id: userId,
-                    completed: true,
-                    difficulty_level: difficulty_level
-                }
-            }) || 0;
+            // Update best score data if this is a new best
+            if (isNewBest) {
+                updateData.best_score = finalScore;
+                updateData.best_score_time = total_time;
+                updateData.best_score_achieved_at = new Date();
+                console.log(`   🏆 NEW BEST SCORE! ${updateReason}`);
+            } else {
+                console.log(`   📊 Score recorded but not best: ${updateReason}`);
+            }
 
-            console.log(`   📈 Calculated stats from GameSessions for difficulty ${difficulty_level} - Games: ${totalGamesPlayed}, Best: ${currentBestScore} (Time: ${bestScoreTime}s), Total: ${totalScore}`);
+            await userStats.update(updateData);
 
-            // Update the statistics for this difficulty level
-            await userStats.update({
-                games_played: totalGamesPlayed,
-                best_score: currentBestScore,
-                best_score_time: bestScoreTime,
-                best_score_achieved_at: bestScoreAchievedAt,
-                total_score: totalScore
-            });
+            console.log(`   ✅ UserStatistics updated: games_played=${updateData.games_played}, total_score=${updateData.total_score}`);
+            if (isNewBest) {
+                console.log(`   🎯 New best: score=${finalScore}, time=${total_time}s`);
+            }
 
-            console.log(`   ✅ Successfully updated UserStatistics for ${user.username} at difficulty ${difficulty_level}: ${totalGamesPlayed} games, best: ${currentBestScore} (${bestScoreTime}s), total: ${totalScore}`);
-
-            // 🆕 UPDATE REDIS LEADERBOARD after statistics update
-            console.log(`🏆 Updating Redis leaderboard after submitWholeGame...`);
-            console.log(`   📊 Redis update parameters: userId=${userId}, difficulty=${difficulty_level}, score=${currentBestScore}, time=${bestScoreTime}, user=${user.username}`);
-
+            // Now sync this UserStatistics record to Redis
             try {
-                // Update Redis leaderboard with the current best score
+                console.log(`🔄 Syncing UserStatistics to Redis leaderboard...`);
+                console.log(`   📊 Parameters: userId=${userId}, difficulty=${difficulty_level}, score=${userStats.best_score || finalScore}, time=${userStats.best_score_time || total_time}`);
+                console.log(`   👤 User data: ${user.username} (${user.full_name}), active=${user.is_active}, country=${user.country}`);
+
                 const redisUpdateResult = await RedisLeaderboardService.updateUserScore(
                     userId,
                     difficulty_level,
-                    currentBestScore,
-                    bestScoreTime || 0,
+                    userStats.best_score || finalScore,  // Use the best score from UserStatistics
+                    userStats.best_score_time || total_time,  // Use the best time from UserStatistics
                     user // Pass user data to avoid extra database call
                 );
-                console.log(`   🏆 Redis leaderboard updated successfully for user ${user.username}, result: ${redisUpdateResult}`);
 
-            } catch (leaderboardError) {
-                console.error(`   ❌ CRITICAL: Redis leaderboard update failed for user ${user.username}!`);
-                console.error(`   ❌ Error details:`, leaderboardError.message);
-                console.error(`   ❌ Full error:`, leaderboardError);
-                // Don't fail the main request if leaderboard update fails
+                if (redisUpdateResult) {
+                    console.log(`   🏆 Redis leaderboard synced with UserStatistics best score!`);
+                } else {
+                    console.log(`   📊 Redis leaderboard already up to date (score not better than existing)`);
+                }
+
+                // Verify Redis was actually updated
+                try {
+                    const leaderboard = await RedisLeaderboardService.getLeaderboard('global', difficulty_level, 'alltime', 5);
+                    const userInRedis = leaderboard.find(p => p.user_id === userId);
+                    if (userInRedis) {
+                        console.log(`   ✅ Verified in Redis: ${userInRedis.score} points, ${userInRedis.total_time}s, rank ${userInRedis.rank_position}`);
+                    } else {
+                        console.log(`   ⚠️ Warning: User not found in Redis leaderboard after update`);
+                    }
+                } catch (verifyError) {
+                    console.log(`   ⚠️ Could not verify Redis update: ${verifyError.message}`);
+                }
+
+            } catch (redisError) {
+                console.error(`   ❌ CRITICAL: Redis sync failed, but UserStatistics updated successfully`);
+                console.error(`   ❌ Redis error message: ${redisError.message}`);
+                console.error(`   ❌ Redis error stack: ${redisError.stack}`);
+                console.error(`   ❌ Parameters that failed: userId=${userId}, difficulty=${difficulty_level}, score=${userStats.best_score || finalScore}, time=${userStats.best_score_time || total_time}`);
+                // Don't fail the main request if Redis sync fails
             }
 
-        } catch (statsError) {
-            console.error(`❌ Error updating UserStatistics for user ${userId}:`, statsError);
-            console.error(`   Full error details:`, statsError);
-            // Don't fail the whole request if stats update fails, but log the actual error
+        } catch (userStatsError) {
+            console.error(`❌ CRITICAL: UserStatistics update failed for user ${userId}!`);
+            console.error(`   Error details:`, userStatsError.message);
+            console.error(`   Full error:`, userStatsError);
+            // Continue with response even if UserStatistics update fails
         }
 
         // 🆕 Update user level using the new progressive system BEFORE sending response

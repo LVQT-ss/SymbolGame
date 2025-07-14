@@ -3,6 +3,7 @@ import LeaderboardController from '../controllers/leaderboard.controller.js';
 import RedisLeaderboardService from '../services/redisLeaderboardService.js';
 import MonthlyLeaderboardJob from '../services/monthlyLeaderboardJob.js';
 import { verifyToken } from '../middleware/verifyUser.js';
+import redis from '../config/redis.config.js';
 
 const router = express.Router();
 
@@ -549,17 +550,19 @@ router.post('/backup-to-database', verifyToken, async (req, res) => {
             includeRewards = false,
             clearMonthlyData = false,
             difficulty_levels = [1, 2, 3],
-            regions = ['global', 'asia', 'america', 'europe', 'oceania', 'africa', 'others']
+            regions = ['global', 'asia', 'america', 'europe', 'oceania', 'africa', 'others'],
+            leaderboardType = 'monthly'  // Add leaderboardType parameter for month_year support
         } = req.body;
 
         console.log('💾 Manual Redis backup to database triggered by user:', req.userId);
-        console.log(`📋 Options: rewards=${includeRewards}, clear=${clearMonthlyData}`);
+        console.log(`📋 Options: rewards=${includeRewards}, clear=${clearMonthlyData}, type=${leaderboardType}`);
 
         const result = await RedisLeaderboardService.backupToDatabase({
             includeRewards,
             clearMonthlyData,
             difficulty_levels,
-            regions
+            regions,
+            leaderboardType  // Pass leaderboardType to enable month_year support
         });
 
         res.status(200).json({
@@ -654,14 +657,14 @@ router.delete('/redis-clear', verifyToken, async (req, res) => {
  *       - Identifies global top 3 players across all difficulty levels
  *       - Awards coins: 1st = 1000 coins, 2nd = 500 coins, 3rd = 200 coins
  *       - Simulates monthly persistence to PostgreSQL database
- *       - Clears monthly Redis data (preserves all-time data)
+ *       - Clears ALL Redis data (monthly + alltime) to simulate fresh start
  *       - Tests the complete end-of-month workflow
  *       
  *       **Important Notes:**
  *       - Only works in development mode (NODE_ENV !== 'production')
  *       - Awards go to GLOBAL top 3 players only (not regional)
  *       - Uses real database operations (coins are actually awarded)
- *       - Clears current monthly leaderboard data in Redis
+ *       - Clears ALL Redis leaderboard data (monthly + alltime)
  *       
  *       **Use Cases:**
  *       - Testing monthly reward distribution logic
@@ -728,7 +731,7 @@ router.delete('/redis-clear', verifyToken, async (req, res) => {
  *                           example: 150
  *                         redis_keys_cleared:
  *                           type: integer
- *                           description: Number of monthly Redis keys cleared
+ *                           description: Number of Redis keys cleared (all data)
  *                           example: 45
  *                         processing_time:
  *                           type: string
@@ -869,5 +872,267 @@ router.post('/test-monthly-rewards', verifyToken, async (req, res) => {
         });
     }
 });
+
+/**
+ * @swagger
+ * /api/leaderboard/test-clear-redis:
+ *   post:
+ *     tags:
+ *       - Leaderboard
+ *     summary: Test Redis Clearing (Development Only)
+ *     description: |
+ *       Test endpoint to clear Redis leaderboard data for specified difficulties.
+ *       This simulates the Redis clearing process that happens during monthly resets
+ *       without the backup/reward distribution. Useful for testing fresh leaderboard
+ *       state. Only available in development environment.
+ *       
+ *       **What gets cleared:**
+ *       - Monthly leaderboard data
+ *       - Alltime leaderboard data  
+ *       - User score cache data
+ *       - Time ranking data
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               difficulty_level:
+ *                 type: integer
+ *                 enum: [1, 2, 3]
+ *                 description: Specific difficulty to clear (if not provided, clears all difficulties)
+ *                 example: 1
+ *           example:
+ *             difficulty_level: 1
+ *     responses:
+ *       200:
+ *         description: Redis clearing test completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalKeysCleared:
+ *                       type: integer
+ *                       description: Total number of Redis keys cleared
+ *                       example: 45
+ *                     difficultiesProcessed:
+ *                       type: array
+ *                       items:
+ *                         type: integer
+ *                       description: List of difficulty levels processed
+ *                       example: [1]
+ *                     clearResults:
+ *                       type: object
+ *                       description: Detailed clearing results per difficulty
+ *                       example:
+ *                         difficulty_1:
+ *                           keysCleared: 15
+ *                           patterns:
+ *                             "leaderboard:*:1:monthly": 5
+ *                             "leaderboard:*:1:alltime": 10
+ *                             "user:*:difficulty:1": 0
+ *                 message:
+ *                   type: string
+ *                   example: "Redis clearing test completed - cleared 45 keys"
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *       403:
+ *         description: Forbidden - Production environment
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Test endpoints not available in production"
+ *       500:
+ *         description: Internal server error during Redis clearing
+ */
+
+// Test endpoint for clearing Redis data only (development only)
+router.post('/test-clear-redis', verifyToken, async (req, res) => {
+    try {
+        if (process.env.NODE_ENV === 'production') {
+            return res.status(403).json({
+                success: false,
+                message: 'Test endpoints not available in production'
+            });
+        }
+
+        const { difficulty_level } = req.body;
+        const difficulties = difficulty_level ? [parseInt(difficulty_level)] : [1, 2, 3];
+
+        console.log(`🧪 Testing Redis clearing for difficulties: ${difficulties.join(', ')} - triggered by user:`, req.userId);
+
+        let totalKeysCleared = 0;
+        const clearResults = {};
+
+        for (const difficulty of difficulties) {
+            console.log(`🧹 Clearing Redis data for difficulty ${difficulty}...`);
+
+            // Clear ALL leaderboard data for this difficulty (both monthly and alltime)
+            const keysToDelete = [
+                `leaderboard:*:${difficulty}:monthly`,
+                `leaderboard:*:${difficulty}:monthly:time`,
+                `leaderboard:*:${difficulty}:alltime`,
+                `leaderboard:*:${difficulty}:alltime:time`,
+                `user:*:difficulty:${difficulty}` // Clear user data for this difficulty
+            ];
+
+            let difficultyKeysCleared = 0;
+            const patternResults = {};
+
+            for (const pattern of keysToDelete) {
+                const keys = await redis.keys(pattern);
+                if (keys.length > 0) {
+                    await redis.del(...keys);
+                    difficultyKeysCleared += keys.length;
+                    patternResults[pattern] = keys.length;
+                    console.log(`🧹 Cleared ${keys.length} Redis keys matching ${pattern}`);
+                } else {
+                    patternResults[pattern] = 0;
+                }
+            }
+
+            totalKeysCleared += difficultyKeysCleared;
+            clearResults[`difficulty_${difficulty}`] = {
+                keysCleared: difficultyKeysCleared,
+                patterns: patternResults
+            };
+
+            console.log(`✅ Cleared total of ${difficultyKeysCleared} Redis keys for difficulty ${difficulty}`);
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                totalKeysCleared,
+                difficultiesProcessed: difficulties,
+                clearResults
+            },
+            message: `Redis clearing test completed - cleared ${totalKeysCleared} keys`
+        });
+    } catch (error) {
+        console.error('Error in Redis clearing test:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to run Redis clearing test',
+            error: error.message
+        });
+    }
+});
+
+/**
+ * @swagger
+ * /api/leaderboard/sync-historical-scores:
+ *   post:
+ *     tags:
+ *       - Leaderboard
+ *     summary: Sync Historical Best Scores to Redis
+ *     description: |
+ *       Syncs all historical best scores from UserStatistics table to Redis leaderboard.
+ *       This populates Redis with existing player best scores so the leaderboard shows
+ *       historical data, not just new games. Only updates Redis if the score is better
+ *       than what's currently stored.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Historical scores synced successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalProcessed:
+ *                       type: integer
+ *                       description: Total number of records processed
+ *                       example: 150
+ *                     synced:
+ *                       type: integer
+ *                       description: Number of scores actually synced to Redis
+ *                       example: 120
+ *                     skipped:
+ *                       type: integer
+ *                       description: Number of scores skipped (Redis had better)
+ *                       example: 30
+ *                 message:
+ *                   type: string
+ *                   example: "Historical scores synced to Redis successfully"
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/sync-historical-scores', verifyToken, LeaderboardController.syncHistoricalScores);
+
+/**
+ * @swagger
+ * /api/leaderboard/sync-gamehistory-scores:
+ *   post:
+ *     tags:
+ *       - Leaderboard
+ *     summary: Sync Best Scores from GameHistory to Redis
+ *     description: |
+ *       Syncs best scores calculated from GameHistory + GameSessions to Redis leaderboard.
+ *       This is more comprehensive than UserStatistics sync as it calculates actual
+ *       best scores per user per difficulty from raw game data. Only updates Redis
+ *       if the score is better than what's currently stored.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: GameHistory best scores synced successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalProcessed:
+ *                       type: integer
+ *                       description: Total number of best score records processed
+ *                       example: 200
+ *                     synced:
+ *                       type: integer
+ *                       description: Number of scores actually synced to Redis
+ *                       example: 185
+ *                     skipped:
+ *                       type: integer
+ *                       description: Number of scores skipped (Redis had better)
+ *                       example: 15
+ *                 message:
+ *                   type: string
+ *                   example: "GameHistory best scores synced to Redis successfully"
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/sync-gamehistory-scores', verifyToken, LeaderboardController.syncGameHistoryScores);
 
 export default router; 
