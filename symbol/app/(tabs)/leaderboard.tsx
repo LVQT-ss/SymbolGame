@@ -20,6 +20,7 @@ import {
   fetchAvailableMonths,
   userAPI,
   socialAPI,
+  leaderboardAPI,
 } from "../../services/api";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
@@ -44,6 +45,7 @@ interface LeaderboardEntry {
   id: string;
   rank: number;
   username: string;
+  full_name?: string; // Added to match API response
   score: number;
   avatar: string;
   level: number;
@@ -403,35 +405,58 @@ export default function LeaderboardScreen() {
         // Use Redis for live data (current month, real-time)
         console.log("🔴 Loading LIVE data from Redis...");
 
+        // Automatically detect current month for live data
+        const currentDate = new Date();
+        const currentMonth = `${currentDate.getFullYear()}-${String(
+          currentDate.getMonth() + 1
+        ).padStart(2, "0")}`;
+
+        console.log(
+          "📅 Auto-detected current month for live data:",
+          currentMonth
+        );
+
         const filters = {
           difficulty_level: selectedDifficulty,
           region: selectedRegion,
-          time_period: "monthly", // Redis only supports monthly
-          // month_year: null // Temporarily disabled for testing
+          limit: 100,
+          month_year: currentMonth, // Pass current month for live data
         };
 
-        const response = await fetchRedisLeaderboard(filters);
+        const response = await leaderboardAPI.getMonthlyLeaderboardFromRedis(
+          filters
+        );
 
         console.log("🔍 Redis API Response Debug:", {
           response: response,
-          hasData: !!response?.data,
+          hasData: !!response?.data?.data,
           success: response?.data?.success,
           dataArray: response?.data?.data,
           dataLength: response?.data?.data?.length,
           errorMessage: response?.data?.message,
-          fullResponse: JSON.stringify(response, null, 2),
+          metadata: response?.data?.metadata,
+          rawPlayerData: response?.data?.data?.map((p: any) => ({
+            user_id: p.user_id,
+            username: p.username,
+            full_name: p.full_name,
+            rank_position: p.rank_position,
+          })),
+          fullResponse: JSON.stringify(response?.data, null, 2),
         });
 
-        if (response?.data?.success && response.data.data) {
-          leaderboard = response.data.data.map(
+        if (
+          response?.data?.success &&
+          response?.data?.data &&
+          Array.isArray(response.data.data)
+        ) {
+          // Map the data first
+          const mappedData = response.data.data.map(
             (player: any, index: number) => ({
-              id:
-                player.user_id?.toString() ||
-                player.id?.toString() ||
-                `redis_${index}`,
+              id: player.user_id?.toString() || `redis_${index}`,
               rank: player.rank_position || index + 1,
               username:
-                player.full_name || player.username || `Player ${index + 1}`,
+                player.username || player.full_name || `Player ${index + 1}`,
+              full_name: player.full_name,
               score: player.score || 0,
               avatar: player.avatar || "https://i.pravatar.cc/150?img=1",
               level: player.current_level || 1,
@@ -446,17 +471,59 @@ export default function LeaderboardScreen() {
               user_id: player.user_id,
               user_statistics_id: player.user_statistics_id,
               userStatistics: player.userStatistics,
-              rank_position: player.rank_position || index + 1,
-              time: player.time || player.total_time,
+              rank_position: player.rank_position,
+              time: player.total_time,
               created_at: player.created_at,
             })
           );
 
+          // Remove duplicates based on user_id
+          const uniqueMap = new Map();
+          mappedData.forEach((player: LeaderboardEntry) => {
+            const key = player.user_id || player.id;
+            if (!uniqueMap.has(key)) {
+              uniqueMap.set(key, player);
+            } else {
+              console.log(`🔄 Found duplicate player:`, {
+                existing: uniqueMap.get(key),
+                duplicate: player,
+              });
+            }
+          });
+
+          leaderboard = Array.from(uniqueMap.values()).sort(
+            (a, b) => a.rank - b.rank
+          );
+
+          const originalCount = response.data.data.length;
+          const deduplicatedCount = leaderboard.length;
+
+          if (originalCount > deduplicatedCount) {
+            console.warn(
+              `⚠️ Removed ${
+                originalCount - deduplicatedCount
+              } duplicate player(s) from Redis data`
+            );
+          }
+
           console.log(
-            `✅ Loaded ${leaderboard.length} Redis leaderboard entries (LIVE)`
+            `✅ Loaded ${leaderboard.length} Redis leaderboard entries (LIVE)`,
+            {
+              originalCount,
+              afterDeduplication: deduplicatedCount,
+              duplicatesRemoved: originalCount - deduplicatedCount,
+              metadata: response.data.metadata,
+              message: response.data.message,
+              players: leaderboard.map((p) => ({
+                username: p.username,
+                rank: p.rank,
+                id: p.id,
+              })),
+            }
           );
         } else {
           console.log("⚠️ Redis response was empty or failed, using mock data");
+          console.log("Response data:", response?.data);
           leaderboard = generateMockData();
         }
       } else {
@@ -1341,7 +1408,7 @@ export default function LeaderboardScreen() {
       <FlatList
         data={loading ? [] : leaderboardData}
         renderItem={renderLeaderboardItem}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => `${item.id}-${item.rank}-${index}`}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
@@ -1412,7 +1479,7 @@ export default function LeaderboardScreen() {
                     color="#FF6B6B"
                   />
                   <Text style={styles.errorText}>
-                    Failed to load {selectedUserProfile.username}'s profile
+                    Failed to load {selectedUserProfile.username}&apos;s profile
                   </Text>
                   <TouchableOpacity
                     style={styles.retryButton}

@@ -396,15 +396,14 @@ class RedisLeaderboardService {
 
                 // Clear Redis data ONLY if requested
                 if (clearMonthlyData) {
-                    console.log(`🧹 Clearing Redis data for difficulty ${difficulty}...`);
+                    console.log(`🧹 Clearing Redis MONTHLY data only for difficulty ${difficulty}...`);
 
-                    // Clear ALL leaderboard data for this difficulty (both monthly and alltime)
+                    // Clear ONLY monthly leaderboard data, keep alltime data intact
                     const keysToDelete = [
                         `leaderboard:*:${difficulty}:monthly`,
-                        `leaderboard:*:${difficulty}:monthly:time`,
-                        `leaderboard:*:${difficulty}:alltime`,
-                        `leaderboard:*:${difficulty}:alltime:time`,
-                        `user:*:difficulty:${difficulty}` // Clear user data for this difficulty
+                        `leaderboard:*:${difficulty}:monthly:time`
+                        // NOTE: NOT clearing alltime data to preserve historical rankings
+                        // NOTE: NOT clearing user data to preserve user profiles
                     ];
 
                     let totalKeysCleared = 0;
@@ -417,7 +416,8 @@ class RedisLeaderboardService {
                         }
                     }
 
-                    console.log(`✅ Cleared total of ${totalKeysCleared} Redis keys for difficulty ${difficulty}`);
+                    console.log(`✅ Cleared total of ${totalKeysCleared} MONTHLY Redis keys for difficulty ${difficulty}`);
+                    console.log(`🔒 Preserved alltime leaderboards and user data for continued operation`);
                 }
             }
 

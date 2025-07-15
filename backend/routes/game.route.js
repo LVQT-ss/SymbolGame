@@ -13,7 +13,9 @@ import {
     createInstantGame,
     // submitWholeGame,
     uploadGameRecording,
-    upload
+    upload,
+    getMonthlyLeaderboard,
+    getMonthlyLeaderboardFromRedis
 } from '../controllers/game.controller.js';
 import { verifyToken } from '../middleware/verifyUser.js';
 
@@ -1023,5 +1025,7 @@ router.post('/complete', verifyToken, completeGame);
  *         description: Server error
  */
 router.post('/upload-recording', verifyToken, upload.single('video'), uploadGameRecording);
+
+// Đã di chuyển các route monthly-leaderboard và monthly-leaderboard-redis sang leaderboard.route.js
 
 export default router; 

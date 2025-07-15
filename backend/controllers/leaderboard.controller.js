@@ -30,13 +30,12 @@ const REGION_MAPPING = {
 const DIFFICULTY_LEVELS = [1, 2, 3]; // 1=Easy, 2=Medium, 3=Hard
 
 const LeaderboardController = {
-    // Get Global or Regional Leaderboard (PostgreSQL-first, Redis fallback for current month only)
+    // Get Monthly Leaderboard (PostgreSQL-first, Redis fallback for current month only)
     getLeaderboard: async (req, res) => {
         try {
             const {
                 difficulty_level = 1,
                 region = 'global',
-                time_period = 'allTime',
                 month_year = null, // Format: YYYY-MM (e.g., 2024-01)
                 limit = 100,
                 source = 'auto' // 'auto' (PostgreSQL-first), 'redis' (Redis-first), 'postgres' (PostgreSQL-only)
@@ -50,7 +49,29 @@ const LeaderboardController = {
                 });
             }
 
-            console.log(`🏆 Getting leaderboard: region=${region}, difficulty=${difficulty_level}, period=${time_period}, source=${source}`);
+            // Validate month_year format if provided
+            if (month_year && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month_year)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid month_year format. Must be YYYY-MM (e.g., 2024-01, 2024-12)'
+                });
+            }
+
+            // Calculate the month_year to use for queries and responses
+            let queryMonthYear, responseMonthYear;
+
+            if (month_year) {
+                queryMonthYear = month_year;
+                responseMonthYear = month_year;
+            } else {
+                // If no specific month requested, get current month
+                const currentDate = new Date();
+                const currentMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+                queryMonthYear = currentMonth;
+                responseMonthYear = currentMonth;
+            }
+
+            console.log(`🏆 Getting monthly leaderboard: region=${region}, difficulty=${difficulty_level}, month_year=${responseMonthYear}, source=${source}`);
 
             // Handle Redis-first if explicitly requested
             if (source === 'redis') {
@@ -58,9 +79,9 @@ const LeaderboardController = {
                 const redisLeaderboard = await RedisLeaderboardService.getLeaderboard(
                     region,
                     parseInt(difficulty_level),
-                    time_period,
+                    'monthly',
                     parseInt(limit),
-                    month_year
+                    queryMonthYear
                 );
 
                 if (redisLeaderboard.length > 0) {
@@ -70,13 +91,13 @@ const LeaderboardController = {
                         metadata: {
                             difficulty_level: parseInt(difficulty_level),
                             region,
-                            time_period,
+                            time_period: 'monthly',
                             total_players: redisLeaderboard.length,
                             source: 'redis_requested',
                             timestamp: new Date().toISOString(),
-                            month_year: month_year
+                            month_year: responseMonthYear
                         },
-                        message: 'Leaderboard retrieved successfully (Redis requested)'
+                        message: 'Monthly leaderboard retrieved successfully (Redis requested)'
                     });
                 }
                 // If Redis is empty, continue to PostgreSQL fallback below
@@ -86,25 +107,16 @@ const LeaderboardController = {
             // DEFAULT FLOW: Try PostgreSQL first (stored monthly snapshots)
             const whereClause = {
                 difficulty_level: parseInt(difficulty_level),
-                leaderboard_type: time_period === 'monthly' ? 'monthly' : 'allTime'
+                leaderboard_type: 'monthly',
+                month_year: queryMonthYear
             };
-
-            // Add month_year filter for monthly leaderboards
-            if (time_period === 'monthly' && month_year) {
-                whereClause.month_year = month_year;
-            } else if (time_period === 'monthly' && !month_year) {
-                // If monthly but no specific month requested, get current month
-                const currentDate = new Date();
-                const currentMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-                whereClause.month_year = currentMonth;
-            }
 
             // Add region filter if not global
             if (region !== 'global') {
                 whereClause.region = region;
             }
 
-            console.log('📊 Querying PostgreSQL leaderboard first...');
+            console.log('📊 Querying PostgreSQL leaderboard first with whereClause:', whereClause);
             const postgresLeaderboard = await LeaderboardCache.findAll({
                 where: whereClause,
                 order: [['score', 'DESC'], ['total_time', 'ASC']],
@@ -117,13 +129,10 @@ const LeaderboardController = {
 
             // If PostgreSQL has data, use it (this is the normal case)
             if (postgresLeaderboard.length > 0) {
-                const currentMonthYear = time_period === 'monthly' ?
-                    (month_year || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`) : null;
-
                 const finalPostgresLeaderboard = postgresLeaderboard.map((player, index) => ({
                     ...player.toJSON(),
                     rank_position: index + 1,
-                    month_year: player.month_year || currentMonthYear, // Use stored month_year or fallback
+                    month_year: responseMonthYear, // Use calculated responseMonthYear for consistency
                     medal: index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : null,
                     isTopThree: index < 3,
                     countryFlag: player.country ? getCountryFlag(player.country) : null
@@ -135,12 +144,13 @@ const LeaderboardController = {
                     metadata: {
                         difficulty_level: parseInt(difficulty_level),
                         region,
-                        time_period,
+                        time_period: 'monthly',
                         total_players: finalPostgresLeaderboard.length,
                         source: 'postgresql',
-                        month_year: currentMonthYear
+                        month_year: responseMonthYear,
+                        timestamp: new Date().toISOString()
                     },
-                    message: 'Leaderboard retrieved successfully (PostgreSQL)'
+                    message: 'Monthly leaderboard retrieved successfully (PostgreSQL)'
                 });
             }
 
@@ -153,10 +163,11 @@ const LeaderboardController = {
                     metadata: {
                         difficulty_level: parseInt(difficulty_level),
                         region,
-                        time_period,
+                        time_period: 'monthly',
                         total_players: 0,
                         source: 'postgresql_only',
-                        month_year: month_year
+                        month_year: responseMonthYear,
+                        timestamp: new Date().toISOString()
                     },
                     message: 'No PostgreSQL data available for the specified criteria'
                 });
@@ -166,9 +177,9 @@ const LeaderboardController = {
             const leaderboard = await RedisLeaderboardService.getLeaderboard(
                 region,
                 parseInt(difficulty_level),
-                time_period,
+                'monthly',
                 parseInt(limit),
-                month_year // Pass month_year for filtering
+                queryMonthYear // Pass queryMonthYear for filtering
             );
 
             // If Redis has data, use it (temporary current month data)
@@ -179,13 +190,14 @@ const LeaderboardController = {
                     metadata: {
                         difficulty_level: parseInt(difficulty_level),
                         region,
-                        time_period,
+                        time_period: 'monthly',
                         total_players: leaderboard.length,
                         source: 'redis_temporary',
-                        month_year: month_year,
+                        month_year: responseMonthYear,
+                        timestamp: new Date().toISOString(),
                         note: 'This is temporary current month data. Will be saved to PostgreSQL at month end.'
                     },
-                    message: 'Leaderboard retrieved successfully (Redis temporary data)'
+                    message: 'Monthly leaderboard retrieved successfully (Redis temporary data)'
                 });
             } else {
                 // Both PostgreSQL and Redis are empty
@@ -195,12 +207,13 @@ const LeaderboardController = {
                     metadata: {
                         difficulty_level: parseInt(difficulty_level),
                         region,
-                        time_period,
+                        time_period: 'monthly',
                         total_players: 0,
                         source: 'empty',
-                        month_year: month_year
+                        month_year: responseMonthYear,
+                        timestamp: new Date().toISOString()
                     },
-                    message: 'No leaderboard data available for the specified criteria'
+                    message: 'No monthly leaderboard data available for the specified criteria'
                 });
             }
         } catch (error) {
@@ -212,24 +225,24 @@ const LeaderboardController = {
                 const {
                     difficulty_level = 1,
                     region = 'global',
-                    time_period = 'allTime',
+                    month_year = null,
                     limit = 100
                 } = req.query;
 
+                // Recalculate month_year for emergency fallback
+                let emergencyMonthYear;
+                if (month_year && /^\d{4}-(0[1-9]|1[0-2])$/.test(month_year)) {
+                    emergencyMonthYear = month_year;
+                } else {
+                    const currentDate = new Date();
+                    emergencyMonthYear = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+                }
+
                 const whereClause = {
                     difficulty_level: parseInt(difficulty_level),
-                    leaderboard_type: time_period === 'monthly' ? 'monthly' : 'allTime'
+                    leaderboard_type: 'monthly',
+                    month_year: emergencyMonthYear
                 };
-
-                // Add month_year filter for monthly leaderboards
-                if (time_period === 'monthly' && month_year) {
-                    whereClause.month_year = month_year;
-                } else if (time_period === 'monthly' && !month_year) {
-                    // If monthly but no specific month requested, get current month
-                    const currentDate = new Date();
-                    const currentMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-                    whereClause.month_year = currentMonth;
-                }
 
                 if (region !== 'global') {
                     whereClause.region = region;
@@ -241,13 +254,10 @@ const LeaderboardController = {
                     limit: parseInt(limit)
                 });
 
-                const emergencyMonthYear = time_period === 'monthly' ?
-                    (month_year || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`) : null;
-
                 const finalEmergencyLeaderboard = emergencyLeaderboard.map((player, index) => ({
                     ...player.toJSON(),
                     rank_position: index + 1,
-                    month_year: emergencyMonthYear, // Add month_year to each player
+                    month_year: emergencyMonthYear, // Use calculated emergencyMonthYear
                     medal: index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : null,
                     isTopThree: index < 3,
                     countryFlag: player.country ? getCountryFlag(player.country) : null
@@ -259,25 +269,26 @@ const LeaderboardController = {
                     metadata: {
                         difficulty_level: parseInt(difficulty_level),
                         region,
-                        time_period,
+                        time_period: 'monthly',
                         total_players: finalEmergencyLeaderboard.length,
                         source: 'postgresql_emergency',
-                        month_year: emergencyMonthYear
+                        month_year: emergencyMonthYear,
+                        timestamp: new Date().toISOString()
                     },
-                    message: 'Leaderboard retrieved successfully (emergency fallback)'
+                    message: 'Monthly leaderboard retrieved successfully (emergency fallback)'
                 });
             } catch (fallbackError) {
                 console.error('Emergency fallback also failed:', fallbackError);
                 return res.status(500).json({
                     success: false,
-                    message: 'Failed to get leaderboard from both Redis and PostgreSQL',
+                    message: 'Failed to get monthly leaderboard from both Redis and PostgreSQL',
                     error: error.message
                 });
             }
         }
     },
 
-    // Get Redis Leaderboard (Redis-first - shows current live data)
+    // Get Redis Leaderboard (Redis-only - shows current live data only, no PostgreSQL fallback)
     getRedisLeaderboard: async (req, res) => {
         try {
             const startTime = Date.now();
@@ -285,7 +296,6 @@ const LeaderboardController = {
             const {
                 difficulty_level = 1,
                 region = 'global',
-                time_period = 'alltime',
                 month_year = null,
                 limit = 100
             } = req.query;
@@ -307,25 +317,38 @@ const LeaderboardController = {
                 });
             }
 
-            // Validate time period
-            const validPeriods = ['alltime', 'monthly'];
-            if (!validPeriods.includes(time_period)) {
+            // Validate month_year format if provided
+            if (month_year && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month_year)) {
                 return res.status(400).json({
                     success: false,
-                    message: `Invalid time period. Must be one of: ${validPeriods.join(', ')}`
+                    message: 'Invalid month_year format. Must be YYYY-MM (e.g., 2024-01, 2024-12)'
                 });
             }
 
-            console.log(`🔴 Getting Redis leaderboard (Redis-first): region=${region}, difficulty=${difficulty_level}, period=${time_period}`);
+            // Calculate the month_year to use for queries and responses
+            let queryMonthYear, responseMonthYear;
 
-            // REDIS-FIRST: Get current live data from Redis
+            if (month_year) {
+                queryMonthYear = month_year;
+                responseMonthYear = month_year;
+            } else {
+                // If no specific month requested, get current month
+                const currentDate = new Date();
+                const currentMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+                queryMonthYear = currentMonth;
+                responseMonthYear = currentMonth;
+            }
+
+            console.log(`🔴 Getting Redis leaderboard (Redis-only): region=${region}, difficulty=${difficulty_level}, month_year=${responseMonthYear}`);
+
+            // REDIS-ONLY: Get current live data from Redis (no PostgreSQL fallback)
             console.log('📊 Getting current live data from Redis...');
             const leaderboard = await RedisLeaderboardService.getLeaderboard(
                 region,
                 parseInt(difficulty_level),
-                time_period,
+                'monthly',
                 parseInt(limit),
-                month_year
+                queryMonthYear
             );
 
             const endTime = Date.now();
@@ -335,128 +358,47 @@ const LeaderboardController = {
             const redisStatus = await redis.ping();
 
             // Get additional Redis metadata
-            const redisKey = RedisLeaderboardService.generateLeaderboardKey(region, parseInt(difficulty_level), time_period);
+            const redisKey = RedisLeaderboardService.generateLeaderboardKey(region, parseInt(difficulty_level), 'monthly');
             const totalPlayersInRedis = await redis.zcard(redisKey);
 
-            const redisMonthYear = time_period === 'monthly' ?
-                (month_year || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`) : null;
-
-            // If Redis has data, use it (primary source for current data)
-            if (leaderboard.length > 0) {
-                return res.status(200).json({
-                    success: true,
-                    data: leaderboard,
-                    metadata: {
-                        difficulty_level: parseInt(difficulty_level),
-                        region,
-                        time_period,
-                        total_players: leaderboard.length,
-                        total_players_in_redis: totalPlayersInRedis,
-                        source: 'redis_live',
-                        redis_status: redisStatus,
-                        query_time_ms: queryTime,
-                        redis_key: redisKey,
-                        month_year: redisMonthYear,
-                        timestamp: new Date().toISOString(),
-                        note: 'Current live leaderboard data from Redis'
-                    },
-                    message: 'Leaderboard retrieved successfully (Redis live data)'
-                });
-            }
-
-            // FALLBACK: Only if Redis is empty, try PostgreSQL
-            console.log('⚠️ Redis empty, falling back to PostgreSQL historical data...');
-            const whereClause = {
-                difficulty_level: parseInt(difficulty_level),
-                leaderboard_type: time_period === 'monthly' ? 'monthly' : 'allTime'
-            };
-
-            // Add month_year filter for monthly leaderboards
-            if (time_period === 'monthly' && month_year) {
-                whereClause.month_year = month_year;
-            } else if (time_period === 'monthly' && !month_year) {
-                // If monthly but no specific month requested, get current month
-                const currentDate = new Date();
-                const currentMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-                whereClause.month_year = currentMonth;
-            }
-
-            // Add region filter if not global
-            if (region !== 'global') {
-                whereClause.region = region;
-            }
-
-            const postgresLeaderboard = await LeaderboardCache.findAll({
-                where: whereClause,
-                order: [['score', 'DESC'], ['total_time', 'ASC']],
-                limit: parseInt(limit),
-                attributes: [
-                    'rank_position', 'full_name', 'avatar', 'current_level',
-                    'score', 'total_time', 'total_games', 'region', 'country', 'month_year'
-                ]
-            });
-
-            // If PostgreSQL has data as fallback, use it
-            if (postgresLeaderboard.length > 0) {
-                const fallbackMonthYear = time_period === 'monthly' ?
-                    (month_year || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`) : null;
-
-                const finalPostgresLeaderboard = postgresLeaderboard.map((player, index) => ({
-                    ...player.toJSON(),
-                    rank_position: index + 1,
-                    month_year: player.month_year || fallbackMonthYear,
-                    medal: index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : null,
-                    isTopThree: index < 3,
-                    countryFlag: player.country ? getCountryFlag(player.country) : null
-                }));
-
-                return res.status(200).json({
-                    success: true,
-                    data: finalPostgresLeaderboard,
-                    metadata: {
-                        difficulty_level: parseInt(difficulty_level),
-                        region,
-                        time_period,
-                        total_players: finalPostgresLeaderboard.length,
-                        source: 'postgresql_fallback',
-                        query_time_ms: queryTime,
-                        month_year: fallbackMonthYear,
-                        timestamp: new Date().toISOString(),
-                        note: 'Redis was empty, showing historical PostgreSQL data'
-                    },
-                    message: 'Leaderboard retrieved successfully (PostgreSQL fallback)'
-                });
-            }
-
-            // Both Redis and PostgreSQL are empty
+            // Return Redis data if available, otherwise return empty (no PostgreSQL fallback)
             return res.status(200).json({
                 success: true,
-                data: [],
+                data: leaderboard,
                 metadata: {
                     difficulty_level: parseInt(difficulty_level),
                     region,
-                    time_period,
-                    total_players: 0,
-                    source: 'empty',
+                    time_period: 'monthly',
+                    total_players: leaderboard.length,
+                    total_players_in_redis: totalPlayersInRedis,
+                    source: leaderboard.length > 0 ? 'redis_live' : 'redis_empty',
+                    redis_status: redisStatus,
                     query_time_ms: queryTime,
-                    month_year: redisMonthYear,
-                    timestamp: new Date().toISOString()
+                    redis_key: redisKey,
+                    month_year: responseMonthYear,
+                    timestamp: new Date().toISOString(),
+                    note: leaderboard.length > 0
+                        ? 'Current live leaderboard data from Redis'
+                        : 'No data available in Redis for specified criteria'
                 },
-                message: 'No leaderboard data available for the specified criteria'
+                message: leaderboard.length > 0
+                    ? 'Redis leaderboard retrieved successfully'
+                    : 'No Redis data available for specified criteria'
             });
+
         } catch (error) {
-            console.error('❌ Leaderboard error:', error);
+            console.error('❌ Redis leaderboard error:', error);
 
             return res.status(500).json({
                 success: false,
-                message: 'Failed to retrieve leaderboard',
+                message: 'Failed to retrieve Redis leaderboard',
                 error: {
                     message: error.message,
-                    type: error.name || 'DatabaseError',
+                    type: error.name || 'RedisError',
                     timestamp: new Date().toISOString()
                 },
                 metadata: {
-                    source: 'error',
+                    source: 'redis_error',
                     fallback_used: false
                 }
             });
@@ -739,6 +681,122 @@ const LeaderboardController = {
                 success: false,
                 message: 'Failed to sync GameHistory scores to Redis',
                 error: error.message
+            });
+        }
+    },
+
+    // Get Monthly Leaderboard from Database (GameHistoryStatisticCurrentMonth)
+    getMonthlyLeaderboard: async (req, res) => {
+        try {
+            const { difficulty_level = 1, limit = 20, month_year } = req.query;
+            const GameHistoryStatisticCurrentMonth = (await import('../model/game-history-statistic-current-month.model.js')).default;
+
+            // Xác định tháng hiện tại nếu không truyền vào
+            let monthYear = month_year;
+            if (!monthYear) {
+                const now = new Date();
+                monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            }
+
+            // Query top N user theo best_score
+            const topStats = await GameHistoryStatisticCurrentMonth.findAll({
+                where: {
+                    difficulty_level: difficulty_level,
+                    month_year: monthYear
+                },
+                order: [
+                    ['best_score', 'DESC'],
+                    ['best_score_time', 'ASC']
+                ],
+                limit: parseInt(limit),
+                include: [{
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'username', 'full_name', 'avatar', 'country', 'current_level']
+                }]
+            });
+
+            // Map kết quả trả về
+            const leaderboard = topStats.map((stat, idx) => ({
+                user_id: stat.user_id,
+                username: stat.user?.username,
+                full_name: stat.user?.full_name,
+                avatar: stat.user?.avatar,
+                country: stat.user?.country,
+                current_level: stat.user?.current_level,
+                best_score: stat.best_score,
+                best_score_time: stat.best_score_time,
+                games_played: stat.games_played,
+                total_score: stat.total_score,
+                month_year: stat.month_year,
+                rank: idx + 1
+            }));
+
+            res.json({
+                month_year: monthYear,
+                difficulty_level: parseInt(difficulty_level),
+                leaderboard
+            });
+        } catch (err) {
+            console.error('❌ Error getMonthlyLeaderboard:', err);
+            res.status(500).json({ message: 'Server error', error: err.message });
+        }
+    },
+
+    // Get Monthly Leaderboard from Redis
+    getMonthlyLeaderboardFromRedis: async (req, res) => {
+        try {
+            const { difficulty_level = 1, limit = 20, month_year, region = 'global' } = req.query;
+
+            // Validate difficulty level
+            if (!DIFFICULTY_LEVELS.includes(parseInt(difficulty_level))) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid difficulty level. Must be 1 (Easy), 2 (Medium), or 3 (Hard)'
+                });
+            }
+
+            let monthYear = month_year;
+            if (!monthYear) {
+                const now = new Date();
+                monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            }
+
+            console.log(`🏆 Getting monthly leaderboard from Redis: difficulty=${difficulty_level}, region=${region}, month_year=${monthYear}`);
+
+            // Use the proper RedisLeaderboardService to get complete data with time-based ranking
+            const leaderboard = await RedisLeaderboardService.getLeaderboard(
+                region,
+                parseInt(difficulty_level),
+                'monthly',
+                parseInt(limit),
+                monthYear
+            );
+
+            console.log(`📊 Retrieved ${leaderboard.length} players from Redis monthly leaderboard`);
+
+            // Return the complete data format (same as the other endpoints)
+            res.status(200).json({
+                success: true,
+                data: leaderboard,
+                metadata: {
+                    month_year: monthYear,
+                    difficulty_level: parseInt(difficulty_level),
+                    region: region,
+                    total_players: leaderboard.length,
+                    source: 'redis_monthly_leaderboard',
+                    timestamp: new Date().toISOString()
+                },
+                message: leaderboard.length > 0
+                    ? 'Monthly leaderboard retrieved successfully from Redis'
+                    : 'No monthly leaderboard data available for specified criteria'
+            });
+        } catch (err) {
+            console.error('❌ Error getMonthlyLeaderboardFromRedis:', err);
+            res.status(500).json({
+                success: false,
+                message: 'Server error',
+                error: err.message
             });
         }
     }

@@ -13,6 +13,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 
+const DIFFICULTY_LEVELS = [1, 2, 3]; // 1=Easy, 2=Medium, 3=Hard
+
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1265,6 +1267,63 @@ export const completeGame = async (req, res) => {
                 console.log(`   🎯 New best: score=${finalScore}, time=${total_time}s`);
             }
 
+            // === CẬP NHẬT BẢNG THỐNG KÊ THÁNG HIỆN TẠI ===
+            // Lấy tháng hiện tại
+            const now = new Date();
+            const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            const GameHistoryStatisticCurrentMonth = (await import('../model/game-history-statistic-current-month.model.js')).default;
+            // Tìm hoặc tạo record thống kê tháng
+            const [statMonth, createdMonth] = await GameHistoryStatisticCurrentMonth.findOrCreate({
+                where: {
+                    user_id: userId,
+                    difficulty_level: gameDifficulty,
+                    month_year: monthYear
+                },
+                defaults: {
+                    user_id: userId,
+                    difficulty_level: gameDifficulty,
+                    month_year: monthYear,
+                    best_score: finalScore,
+                    best_score_time: total_time,
+                    games_played: 1,
+                    total_score: finalScore
+                }
+            });
+            let updateMonth = false;
+            let updateMonthData = {
+                games_played: statMonth.games_played + 1,
+                total_score: statMonth.total_score + finalScore
+            };
+            if (statMonth.best_score === 0 || statMonth.best_score === null) {
+                updateMonth = true;
+                updateMonthData.best_score = finalScore;
+                updateMonthData.best_score_time = total_time;
+            } else if (finalScore > statMonth.best_score) {
+                updateMonth = true;
+                updateMonthData.best_score = finalScore;
+                updateMonthData.best_score_time = total_time;
+            } else if (finalScore === statMonth.best_score && total_time < statMonth.best_score_time) {
+                updateMonth = true;
+                updateMonthData.best_score_time = total_time;
+            }
+            if (!createdMonth) {
+                await statMonth.update(updateMonthData);
+            }
+
+            // === CẬP NHẬT REDIS MONTHLY LEADERBOARD ===
+            try {
+                const redis = (await import('../config/redis.config.js')).default;
+                const redisKey = `monthly_leaderboard:${gameDifficulty}:${monthYear}`;
+                // Lấy best_score mới nhất sau update
+                let bestScoreForRedis = finalScore;
+                if (!createdMonth) {
+                    bestScoreForRedis = updateMonthData.best_score || statMonth.best_score;
+                }
+                await redis.zadd(redisKey, bestScoreForRedis, userId);
+            } catch (err) {
+                console.error('❌ Error updating Redis monthly leaderboard:', err);
+            }
+
             // Now sync this UserStatistics record to Redis
             try {
                 console.log(`🔄 Syncing UserStatistics to Redis leaderboard...`);
@@ -1990,6 +2049,63 @@ export const submitWholeGame = async (req, res) => {
                 console.log(`   🎯 New best: score=${finalScore}, time=${total_time}s`);
             }
 
+            // === CẬP NHẬT BẢNG THỐNG KÊ THÁNG HIỆN TẠI ===
+            // Lấy tháng hiện tại
+            const now = new Date();
+            const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            const GameHistoryStatisticCurrentMonth = (await import('../model/game-history-statistic-current-month.model.js')).default;
+            // Tìm hoặc tạo record thống kê tháng
+            const [statMonth, createdMonth] = await GameHistoryStatisticCurrentMonth.findOrCreate({
+                where: {
+                    user_id: userId,
+                    difficulty_level: difficulty_level,
+                    month_year: monthYear
+                },
+                defaults: {
+                    user_id: userId,
+                    difficulty_level: difficulty_level,
+                    month_year: monthYear,
+                    best_score: finalScore,
+                    best_score_time: total_time,
+                    games_played: 1,
+                    total_score: finalScore
+                }
+            });
+            let updateMonth = false;
+            let updateMonthData = {
+                games_played: statMonth.games_played + 1,
+                total_score: statMonth.total_score + finalScore
+            };
+            if (statMonth.best_score === 0 || statMonth.best_score === null) {
+                updateMonth = true;
+                updateMonthData.best_score = finalScore;
+                updateMonthData.best_score_time = total_time;
+            } else if (finalScore > statMonth.best_score) {
+                updateMonth = true;
+                updateMonthData.best_score = finalScore;
+                updateMonthData.best_score_time = total_time;
+            } else if (finalScore === statMonth.best_score && total_time < statMonth.best_score_time) {
+                updateMonth = true;
+                updateMonthData.best_score_time = total_time;
+            }
+            if (!createdMonth) {
+                await statMonth.update(updateMonthData);
+            }
+
+            // === CẬP NHẬT REDIS MONTHLY LEADERBOARD ===
+            try {
+                const redis = (await import('../config/redis.config.js')).default;
+                const redisKey = `monthly_leaderboard:${difficulty_level}:${monthYear}`;
+                // Lấy best_score mới nhất sau update
+                let bestScoreForRedis = finalScore;
+                if (!createdMonth) {
+                    bestScoreForRedis = updateMonthData.best_score || statMonth.best_score;
+                }
+                await redis.zadd(redisKey, bestScoreForRedis, userId);
+            } catch (err) {
+                console.error('❌ Error updating Redis monthly leaderboard:', err);
+            }
+
             // Now sync this UserStatistics record to Redis
             try {
                 console.log(`🔄 Syncing UserStatistics to Redis leaderboard...`);
@@ -2147,6 +2263,119 @@ export const uploadGameRecording = async (req, res) => {
         return res.status(500).json({
             message: 'Failed to upload video',
             error: error.message
+        });
+    }
+};
+
+// GET /api/game/monthly-leaderboard?difficulty_level=1&limit=20
+export const getMonthlyLeaderboard = async (req, res) => {
+    try {
+        const { difficulty_level = 1, limit = 20, month_year } = req.query;
+        const GameHistoryStatisticCurrentMonth = (await import('../model/game-history-statistic-current-month.model.js')).default;
+        const User = (await import('../model/user.model.js')).default;
+        // Xác định tháng hiện tại nếu không truyền vào
+        let monthYear = month_year;
+        if (!monthYear) {
+            const now = new Date();
+            monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        }
+        // Query top N user theo best_score
+        const topStats = await GameHistoryStatisticCurrentMonth.findAll({
+            where: {
+                difficulty_level: difficulty_level,
+                month_year: monthYear
+            },
+            order: [
+                ['best_score', 'DESC'],
+                ['best_score_time', 'ASC']
+            ],
+            limit: parseInt(limit),
+            include: [{
+                model: User,
+                as: 'user',
+                attributes: ['id', 'username', 'full_name', 'avatar', 'country', 'current_level']
+            }]
+        });
+        // Map kết quả trả về
+        const leaderboard = topStats.map((stat, idx) => ({
+            user_id: stat.user_id,
+            username: stat.user?.username,
+            full_name: stat.user?.full_name,
+            avatar: stat.user?.avatar,
+            country: stat.user?.country,
+            current_level: stat.user?.current_level,
+            best_score: stat.best_score,
+            best_score_time: stat.best_score_time,
+            games_played: stat.games_played,
+            total_score: stat.total_score,
+            month_year: stat.month_year,
+            rank: idx + 1
+        }));
+        res.json({
+            month_year: monthYear,
+            difficulty_level: parseInt(difficulty_level),
+            leaderboard
+        });
+    } catch (err) {
+        console.error('❌ Error getMonthlyLeaderboard:', err);
+        res.status(500).json({ message: 'Server error', error: err.message });
+    }
+};
+
+// GET /api/game/monthly-leaderboard-redis?difficulty_level=1&limit=20
+export const getMonthlyLeaderboardFromRedis = async (req, res) => {
+    try {
+        const { difficulty_level = 1, limit = 20, month_year, region = 'global' } = req.query;
+
+        // Validate difficulty level
+        if (!DIFFICULTY_LEVELS.includes(parseInt(difficulty_level))) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid difficulty level. Must be 1 (Easy), 2 (Medium), or 3 (Hard)'
+            });
+        }
+
+        let monthYear = month_year;
+        if (!monthYear) {
+            const now = new Date();
+            monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        }
+
+        console.log(`🏆 Getting monthly leaderboard from Redis: difficulty=${difficulty_level}, region=${region}, month_year=${monthYear}`);
+
+        // Use the proper RedisLeaderboardService to get complete data with time-based ranking
+        const leaderboard = await RedisLeaderboardService.getLeaderboard(
+            region,
+            parseInt(difficulty_level),
+            'monthly',
+            parseInt(limit),
+            monthYear
+        );
+
+        console.log(`📊 Retrieved ${leaderboard.length} players from Redis leaderboard`);
+
+        // Return the complete data format
+        res.status(200).json({
+            success: true,
+            data: leaderboard,
+            metadata: {
+                month_year: monthYear,
+                difficulty_level: parseInt(difficulty_level),
+                region: region,
+                total_players: leaderboard.length,
+                source: 'redis_monthly',
+                timestamp: new Date().toISOString()
+            },
+            message: leaderboard.length > 0
+                ? 'Monthly leaderboard retrieved successfully from Redis'
+                : 'No monthly leaderboard data available for specified criteria'
+        });
+    } catch (err) {
+        console.error('❌ Error getMonthlyLeaderboardFromRedis:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Server error',
+            error: err.message
         });
     }
 };

@@ -13,6 +13,7 @@ import LeaderboardCache from '../model/leaderboard-cache.model.js';
 import BattleSession from '../model/battle-sessions.model.js';
 import BattleRoundDetail from '../model/battle-round-details.model.js';
 import UserRoundResponse from '../model/user-round-responses.model.js';
+import GameHistoryStatisticCurrentMonth from '../model/game-history-statistic-current-month.model.js';
 
 const initDB = async () => {
     try {
@@ -33,7 +34,8 @@ const initDB = async () => {
             LeaderboardCache,
             BattleSession,
             BattleRoundDetail,
-            UserRoundResponse
+            UserRoundResponse,
+            GameHistoryStatisticCurrentMonth
         ];
 
         console.log(`Loaded ${models.length} models`);

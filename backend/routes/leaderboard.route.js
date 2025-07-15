@@ -64,6 +64,10 @@ const router = express.Router();
  *           type: string
  *           description: Country flag emoji
  *           example: "🇻🇳"
+ *         month_year:
+ *           type: string
+ *           description: Month and year this leaderboard entry belongs to (YYYY-MM format, only for monthly leaderboards)
+ *           example: "2024-12"
  *     LeaderboardResponse:
  *       type: object
  *       properties:
@@ -125,16 +129,16 @@ const router = express.Router();
  *   get:
  *     tags:
  *       - Leaderboard
- *     summary: Get Filtered Leaderboard
+ *     summary: Get Monthly Leaderboard
  *     description: |
- *       Retrieve leaderboard rankings with various filters including difficulty level, 
- *       region, and time period. Returns players ranked by highest score, with 
+ *       Retrieve monthly leaderboard rankings with various filters including difficulty level, 
+ *       region, and specific month/year. Returns players ranked by highest score, with 
  *       fastest completion time as tiebreaker.
  *       
  *       **Features:**
  *       - Filter by 3 difficulty levels (1=Easy, 2=Medium, 3=Hard)
  *       - Regional filtering (Global, Asia, America, Europe, Others)
- *       - Time-based filtering (Monthly, All Time)
+ *       - Month/Year specific querying (for monthly leaderboards)
  *       - Country flags display
  *       - Medal system for top 3 players
  *       - Sorting by highest score + fastest time
@@ -166,16 +170,15 @@ const router = express.Router();
  *           - others: All other regions
  *         example: "global"
  *       - in: query
- *         name: time_period
+ *         name: month_year
  *         schema:
  *           type: string
- *           enum: [monthly, allTime]
- *           default: allTime
+ *           pattern: '^\d{4}-(0[1-9]|1[0-2])$'
  *         description: |
- *           Time period filter:
- *           - monthly: Current month rankings only
- *           - allTime: All-time rankings
- *         example: "allTime"
+ *           Specific month and year for monthly leaderboards (YYYY-MM format).
+ *           If not provided, defaults to current month.
+ *           Examples: "2024-01", "2024-12", "2025-01"
+ *         example: "2024-12"
  *       - in: query
  *         name: limit
  *         schema:
@@ -264,24 +267,25 @@ router.get('/', LeaderboardController.getLeaderboard);
  *   get:
  *     tags:
  *       - Leaderboard
- *     summary: Get Leaderboard from Redis Only
+ *     summary: Get Current Redis Leaderboard Data Only
  *     description: |
- *       Retrieve leaderboard rankings directly from Redis cache with no PostgreSQL fallback.
+ *       Retrieve current leaderboard rankings directly from Redis cache with NO PostgreSQL fallback.
  *       This endpoint provides real-time Redis performance metrics and ensures data comes
  *       exclusively from Redis for testing and performance analysis.
  *       
- *       **Key Differences from Standard Leaderboard:**
- *       - No PostgreSQL fallback if Redis fails
+ *       **Key Features:**
+ *       - Redis-only data source (no database fallback)
  *       - Returns detailed Redis performance metrics
  *       - Shows actual Redis key names and statistics
  *       - Includes query execution time
- *       - Returns error if Redis is unavailable
+ *       - Returns empty if Redis is unavailable or has no data
  *       
  *       **Use Cases:**
  *       - Testing Redis performance
  *       - Verifying Redis data integrity
  *       - Debugging Redis connectivity issues
  *       - Performance benchmarking
+ *       - Getting live current month data only
  *     parameters:
  *       - in: query
  *         name: difficulty_level
@@ -312,16 +316,15 @@ router.get('/', LeaderboardController.getLeaderboard);
  *           - others: All other regions
  *         example: "global"
  *       - in: query
- *         name: time_period
+ *         name: month_year
  *         schema:
  *           type: string
- *           enum: [alltime, monthly]
- *           default: alltime
+ *           pattern: '^\d{4}-(0[1-9]|1[0-2])$'
  *         description: |
- *           Time period filter:
- *           - alltime: All-time rankings
- *           - monthly: Current month rankings only
- *         example: "alltime"
+ *           Specific month and year for Redis leaderboard (YYYY-MM format).
+ *           If not provided, defaults to current month.
+ *           Examples: "2024-01", "2024-12", "2025-01"
+ *         example: "2024-12"
  *       - in: query
  *         name: limit
  *         schema:
@@ -861,13 +864,36 @@ router.post('/test-monthly-rewards', verifyToken, async (req, res) => {
         res.status(200).json({
             success: true,
             data: result,
-            message: 'Monthly rewards test completed'
+            message: 'Monthly rewards test completed. Note: Run /sync-historical-scores to restore Redis functionality for game completion.'
         });
     } catch (error) {
         console.error('Error in monthly rewards test:', error);
         res.status(500).json({
             success: false,
             message: 'Failed to run monthly rewards test',
+            error: error.message
+        });
+    }
+});
+
+// Restore Redis functionality after monthly test (development helper)
+router.post('/restore-redis-after-monthly', verifyToken, async (req, res) => {
+    try {
+        console.log('🔧 Restoring Redis functionality after monthly test - triggered by user:', req.userId);
+
+        // Sync historical scores to restore Redis data
+        const syncResult = await RedisLeaderboardService.syncHistoricalScoresToRedis();
+
+        res.status(200).json({
+            success: true,
+            data: syncResult,
+            message: 'Redis functionality restored. Game completion should work normally now.'
+        });
+    } catch (error) {
+        console.error('Error restoring Redis functionality:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to restore Redis functionality',
             error: error.message
         });
     }
@@ -1134,5 +1160,187 @@ router.post('/sync-historical-scores', verifyToken, LeaderboardController.syncHi
  *         description: Internal server error
  */
 router.post('/sync-gamehistory-scores', verifyToken, LeaderboardController.syncGameHistoryScores);
+
+/**
+ * @swagger
+ * /api/leaderboard/monthly-leaderboard:
+ *   get:
+ *     tags:
+ *     - Leaderboard
+ *     summary: Get monthly leaderboard from Database
+ *     description: Retrieve the top players for the current month based on game performance from the database table game_history_statistic_current_month.
+ *     security:
+ *       - Authorization: []
+ *     parameters:
+ *       - in: query
+ *         name: difficulty_level
+ *         schema:
+ *           type: integer
+ *           enum: [1, 2, 3]
+ *           default: 1
+ *         required: false
+ *         description: Difficulty level (1=Easy, 2=Medium, 3=Hard)
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         required: false
+ *         description: Number of top users to return
+ *       - in: query
+ *         name: month_year
+ *         schema:
+ *           type: string
+ *           pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+ *         required: false
+ *         description: Month and year in format YYYY-MM - defaults to current month
+ *         example: "2024-12"
+ *     responses:
+ *       200:
+ *         description: Monthly leaderboard retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 month_year:
+ *                   type: string
+ *                   example: "2024-12"
+ *                 difficulty_level:
+ *                   type: integer
+ *                   example: 1
+ *                 leaderboard:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       user_id:
+ *                         type: integer
+ *                         example: 123
+ *                       username:
+ *                         type: string
+ *                         example: "player123"
+ *                       full_name:
+ *                         type: string
+ *                         example: "John Doe"
+ *                       avatar:
+ *                         type: string
+ *                         example: "https://example.com/avatar.jpg"
+ *                       country:
+ *                         type: string
+ *                         example: "VN"
+ *                       current_level:
+ *                         type: integer
+ *                         example: 25
+ *                       best_score:
+ *                         type: integer
+ *                         example: 15420
+ *                       best_score_time:
+ *                         type: number
+ *                         format: float
+ *                         example: 125.5
+ *                       games_played:
+ *                         type: integer
+ *                         example: 42
+ *                       total_score:
+ *                         type: integer
+ *                         example: 50000
+ *                       month_year:
+ *                         type: string
+ *                         example: "2024-12"
+ *                       rank:
+ *                         type: integer
+ *                         example: 1
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.get('/monthly-leaderboard', LeaderboardController.getMonthlyLeaderboard);
+
+/**
+ * @swagger
+ * /api/leaderboard/monthly-leaderboard-redis:
+ *   get:
+ *     tags:
+ *     - Leaderboard
+ *     summary: Get monthly leaderboard from Redis
+ *     description: Retrieve the top players for the current month based on game performance from Redis sorted sets.
+ *     security:
+ *       - Authorization: []
+ *     parameters:
+ *       - in: query
+ *         name: difficulty_level
+ *         schema:
+ *           type: integer
+ *           enum: [1, 2, 3]
+ *           default: 1
+ *         required: false
+ *         description: Difficulty level (1=Easy, 2=Medium, 3=Hard)
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         required: false
+ *         description: Number of top users to return
+ *       - in: query
+ *         name: month_year
+ *         schema:
+ *           type: string
+ *           pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+ *         required: false
+ *         description: Month and year in format YYYY-MM - defaults to current month
+ *         example: "2024-12"
+ *     responses:
+ *       200:
+ *         description: Monthly leaderboard retrieved successfully from Redis
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 month_year:
+ *                   type: string
+ *                   example: "2024-12"
+ *                 difficulty_level:
+ *                   type: integer
+ *                   example: 1
+ *                 leaderboard:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       user_id:
+ *                         type: string
+ *                         example: "123"
+ *                       username:
+ *                         type: string
+ *                         example: "player123"
+ *                       full_name:
+ *                         type: string
+ *                         example: "John Doe"
+ *                       avatar:
+ *                         type: string
+ *                         example: "https://example.com/avatar.jpg"
+ *                       country:
+ *                         type: string
+ *                         example: "VN"
+ *                       current_level:
+ *                         type: integer
+ *                         example: 25
+ *                       rank:
+ *                         type: integer
+ *                         example: 1
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.get('/monthly-leaderboard-redis', LeaderboardController.getMonthlyLeaderboardFromRedis);
 
 export default router; 

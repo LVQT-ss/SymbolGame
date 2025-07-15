@@ -1253,6 +1253,24 @@ export const leaderboardAPI = {
         } catch (error) {
             throw new Error(error.response?.data?.message || "Failed to get user positions");
         }
+    },
+
+    // 🆕 Get monthly leaderboard from Redis with complete data format
+    getMonthlyLeaderboardFromRedis: async (filters = {}) => {
+        try {
+            const { difficulty_level = 1, region = 'global', limit = 100, month_year = null } = filters;
+            const response = await api.get('/leaderboard/monthly-leaderboard-redis', {
+                params: {
+                    difficulty_level,
+                    region,
+                    limit,
+                    month_year
+                }
+            });
+            return response.data;
+        } catch (error) {
+            throw new Error(error.response?.data?.message || "Failed to get monthly leaderboard from Redis");
+        }
     }
 };
 
@@ -1502,7 +1520,15 @@ export const fetchRedisLeaderboard = async (filters) => {
                 Authorization: `Bearer ${token}`
             } : {}
         });
-        return response.data;
+
+        console.log('📡 Redis API Response:', {
+            success: response.data.success,
+            dataLength: response.data.data?.length,
+            metadata: response.data.metadata,
+            message: response.data.message
+        });
+
+        return response;
     } catch (error) {
         console.error('Error fetching Redis leaderboard:', error);
         throw error;
