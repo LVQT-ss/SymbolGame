@@ -438,7 +438,74 @@ router.get('/', LeaderboardController.getLeaderboard);
 // Get leaderboard from Redis only (no PostgreSQL fallback)
 router.get('/redis', LeaderboardController.getRedisLeaderboard);
 
-// Get available historical months for leaderboards
+/**
+ * @swagger
+ * /api/leaderboard/available-months:
+ *   get:
+ *     tags:
+ *       - Leaderboard
+ *     summary: Get available months for monthly leaderboards
+ *     description: Returns a list of all months (YYYY-MM) for which monthly leaderboard data is available. Useful for populating month selectors in the UI.
+ *     responses:
+ *       200:
+ *         description: List of available months retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       month_year:
+ *                         type: string
+ *                         example: "2024-05"
+ *                       display_name:
+ *                         type: string
+ *                         example: "May 2024"
+ *                 metadata:
+ *                   type: object
+ *                   properties:
+ *                     total_months:
+ *                       type: integer
+ *                       example: 5
+ *                 message:
+ *                   type: string
+ *                   example: "Available months retrieved successfully"
+ *             examples:
+ *               successful_response:
+ *                 summary: Example response
+ *                 value:
+ *                   success: true
+ *                   data:
+ *                     - month_year: "2024-05"
+ *                       display_name: "May 2024"
+ *                     - month_year: "2024-04"
+ *                       display_name: "April 2024"
+ *                   metadata:
+ *                     total_months: 2
+ *                   message: "Available months retrieved successfully"
+ *       500:
+ *         description: Failed to get available months
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             examples:
+ *               error_response:
+ *                 summary: Example error
+ *                 value:
+ *                   success: false
+ *                   message: "Failed to get available months"
+ *                   error: "Database error message"
+ */
+
+// Get available historical months for leaderboards  
 router.get('/available-months', LeaderboardController.getAvailableMonths);
 
 /**
@@ -523,7 +590,66 @@ router.get('/available-months', LeaderboardController.getAvailableMonths);
 // Update leaderboard cache
 router.post('/update-cache', verifyToken, LeaderboardController.updateLeaderboardCache);
 
-// ==== NEW REDIS ENDPOINTS ====
+/**
+ * @swagger
+ * /api/leaderboard/monthly-persistence:
+ *   post:
+ *     tags:
+ *       - Leaderboard
+ *     summary: Manually Trigger Monthly Leaderboard Persistence
+ *     description: |
+ *       Manually triggers the monthly leaderboard persistence process. This endpoint:
+ *       1. Persists current Redis leaderboard data to the database
+ *       2. Processes rewards for global top 3 players
+ *       3. Prepares the leaderboard for the new month
+ *       
+ *       **Features:**
+ *       - Saves current month's leaderboard data
+ *       - Awards rewards to top performers
+ *       - Cleans up Redis for new month
+ *       
+ *       **Note:** Requires authentication token with appropriate permissions
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Monthly persistence completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     persisted_entries:
+ *                       type: integer
+ *                       example: 150
+ *                     rewards_processed:
+ *                       type: integer
+ *                       example: 3
+ *                     month_year:
+ *                       type: string
+ *                       example: "2024-03"
+ *                 message:
+ *                   type: string
+ *                   example: "Monthly persistence and rewards completed"
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 
 // Manual monthly persistence with rewards for global top 3
 router.post('/monthly-persistence', verifyToken, async (req, res) => {
@@ -545,6 +671,103 @@ router.post('/monthly-persistence', verifyToken, async (req, res) => {
         });
     }
 });
+
+/**
+ * @swagger
+ * /api/leaderboard/backup-to-database:
+ *   post:
+ *     tags:
+ *       - Leaderboard
+ *     summary: Backup Redis Leaderboard Data to Database
+ *     description: |
+ *       Manually triggers a backup of Redis leaderboard data to the database without processing rewards.
+ *       This endpoint is useful for data persistence and backup purposes.
+ *       
+ *       **Features:**
+ *       - Flexible backup options
+ *       - Support for specific difficulty levels and regions
+ *       - Optional rewards processing
+ *       - Optional monthly data clearing
+ *       
+ *       **Note:** Requires authentication token with appropriate permissions
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               includeRewards:
+ *                 type: boolean
+ *                 description: Whether to process rewards during backup
+ *                 default: false
+ *               clearMonthlyData:
+ *                 type: boolean
+ *                 description: Whether to clear monthly data after backup
+ *                 default: false
+ *               difficulty_levels:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *                   enum: [1, 2, 3]
+ *                 description: Array of difficulty levels to backup
+ *                 default: [1, 2, 3]
+ *               regions:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   enum: [global, asia, america, europe, oceania, africa, others]
+ *                 description: Array of regions to backup
+ *               leaderboardType:
+ *                 type: string
+ *                 enum: [monthly, allTime]
+ *                 description: Type of leaderboard data to backup
+ *                 default: monthly
+ *     responses:
+ *       200:
+ *         description: Backup completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     entries_backed_up:
+ *                       type: integer
+ *                       example: 250
+ *                     difficulty_levels_processed:
+ *                       type: array
+ *                       items:
+ *                         type: integer
+ *                       example: [1, 2, 3]
+ *                     regions_processed:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example: ["global", "asia", "america"]
+ *                 message:
+ *                   type: string
+ *                   example: "Redis data backed up to database successfully"
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 
 // Store Redis data to database without rewards or clearing (manual backup)
 router.post('/backup-to-database', verifyToken, async (req, res) => {
@@ -582,6 +805,77 @@ router.post('/backup-to-database', verifyToken, async (req, res) => {
         });
     }
 });
+
+/**
+ * @swagger
+ * /api/leaderboard/monthly-job-status:
+ *   get:
+ *     tags:
+ *       - Leaderboard
+ *     summary: Get Monthly Job Status
+ *     description: |
+ *       Retrieves the current status of the monthly leaderboard persistence job.
+ *       This endpoint provides information about the last run, next scheduled run,
+ *       and any errors that may have occurred.
+ *       
+ *       **Features:**
+ *       - Last run timestamp
+ *       - Next scheduled run
+ *       - Success/failure status
+ *       - Error details if any
+ *       
+ *       **Note:** Requires authentication token with appropriate permissions
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Monthly job status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     last_run:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2024-03-01T00:00:00.000Z"
+ *                     next_scheduled_run:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2024-04-01T00:00:00.000Z"
+ *                     last_run_status:
+ *                       type: string
+ *                       enum: [success, failed, pending]
+ *                       example: "success"
+ *                     last_error:
+ *                       type: string
+ *                       nullable: true
+ *                       example: null
+ *                     is_running:
+ *                       type: boolean
+ *                       example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Monthly job status retrieved"
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 
 // Get monthly job status
 router.get('/monthly-job-status', verifyToken, async (req, res) => {

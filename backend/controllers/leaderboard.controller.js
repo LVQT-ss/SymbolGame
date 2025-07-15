@@ -132,7 +132,7 @@ const LeaderboardController = {
                 const finalPostgresLeaderboard = postgresLeaderboard.map((player, index) => ({
                     ...player.toJSON(),
                     rank_position: index + 1,
-                    month_year: responseMonthYear, // Use calculated responseMonthYear for consistency
+                    // Keep the original month_year from database, don't override it
                     medal: index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : null,
                     isTopThree: index < 3,
                     countryFlag: player.country ? getCountryFlag(player.country) : null
@@ -173,49 +173,21 @@ const LeaderboardController = {
                 });
             }
 
-            console.log('⚠️ PostgreSQL leaderboard empty, checking Redis for current month data...');
-            const leaderboard = await RedisLeaderboardService.getLeaderboard(
-                region,
-                parseInt(difficulty_level),
-                'monthly',
-                parseInt(limit),
-                queryMonthYear // Pass queryMonthYear for filtering
-            );
-
-            // If Redis has data, use it (temporary current month data)
-            if (leaderboard.length > 0) {
-                res.status(200).json({
-                    success: true,
-                    data: leaderboard,
-                    metadata: {
-                        difficulty_level: parseInt(difficulty_level),
-                        region,
-                        time_period: 'monthly',
-                        total_players: leaderboard.length,
-                        source: 'redis_temporary',
-                        month_year: responseMonthYear,
-                        timestamp: new Date().toISOString(),
-                        note: 'This is temporary current month data. Will be saved to PostgreSQL at month end.'
-                    },
-                    message: 'Monthly leaderboard retrieved successfully (Redis temporary data)'
-                });
-            } else {
-                // Both PostgreSQL and Redis are empty
-                return res.status(200).json({
-                    success: true,
-                    data: [],
-                    metadata: {
-                        difficulty_level: parseInt(difficulty_level),
-                        region,
-                        time_period: 'monthly',
-                        total_players: 0,
-                        source: 'empty',
-                        month_year: responseMonthYear,
-                        timestamp: new Date().toISOString()
-                    },
-                    message: 'No monthly leaderboard data available for the specified criteria'
-                });
-            }
+            // PostgreSQL is empty, return no data (no Redis fallback)
+            return res.status(200).json({
+                success: true,
+                data: [],
+                metadata: {
+                    difficulty_level: parseInt(difficulty_level),
+                    region,
+                    time_period: 'monthly',
+                    total_players: 0,
+                    source: 'postgresql_empty',
+                    month_year: responseMonthYear,
+                    timestamp: new Date().toISOString()
+                },
+                message: 'No monthly leaderboard data available for the specified criteria'
+            });
         } catch (error) {
             console.error('Get leaderboard error:', error);
 
