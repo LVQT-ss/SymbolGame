@@ -545,7 +545,7 @@ export default function GameMenuScreen() {
 
     // Navigate to the actual game screen
     router.push({
-      pathname: "/game/game",
+      pathname: "/game/play",
       params: {
         sessionId: session.id.toString(), // Ensure it's a string for navigation
         gameType: session.category,

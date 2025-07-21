@@ -1202,33 +1202,33 @@ export const leaderboardAPI = {
         }
     },
 
-    getAllTimeLeaderboard: async (page = 1, limit = 20) => {
-        try {
-            const response = await api.get(`/leaderboard/all-time?page=${page}&limit=${limit}`);
-            return response.data;
-        } catch (error) {
-            throw new Error(error.response?.data?.message || "Failed to get all-time leaderboard");
-        }
-    },
+    // getAllTimeLeaderboard: async (page = 1, limit = 20) => {
+    //     try {
+    //         const response = await api.get(`/leaderboard/all-time?page=${page}&limit=${limit}`);
+    //         return response.data;
+    //     } catch (error) {
+    //         throw new Error(error.response?.data?.message || "Failed to get all-time leaderboard");
+    //     }
+    // },
 
     // 🆕 Redis-only leaderboard (this month's data from Redis)
-    getRedisLeaderboard: async (filters) => {
-        try {
-            const { difficulty_level = 1, region = 'global', time_period = 'monthly', limit = 100, month_year = null } = filters;
-            const response = await api.get('/leaderboard/redis', {
-                params: {
-                    difficulty_level,
-                    region,
-                    time_period,
-                    limit,
-                    month_year
-                }
-            });
-            return response.data;
-        } catch (error) {
-            throw new Error(error.response?.data?.message || "Failed to get Redis leaderboard");
-        }
-    },
+    // getRedisLeaderboard: async (filters) => {
+    //     try {
+    //         const { difficulty_level = 1, region = 'global', time_period = 'monthly', limit = 100, month_year = null } = filters;
+    //         const response = await api.get('/leaderboard/redis', {
+    //             params: {
+    //                 difficulty_level,
+    //                 region,
+    //                 time_period,
+    //                 limit,
+    //                 month_year
+    //             }
+    //         });
+    //         return response.data;
+    //     } catch (error) {
+    //         throw new Error(error.response?.data?.message || "Failed to get Redis leaderboard");
+    //     }
+    // },
 
     // 🆕 Get available historical months for leaderboards
     getAvailableMonths: async (filters = {}) => {

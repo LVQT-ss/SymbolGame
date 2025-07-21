@@ -18,31 +18,17 @@ export default function GameLayout() {
         }}
       />
       <Stack.Screen
-        name="game"
-        options={{
-          headerShown: false,
-          title: "Game",
-        }}
-      />
-      <Stack.Screen
-        name="round"
-        options={{
-          headerShown: false,
-          title: "Round",
-        }}
-      />
-      <Stack.Screen
-        name="round-by-round"
-        options={{
-          headerShown: false,
-          title: "Round by Round",
-        }}
-      />
-      <Stack.Screen
         name="play"
         options={{
           headerShown: false,
           title: "Play",
+        }}
+      />
+      <Stack.Screen
+        name="gameResult"
+        options={{
+          headerShown: false,
+          title: "Game Results",
         }}
       />
       <Stack.Screen
@@ -74,24 +60,10 @@ export default function GameLayout() {
         }}
       />
       <Stack.Screen
-        name="duoBattle/round-by-round-battle"
-        options={{
-          headerShown: false,
-          title: "Battle Analysis",
-        }}
-      />
-      <Stack.Screen
         name="duoBattle/battleResult"
         options={{
           headerShown: false,
           title: "Battle Results",
-        }}
-      />
-      <Stack.Screen
-        name="gameResult"
-        options={{
-          headerShown: false,
-          title: "Game Results",
         }}
       />
     </Stack>
